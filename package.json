@@ -1,28 +1,50 @@
 {
-  "name": "bot-test",
+  "name": "crypto-signal-bot",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
+  "description": "A Telegram bot that provides cryptocurrency trading signals based on technical analysis and news sentiment",
+  "main": "src/bot.ts",
   "scripts": {
     "start": "ts-node src/bot.ts",
     "dev": "nodemon --exec ts-node src/bot.ts",
     "build": "tsc",
     "test": "echo \"Error: no test specified\" && exit 1"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
+  "keywords": [
+    "telegram",
+    "bot",
+    "cryptocurrency",
+    "trading",
+    "signals",
+    "technical-analysis",
+    "binance",
+    "bitcoin",
+    "crypto"
+  ],
+  "author": "Your Name <your.email@example.com>",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/yourusername/crypto-signal-bot.git"
+  },
+  "bugs": {
+    "url": "https://github.com/yourusername/crypto-signal-bot/issues"
+  },
+  "homepage": "https://github.com/yourusername/crypto-signal-bot#readme",
   "type": "commonjs",
   "dependencies": {
     "@types/cheerio": "^0.22.35",
-    "@types/node": "^22.15.17",
     "axios": "^1.9.0",
     "cheerio": "^1.0.0",
+    "cryptocompare": "^1.0.0",
     "dotenv": "^16.5.0",
-    "node-binance-api": "^1.0.8",
+    "node-binance-api": "^1.0.9",
+    "plotly.js-dist": "^3.0.1",
     "technicalindicators": "^3.1.0",
     "telegraf": "^4.16.3",
     "ts-node": "^10.9.2",
     "typescript": "^5.8.3"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.18"
   }
 }

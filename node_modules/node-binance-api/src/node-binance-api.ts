@@ -4184,7 +4184,7 @@ export default class Binance {
     async futuresLeverage(symbol: string, leverage: number, params: Dict = {}) {
         params.symbol = symbol;
         params.leverage = leverage;
-        return await this.privateFuturesRequest('v1/leverage', params);
+        return await this.privateFuturesRequest('v1/leverage', params, 'POST');
     }
 
     // ISOLATED, CROSSED
@@ -4198,7 +4198,7 @@ export default class Binance {
     async futuresMarginType(symbol: string, marginType: string, params: Dict = {}) {
         params.symbol = symbol;
         params.marginType = marginType;
-        return await this.privateFuturesRequest('v1/marginType', params);
+        return await this.privateFuturesRequest('v1/marginType', params, 'POST');
     }
 
     // type: 1: Add postion margin，2: Reduce postion margin
@@ -4206,7 +4206,7 @@ export default class Binance {
         params.symbol = symbol;
         params.amount = amount;
         params.type = type;
-        return await this.privateFuturesRequest('v1/positionMargin', params);
+        return await this.privateFuturesRequest('v1/positionMargin', params, 'POST');
     }
 
     async futuresPositionMarginHistory(symbol: string, params: Dict = {}) {
