@@ -6,6 +6,7 @@ import { SignalGenerator } from './services/signalGenerator';
 import { PriceAlertManager } from './services/priceAlertManager';
 import { AdvancedAnalyzer } from './services/advancedAnalyzer';
 import { ChartGenerator } from './services/chartGenerator';
+import { TradingViewService } from './services/TradingViewService';
 
 // New freqtrade-inspired services
 import { BacktestEngine } from './services/backtestEngine';
@@ -27,9 +28,21 @@ const priceAlertManager = new PriceAlertManager();
 const advancedAnalyzer = new AdvancedAnalyzer();
 const chartGenerator = new ChartGenerator();
 
+// Initialize TradingView service
+const tradingViewService = new TradingViewService({
+    theme: 'dark',
+    interval: '5m',
+    symbol: 'BINANCE:BTCUSDT',
+    containerId: 'analysis-chart'
+});
+
 // Initialize new freqtrade-inspired services
 const dataManager = new DataManager();
 const strategy = new SampleStrategy();
+
+// Import comprehensive analyzer
+import { SimpleComprehensiveAnalyzer } from './services/simpleComprehensiveAnalyzer';
+const comprehensiveAnalyzer = new SimpleComprehensiveAnalyzer();
 
 // State management for paper trading and backtesting
 const userSessions = new Map<number, {
@@ -54,6 +67,15 @@ bot.command('start', (ctx) => {
     ctx.reply(`Welcome to Advanced Crypto Signal Bot! 🚀
 
 This bot now includes powerful freqtrade-inspired features:
+
+🎯 COMPREHENSIVE ANALYSIS:
+/analyze [symbol] - Complete market analysis including:
+  • Technical analysis (RSI, MACD, Moving Averages)
+  • Multi-timeframe analysis (1h, 4h, 1d)
+  • Support/Resistance levels
+  • Volume analysis
+  • Precise entry/exit recommendations
+  • Risk management setup
 
 📊 BASIC ANALYSIS:
 /signal [symbol] - Get trading signals
@@ -82,6 +104,15 @@ Use /help for detailed command descriptions.`);
 // Help command (updated)
 bot.command('help', (ctx) => {
     const helpMessage = `
+🔹 COMPREHENSIVE ANALYSIS:
+/analyze [symbol] - Complete analysis including:
+   • Technical analysis (RSI, MACD, BB, Support/Resistance)
+   • Multi-timeframe analysis (1h, 4h, 1d, 1w)
+   • Multi-strategy backtesting
+   • Entry/exit recommendations with exact levels
+   • Risk assessment and position sizing
+   • Chart generation with indicators
+
 🔹 BASIC ANALYSIS COMMANDS:
 /signal [symbol] - Get trading signals for a cryptocurrency
 /volume [symbol] - Analyze volume patterns and anomalies
@@ -122,9 +153,9 @@ bot.command('signal', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
     const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
     const userId = ctx.message.from.id;
-    
+
     console.log(`[${new Date().toISOString()}] User: ${username} (${userId}) requested signal for: ${symbol || 'undefined'}`);
-    
+
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /signal BTCUSDT');
     }
@@ -137,7 +168,199 @@ bot.command('signal', async (ctx) => {
         console.error(`Error generating signal for ${symbol}:`, error);
         ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);
     }
+
+    return;
 });
+
+// COMPREHENSIVE ANALYSIS COMMAND
+bot.command('analyze', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+    const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
+    const userId = ctx.message.from.id;
+
+    console.log(`[${new Date().toISOString()}] User: ${username} (${userId}) requested comprehensive analysis for: ${symbol || 'undefined'}`);
+
+    if (!symbol) {
+        return ctx.reply(`❌ Please provide a symbol.
+
+Example: /analyze BTCUSDT
+
+🎯 This will provide:
+• Complete technical analysis
+• Multi-timeframe analysis
+• Backtesting results
+• Entry/Exit recommendations
+• Risk management setup
+• Chart links`);
+    }
+
+    try {
+        const loadingMessage = await ctx.reply(`🔄 Performing comprehensive analysis for ${symbol}...
+
+⏳ This may take 30-60 seconds as we:
+• Fetch market data from multiple sources
+• Calculate 20+ technical indicators
+• Run backtests across multiple strategies
+• Analyze multiple timeframes
+• Generate recommendations
+
+Please wait...`);
+
+        // Start comprehensive analysis
+        const analysisResult = await comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol);
+
+        // Format the comprehensive response
+        const technicalSection = `
+📊 TECHNICAL ANALYSIS
+Current Price: $${analysisResult.currentPrice.toFixed(2)}
+Trend: ${analysisResult.technical.trend.toUpperCase()} (${(analysisResult.technical.strength * 100).toFixed(1)}% strength)
+RSI: ${analysisResult.technical.rsi.toFixed(1)} ${analysisResult.technical.rsi < 30 ? '🟢 OVERSOLD' : analysisResult.technical.rsi > 70 ? '🔴 OVERBOUGHT' : '🟡 NEUTRAL'}
+MACD: ${analysisResult.technical.macd.signal.toUpperCase()} ${analysisResult.technical.macd.signal === 'bullish' ? '🟢' : analysisResult.technical.macd.signal === 'bearish' ? '🔴' : '🟡'}
+
+📈 MOVING AVERAGES:
+EMA10: $${analysisResult.technical.movingAverages.ema10.toFixed(2)}
+EMA20: $${analysisResult.technical.movingAverages.ema20.toFixed(2)}
+SMA50: $${analysisResult.technical.movingAverages.sma50.toFixed(2)}
+SMA200: $${analysisResult.technical.movingAverages.sma200.toFixed(2)}
+Alignment: ${analysisResult.technical.movingAverages.alignment.toUpperCase()}
+
+🎯 SUPPORT/RESISTANCE:
+Support: $${analysisResult.technical.supportResistance.support.toFixed(2)}
+Resistance: $${analysisResult.technical.supportResistance.resistance.toFixed(2)}
+Distance to Support: ${analysisResult.technical.supportResistance.distanceToSupport.toFixed(1)}%
+Distance to Resistance: ${analysisResult.technical.supportResistance.distanceToResistance.toFixed(1)}%`;
+
+        const timeframeSection = `
+⏰ MULTI-TIMEFRAME ANALYSIS:
+1H: ${analysisResult.timeframes['1h'].trend.toUpperCase()} | Signal: ${analysisResult.timeframes['1h'].signal.toUpperCase()}
+4H: ${analysisResult.timeframes['4h'].trend.toUpperCase()} | Signal: ${analysisResult.timeframes['4h'].signal.toUpperCase()}
+1D: ${analysisResult.timeframes['1d'].trend.toUpperCase()} | Signal: ${analysisResult.timeframes['1d'].signal.toUpperCase()}`;
+
+        const backtestSection = analysisResult.backtests.length > 0 ? `
+🔬 BACKTEST RESULTS (${analysisResult.backtests[0].period}):
+Strategy: ${analysisResult.backtests[0].strategy}
+Win Rate: ${analysisResult.backtests[0].winRate.toFixed(1)}%
+Total Return: ${analysisResult.backtests[0].totalReturn.toFixed(2)}%
+Sharpe Ratio: ${analysisResult.backtests[0].sharpeRatio.toFixed(2)}
+Max Drawdown: ${analysisResult.backtests[0].maxDrawdown.toFixed(2)}%
+Best Trade: ${analysisResult.backtests[0].bestTrade.toFixed(2)}%
+Worst Trade: ${analysisResult.backtests[0].worstTrade.toFixed(2)}%
+Avg Duration: ${Math.round(analysisResult.backtests[0].avgTradeDuration / 60)} hours` : `
+🔬 BACKTEST RESULTS:
+Insufficient data for backtesting`;
+
+        const recommendationSection = `
+🎯 TRADING RECOMMENDATION:
+Action: ${analysisResult.recommendation.action.toUpperCase()} ${
+    analysisResult.recommendation.action === 'strong_buy' ? '🟢🟢' :
+    analysisResult.recommendation.action === 'buy' ? '🟢' :
+    analysisResult.recommendation.action === 'strong_sell' ? '🔴🔴' :
+    analysisResult.recommendation.action === 'sell' ? '🔴' : '🟡'
+}
+Confidence: ${analysisResult.recommendation.confidence.toFixed(1)}%
+Entry Price: $${analysisResult.recommendation.entryPrice.toFixed(2)}
+Exit Target: $${analysisResult.recommendation.exitPrice.toFixed(2)}
+Stop Loss: $${analysisResult.recommendation.stopLoss.toFixed(2)}
+Risk/Reward: ${analysisResult.recommendation.riskReward.toFixed(2)}
+Timeframe: ${analysisResult.recommendation.timeframe}
+
+💡 REASONING:
+${analysisResult.recommendation.reasoning.map((reason: string) => `• ${reason}`).join('\n')}`;
+
+        const chartsSection = `
+📈 CHARTS & ANALYSIS:
+1H Chart: ${analysisResult.charts['1h']}
+4H Chart: ${analysisResult.charts['4h']}
+1D Chart: ${analysisResult.charts['1d']}
+
+🔗 TradingView: https://www.tradingview.com/chart/?symbol=${symbol}`;
+
+        // Send the comprehensive analysis in parts due to Telegram message limits
+        await ctx.reply(`🎯 COMPREHENSIVE ANALYSIS: ${symbol}
+${technicalSection}`);
+
+        await ctx.reply(`${timeframeSection}
+${backtestSection}`);
+
+        await ctx.reply(`${recommendationSection}`);
+
+        await ctx.reply(`${chartsSection}
+
+✅ Analysis completed at ${analysisResult.timestamp.toLocaleString()}
+💡 Use /backtest ${symbol} 30 for detailed backtesting
+💡 Use /papertrade ${symbol} to start paper trading`);
+
+        // Delete loading message
+        try {
+            await ctx.deleteMessage(loadingMessage.message_id);
+        } catch (error) {
+            // Ignore if can't delete
+        }
+
+    } catch (error) {
+        console.error(`Comprehensive analysis error for ${symbol}:`, error);
+        ctx.reply(`❌ Error performing comprehensive analysis for ${symbol}.
+
+This could be due to:
+• Invalid symbol (try BTCUSDT, ETHUSDT, etc.)
+• Market data unavailable
+• Technical analysis issues
+
+Please check the symbol and try again, or contact support if the issue persists.`);
+    }
+
+    return;
+});
+
+// Helper function to format comprehensive report
+async function formatComprehensiveReport(result: any) {
+    const { symbol, currentPrice, rsi, macd, trend, strength, support, resistance, volumeStatus, volumeChange24h,
+            ema10, ema20, sma50, sma200, timeframes, recommendation } = result;
+
+    // Main overview
+    const main = `
+🎯 COMPREHENSIVE ANALYSIS: ${symbol}
+💰 Current Price: $${currentPrice.toFixed(4)}
+📅 Analysis Time: ${new Date().toLocaleString()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔮 OVERALL RECOMMENDATION: ${recommendation.action}
+📊 Confidence: ${recommendation.confidence.toFixed(1)}%
+🎯 Entry Price: $${recommendation.entryPrice.toFixed(4)}
+🛑 Stop Loss: $${recommendation.stopLoss.toFixed(4)}
+🎯 Take Profit: $${recommendation.takeProfit.toFixed(4)}
+
+💡 Key Reasons:
+${recommendation.reasoning.map((reason: string, index: number) => `${index + 1}. ${reason}`).join('\n')}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📊 TECHNICAL ANALYSIS:
+• Trend: ${trend.toUpperCase()} (${strength.toFixed(1)}% strength)
+• RSI: ${rsi.toFixed(2)} ${rsi < 30 ? '(Oversold 🔥)' : rsi > 70 ? '(Overbought ⚠️)' : '(Neutral)'}
+• MACD: ${macd.signal.toUpperCase()} (${macd.histogram.toFixed(4)})
+
+🎯 SUPPORT & RESISTANCE:
+• Support: $${support.toFixed(4)} (${((currentPrice - support) / currentPrice * 100).toFixed(2)}% away)
+• Resistance: $${resistance.toFixed(4)} (${((resistance - currentPrice) / currentPrice * 100).toFixed(2)}% away)
+
+� MOVING AVERAGES:
+• EMA10: $${ema10.toFixed(4)} ${currentPrice > ema10 ? '✅' : '❌'}
+• EMA20: $${ema20.toFixed(4)} ${currentPrice > ema20 ? '✅' : '❌'}
+• SMA50: $${sma50.toFixed(4)} ${currentPrice > sma50 ? '✅' : '❌'}
+• SMA200: $${sma200.toFixed(4)} ${currentPrice > sma200 ? '✅' : '❌'}
+
+� VOLUME ANALYSIS:
+• Status: ${volumeStatus.toUpperCase()}
+• 24h Change: ${volumeChange24h.toFixed(2)}%
+
+⏰ MULTI-TIMEFRAME ANALYSIS:
+• 1H: ${timeframes['1h'].toUpperCase()}
+• 4H: ${timeframes['4h'].toUpperCase()}
+`;
+    return main;
+}
 
 // NEW FREQTRADE-INSPIRED COMMANDS
 
@@ -146,7 +369,7 @@ bot.command('backtest', async (ctx) => {
     const args = ctx.message.text.split(' ');
     const symbol = args[1]?.toUpperCase();
     const days = parseInt(args[2]) || 30;
-    
+
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /backtest BTCUSDT 30');
     }
@@ -157,11 +380,11 @@ bot.command('backtest', async (ctx) => {
 
     try {
         ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
-        
+
         // Download historical data
         const endDate = new Date();
         const startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
-        
+
         const dataConfig: HistoricalDataConfig = {
             symbol: symbol,
             timeframe: '5m',
@@ -171,7 +394,7 @@ bot.command('backtest', async (ctx) => {
         };
 
         const historicalData = await dataManager.downloadHistoricalData(dataConfig);
-        
+
         if (historicalData.length < 100) {
             return ctx.reply('❌ Insufficient historical data for backtesting');
         }
@@ -234,18 +457,20 @@ Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
         console.error('Backtest error:', error);
         ctx.reply(`❌ Error running backtest: ${(error as Error).message}`);
     }
+
+    return;
 });
 
 // Paper trading command
 bot.command('papertrade', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
-    
+
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /papertrade BTCUSDT');
     }
 
     const session = getUserSession(ctx.message.from.id);
-    
+
     // Check if already paper trading
     if (session.paperTrading && session.paperTrading.isActive()) {
         return ctx.reply('❌ Paper trading is already active. Use /stoptrading to stop current session.');
@@ -282,12 +507,14 @@ Use /stoptrading to stop trading`);
         console.error('Paper trading error:', error);
         ctx.reply(`❌ Error starting paper trading: ${(error as Error).message}`);
     }
+
+    return;
 });
 
 // Stop paper trading
 bot.command('stoptrading', (ctx) => {
     const session = getUserSession(ctx.message.from.id);
-    
+
     if (!session.paperTrading || !session.paperTrading.isActive()) {
         return ctx.reply('❌ No active paper trading session found.');
     }
@@ -309,12 +536,14 @@ Thanks for using paper trading! 🎯
     `;
 
     ctx.reply(summary);
+
+    return;
 });
 
 // Portfolio command
 bot.command('portfolio', (ctx) => {
     const session = getUserSession(ctx.message.from.id);
-    
+
     if (!session.paperTrading) {
         return ctx.reply('❌ No paper trading session found. Start one with /papertrade [symbol]');
     }
@@ -355,12 +584,14 @@ Sharpe Ratio: ${result.sharpeRatio.toFixed(3)}
     `;
 
     ctx.reply(message);
+
+    return;
 });
 
 // Performance command
 bot.command('performance', (ctx) => {
     const session = getUserSession(ctx.message.from.id);
-    
+
     if (!session.paperTrading) {
         return ctx.reply('❌ No paper trading session found. Start one with /papertrade [symbol]');
     }
@@ -380,25 +611,21 @@ Max Drawdown: $${result.maxDrawdown.toFixed(2)}
 Total Trades: ${result.totalTrades}
 Open Trades: ${result.openTrades}
 Win Rate: ${result.winRate.toFixed(1)}%
-Average Profit per Trade: $${result.avgProfit.toFixed(2)}
+Avg Profit per Trade: $${result.avgProfit.toFixed(2)}
+
+📈 RISK METRICS:
 Sharpe Ratio: ${result.sharpeRatio.toFixed(3)}
+Recovery Factor: ${(result.maxDrawdown > 0 ? result.totalProfit / result.maxDrawdown : 0).toFixed(2)}
 
-📋 RECENT TRADES:
-`;
-
-    if (result.recentTrades.length === 0) {
-        message += "No completed trades yet\n";
-    } else {
-        for (const trade of result.recentTrades.slice(-5)) {
-            const profitEmoji = (trade.profit || 0) >= 0 ? '💚' : '💔';
-            message += `${profitEmoji} ${trade.side.toUpperCase()} ${trade.pair} | ${trade.exitReason}
-   Profit: $${trade.profit?.toFixed(2)} (${trade.profitPct?.toFixed(2)}%)
-   Duration: ${Math.round((trade.closeDate!.getTime() - trade.openDate.getTime()) / (1000 * 60))}min
-`;
-        }
-    }
+📆 RECENT TRADES:
+${result.recentTrades.slice(0, 5).map(trade =>
+  `${trade.side.toUpperCase()} ${trade.pair}: ${(trade.profit || 0) >= 0 ? '✅' : '❌'} $${(trade.profit || 0).toFixed(2)}`
+).join('\n')}
+    `;
 
     ctx.reply(message);
+
+    return;
 });
 
 // Strategy optimization command
@@ -406,7 +633,7 @@ bot.command('optimize', async (ctx) => {
     const args = ctx.message.text.split(' ');
     const symbol = args[1]?.toUpperCase();
     const days = parseInt(args[2]) || 60;
-    
+
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /optimize BTCUSDT 60');
     }
@@ -422,7 +649,7 @@ This may take several minutes. ⏳`);
         // Download historical data
         const endDate = new Date();
         const startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
-        
+
         const dataConfig: HistoricalDataConfig = {
             symbol: symbol,
             timeframe: '5m',
@@ -431,7 +658,7 @@ This may take several minutes. ⏳`);
         };
 
         const historicalData = await dataManager.downloadHistoricalData(dataConfig);
-        
+
         if (historicalData.length < 200) {
             return ctx.reply('❌ Insufficient historical data for optimization');
         }
@@ -449,7 +676,7 @@ This may take several minutes. ⏳`);
 
         // Run optimization
         const results = await optimizer.optimize();
-        
+
         if (results.length === 0) {
             return ctx.reply('❌ No valid optimization results found');
         }
@@ -488,6 +715,8 @@ Tested ${results.length} parameter combinations.
         console.error('Optimization error:', error);
         ctx.reply(`❌ Error during optimization: ${(error as Error).message}`);
     }
+
+    return;
 });
 
 // Data download command
@@ -495,7 +724,7 @@ bot.command('download', async (ctx) => {
     const args = ctx.message.text.split(' ');
     const symbol = args[1]?.toUpperCase();
     const days = parseInt(args[2]) || 30;
-    
+
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /download BTCUSDT 30');
     }
@@ -509,7 +738,7 @@ bot.command('download', async (ctx) => {
 
         const endDate = new Date();
         const startDate = new Date(endDate.getTime() - (days * 24 * 60 * 60 * 1000));
-        
+
         const dataConfig: HistoricalDataConfig = {
             symbol: symbol,
             timeframe: '5m',
@@ -550,12 +779,14 @@ Data cached for future use. 💾
         console.error('Download error:', error);
         ctx.reply(`❌ Error downloading data: ${(error as Error).message}`);
     }
+
+    return;
 });
 
 // Data info command
 bot.command('datainfo', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
-    
+
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /datainfo BTCUSDT');
     }
@@ -594,6 +825,8 @@ ${quality.issues.length > 0 ? `\n⚠️ ISSUES:\n${quality.issues.slice(0, 3).jo
         console.error('Data info error:', error);
         ctx.reply(`❌ Error checking data: ${(error as Error).message}`);
     }
+
+    return;
 });
 
 // Strategies list command
@@ -620,14 +853,16 @@ bot.command('strategies', (ctx) => {
 
 💡 TIP: Use /optimize to find the best parameters for any strategy!
     `;
-    
+
     ctx.reply(message);
+
+    return;
 });
 
 // Keep existing commands for backward compatibility
 bot.command('volume', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
-    
+
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /volume BTCUSDT');
     }
@@ -638,11 +873,13 @@ bot.command('volume', async (ctx) => {
         message += `24h Volume Change: ${analysis.volumeChange24h.toFixed(2)}%\n`;
         message += `Volume Status: ${analysis.unusualVolume ? '🚨 Unusual Volume Detected' : '📊 Normal Volume'}\n`;
         message += `Recommendation: ${analysis.recommendation}`;
-        
+
         ctx.reply(message);
     } catch (error) {
         ctx.reply(`❌ Error analyzing volume for ${symbol}. ${(error as Error).message}`);
     }
+
+    return;
 });
 
 // Keep other existing commands...
@@ -660,11 +897,13 @@ bot.command('sr', async (ctx) => {
         message += `Nearest Support: ${levels.nearestSupport}\n\n`;
         message += `Distance to Resistance: ${((levels.nearestResistance - levels.currentPrice) / levels.currentPrice * 100).toFixed(2)}%\n`;
         message += `Distance to Support: ${((levels.currentPrice - levels.nearestSupport) / levels.currentPrice * 100).toFixed(2)}%`;
-        
+
         ctx.reply(message);
     } catch (error) {
         ctx.reply('Error finding support/resistance levels. Please try again later.');
     }
+
+    return;
 });
 
 // Alert commands (keeping existing functionality)
@@ -689,6 +928,8 @@ bot.command('alert', (ctx) => {
     } catch (error) {
         ctx.reply('Error setting price alert. Please try again.');
     }
+
+    return;
 });
 
 bot.command('alerts', (ctx) => {
@@ -702,6 +943,8 @@ bot.command('alerts', (ctx) => {
         message += `${index + 1}. ${alert.symbol}: ${alert.type} ${alert.targetPrice}\n`;
     });
     ctx.reply(message);
+
+    return;
 });
 
 bot.command('delalert', (ctx) => {
@@ -712,6 +955,8 @@ bot.command('delalert', (ctx) => {
 
     priceAlertManager.removeAlert(ctx.message.from.id, symbol);
     ctx.reply(`Alert removed for ${symbol}`);
+
+    return;
 });
 
 // Start price alert checker

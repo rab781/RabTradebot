@@ -19,7 +19,7 @@ export class BacktestEngine {
 
         // Convert candles to DataFrame
         const dataframe = DataFrameBuilder.fromCandles(data);
-        
+
         // Populate indicators
         const metadata: StrategyMetadata = {
             pair: 'BTCUSDT', // TODO: Make this configurable
@@ -100,10 +100,10 @@ export class BacktestEngine {
     }
 
     private async processExits(
-        openTrades: Trade[], 
-        allTrades: Trade[], 
-        exitData: DataFrame, 
-        index: number, 
+        openTrades: Trade[],
+        allTrades: Trade[],
+        exitData: DataFrame,
+        index: number,
         candle: OHLCVCandle,
         balance: number
     ): Promise<void> {
@@ -164,9 +164,9 @@ export class BacktestEngine {
     }
 
     private async processEntries(
-        openTrades: Trade[], 
-        entryData: DataFrame, 
-        index: number, 
+        openTrades: Trade[],
+        entryData: DataFrame,
+        index: number,
         candle: OHLCVCandle,
         balance: number,
         tradeIdCounter: number,
@@ -201,8 +201,8 @@ export class BacktestEngine {
         openTrades: Trade[],
         metadata: StrategyMetadata
     ): Promise<void> {
-        const stakeAmount = typeof this.strategy.stakeAmount === 'number' 
-            ? this.strategy.stakeAmount 
+        const stakeAmount = typeof this.strategy.stakeAmount === 'number'
+            ? this.strategy.stakeAmount
             : balance / this.config.maxOpenTrades;
 
         // Check if we have enough balance
@@ -250,7 +250,7 @@ export class BacktestEngine {
     private closeTrade(trade: Trade, candle: OHLCVCandle, exitReason: string): void {
         const exitPrice = candle.close;
         const exitFee = (trade.amount * exitPrice) * this.config.feeClose;
-        
+
         trade.closeRate = exitPrice;
         trade.closeDate = candle.date;
         trade.isOpen = false;
@@ -278,7 +278,7 @@ export class BacktestEngine {
 
     private checkRoi(trade: Trade, currentTime: Date): boolean {
         const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / (1000 * 60); // minutes
-        
+
         for (const [timeStr, roiTarget] of Object.entries(this.strategy.minimalRoi)) {
             const timeThreshold = parseInt(timeStr);
             if (tradeDuration >= timeThreshold) {
@@ -288,7 +288,7 @@ export class BacktestEngine {
                 }
             }
         }
-        
+
         return false;
     }
 
@@ -319,51 +319,51 @@ export class BacktestEngine {
     }
 
     private calculateResults(
-        trades: Trade[], 
-        finalBalance: number, 
-        startingBalance: number, 
-        maxDrawdown: number, 
+        trades: Trade[],
+        finalBalance: number,
+        startingBalance: number,
+        maxDrawdown: number,
         maxDrawdownPct: number,
         data: OHLCVCandle[]
     ): BacktestResult {
         const totalTrades = trades.length;
         const profitableTrades = trades.filter(t => (t.profit || 0) > 0).length;
         const lossTrades = totalTrades - profitableTrades;
-        
+
         const totalProfit = trades.reduce((sum, t) => sum + (t.profit || 0), 0);
         const totalProfitPct = (totalProfit / startingBalance) * 100;
-        
+
         const avgProfit = totalTrades > 0 ? totalProfit / totalTrades : 0;
         const avgProfitPct = totalTrades > 0 ? totalProfitPct / totalTrades : 0;
-        
+
         const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
-        
+
         // Calculate trade durations
         const durations = trades
             .filter(t => t.closeDate)
             .map(t => t.closeDate!.getTime() - t.openDate.getTime());
-        const avgTradeDuration = durations.length > 0 
+        const avgTradeDuration = durations.length > 0
             ? durations.reduce((sum, d) => sum + d, 0) / durations.length / (1000 * 60) // minutes
             : 0;
 
         // Find best and worst trades
-        const bestTrade = trades.reduce((best, current) => 
+        const bestTrade = trades.reduce((best, current) =>
             (current.profit || 0) > (best?.profit || -Infinity) ? current : best, null as Trade | null);
-        const worstTrade = trades.reduce((worst, current) => 
+        const worstTrade = trades.reduce((worst, current) =>
             (current.profit || 0) < (worst?.profit || Infinity) ? current : worst, null as Trade | null);
 
         // Calculate additional metrics
         const profits = trades.map(t => t.profit || 0);
         const positiveReturns = profits.filter(p => p > 0);
         const negativeReturns = profits.filter(p => p < 0);
-        
-        const avgPositiveReturn = positiveReturns.length > 0 
+
+        const avgPositiveReturn = positiveReturns.length > 0
             ? positiveReturns.reduce((sum, p) => sum + p, 0) / positiveReturns.length : 0;
-        const avgNegativeReturn = negativeReturns.length > 0 
+        const avgNegativeReturn = negativeReturns.length > 0
             ? negativeReturns.reduce((sum, p) => sum + p, 0) / negativeReturns.length : 0;
 
         const profitFactor = avgNegativeReturn !== 0 ? Math.abs(avgPositiveReturn / avgNegativeReturn) : 0;
-        
+
         // Simple Sharpe ratio calculation (using daily returns)
         const dailyReturns = this.calculateDailyReturns(trades, data);
         const avgDailyReturn = dailyReturns.reduce((sum, r) => sum + r, 0) / dailyReturns.length;
@@ -372,7 +372,7 @@ export class BacktestEngine {
 
         // Simple Sortino ratio (downside deviation)
         const downsideReturns = dailyReturns.filter(r => r < 0);
-        const downsideStd = downsideReturns.length > 0 
+        const downsideStd = downsideReturns.length > 0
             ? Math.sqrt(downsideReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / downsideReturns.length)
             : 0;
         const sortinoRatio = downsideStd !== 0 ? avgDailyReturn / downsideStd : 0;
@@ -410,7 +410,7 @@ export class BacktestEngine {
         const dailyReturns: number[] = [];
         let cumulativeProfit = 0;
         let previousCumulativeProfit = 0;
-        
+
         // Group trades by day
         const tradesByDay = new Map<string, Trade[]>();
         for (const trade of trades) {
@@ -423,7 +423,8 @@ export class BacktestEngine {
             }
         }
 
-        for (const [day, dayTrades] of tradesByDay) {
+        // Use Array.from to convert Map entries to array for better compatibility
+        for (const [day, dayTrades] of Array.from(tradesByDay.entries())) {
             const dayProfit = dayTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
             cumulativeProfit += dayProfit;
             const dailyReturn = cumulativeProfit - previousCumulativeProfit;
