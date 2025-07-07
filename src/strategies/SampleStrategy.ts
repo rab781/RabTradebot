@@ -1,6 +1,7 @@
 import { DataFrame, DataFrameBuilder } from '../types/dataframe';
 import { IStrategy, StrategyMetadata, Trade, StrategyResult } from '../types/strategy';
 import { RSI, MACD, BollingerBands, SMA, EMA } from 'technicalindicators';
+import { TradingViewService } from '../services/TradingViewService';
 
 export class SampleStrategy implements IStrategy {
     // Strategy metadata
@@ -37,6 +38,18 @@ export class SampleStrategy implements IStrategy {
     sellRsi = 70;
     shortRsi = 70;
     exitShortRsi = 30;
+
+    // Add TradingView service for better data
+    private tradingViewService: TradingViewService;
+    
+    constructor() {
+        this.tradingViewService = new TradingViewService({
+            theme: 'dark',
+            interval: this.timeframe,
+            symbol: 'BINANCE:BTCUSDT',
+            containerId: 'tradingview-chart'
+        });
+    }
 
     populateIndicators(dataframe: DataFrame, metadata: StrategyMetadata): DataFrame {
         // Calculate RSI
@@ -215,5 +228,42 @@ export class SampleStrategy implements IStrategy {
     botLoopStart(currentTime: Date): void {
         // Called at the start of each bot iteration
         // Can be used for periodic tasks, logging, etc.
+    }
+
+    /**
+     * Enhanced data fetching using multiple free sources
+     */
+    async getEnhancedMarketData(symbol: string): Promise<DataFrame | null> {
+        try {
+            // Try to get data from free sources
+            const marketData = await this.tradingViewService.getMarketData(symbol, this.timeframe);
+            
+            if (marketData) {
+                console.log(`✅ Data berhasil diambil dari sumber gratis untuk ${symbol}`);
+                return marketData;
+            }
+            
+            console.log(`❌ Gagal mengambil data untuk ${symbol}`);
+            return null;
+        } catch (error) {
+            console.error('Error fetching enhanced market data:', error);
+            return null;
+        }
+    }
+
+    /**
+     * Enhanced populate indicators with better data source
+     */
+    async populateIndicatorsEnhanced(symbol: string, metadata: StrategyMetadata): Promise<DataFrame | null> {
+        // Get fresh data from free sources
+        const dataframe = await this.getEnhancedMarketData(symbol);
+        
+        if (!dataframe) {
+            console.log('⚠️  Menggunakan data fallback atau cache');
+            return null;
+        }
+
+        // Apply existing indicator logic
+        return this.populateIndicators(dataframe, metadata);
     }
 }
