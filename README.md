@@ -11,6 +11,9 @@ A comprehensive Telegram bot that provides cryptocurrency trading signals, marke
 - Multi-timeframe analysis (1H, 4H, 1D)
 - Support and resistance detection
 - News sentiment analysis from major crypto news sources
+- **Twitter Integration**: Real-time social media sentiment analysis
+- **Influencer Tracking**: Monitor tweets from major crypto influencers
+- **Social Media Trends**: Track trending hashtags and discussions
 - Real-time price monitoring and alerts
 - Advanced Volume Analysis
 
@@ -95,11 +98,47 @@ Price Alerts:
 - `/alerts` - List your active price alerts
 - `/delalert [symbol]` - Delete price alert
 
+News & Social Media Analysis:
+
+- `/news [symbol]` - Comprehensive news analysis (traditional + social media)
+- `/twitter [symbol]` - Twitter sentiment analysis for a cryptocurrency
+- `/influencers` - Latest tweets from major crypto influencers
+- `/cryptonews [symbol] [keywords]` - Search Twitter for specific crypto news
+
+Advanced Trading:
+
+- `/analyze [symbol]` - Complete comprehensive market analysis
+- `/backtest [symbol] [days]` - Run strategy backtesting
+- `/papertrade [symbol]` - Start paper trading simulation
+- `/portfolio` - View current paper trading portfolio
+- `/performance` - View detailed trading performance
+- `/optimize [symbol] [days]` - Optimize strategy parameters
+
+Data Management:
+
+- `/download [symbol] [days]` - Download historical price data
+- `/datainfo [symbol]` - Check data quality and summary
+- `/strategies` - List available trading strategies
+
 ## Requirements
 
 - Node.js v16 or higher
 - Telegram Bot Token (get it from @BotFather)
-- Binance API credentials (if using Binance data)
+- Binance API credentials (optional - for advanced features)
+- Twitter API credentials (optional - for social media analysis)
+
+## API Configuration
+
+### Required
+
+- **Telegram Bot Token**: Get from @BotFather on Telegram
+
+### Optional APIs
+
+- **Binance API**: For advanced trading features and better rate limits
+- **Twitter API**: For social media sentiment analysis and influencer tracking
+
+See `TWITTER_SETUP.md` for detailed Twitter API setup instructions.
 
 ## Development
 
@@ -116,6 +155,7 @@ npm run dev
 - Telegraf (Telegram Bot Framework)
 - Technical Indicators
 - Binance API (with public API fallback)
+- Twitter API v2 (for social media analysis)
 - Cheerio (Web Scraping)
 - Axios (HTTP Client)
 - Comprehensive Error Handling & Logging

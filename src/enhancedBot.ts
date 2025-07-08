@@ -98,6 +98,13 @@ This bot now includes powerful freqtrade-inspired features:
 /download [symbol] [days] - Download historical data
 /datainfo [symbol] - Data quality info
 
+🐦 NEWS & SOCIAL MEDIA:
+/news [symbol] - Comprehensive news analysis
+/twitter [symbol] - Twitter sentiment analysis
+/twitterstatus - Check Twitter API rate limits and status
+/influencers - Crypto influencer tweets
+/cryptonews [symbol] [keywords] - Search Twitter news
+
 Use /help for detailed command descriptions.`);
 });
 
@@ -142,6 +149,13 @@ bot.command('help', (ctx) => {
 /alert [symbol] [price] [above/below] - Set price alert
 /alerts - List your active price alerts
 /delalert [symbol] - Delete price alert
+
+🔹 NEWS & SOCIAL MEDIA:
+/news [symbol] - Comprehensive news analysis (traditional + Twitter)
+/twitter [symbol] - Twitter sentiment analysis
+/twitterstatus - Check Twitter API rate limits and status
+/influencers - Latest tweets from crypto influencers
+/cryptonews [symbol] [keywords] - Search Twitter for crypto news
 
 All commands support major cryptocurrencies (BTCUSDT, ETHUSDT, etc.)
 `;
@@ -859,117 +873,280 @@ bot.command('strategies', (ctx) => {
     return;
 });
 
-// Keep existing commands for backward compatibility
-bot.command('volume', async (ctx) => {
+// NEWS & TWITTER ANALYSIS COMMANDS
+bot.command('news', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
 
     if (!symbol) {
-        return ctx.reply('Please provide a symbol. Example: /volume BTCUSDT');
+        return ctx.reply('Please provide a symbol. Example: /news BTCUSDT');
     }
 
     try {
-        const analysis = await advancedAnalyzer.analyzeVolume(symbol);
-        let message = `📊 Volume Analysis for ${symbol}:\n\n`;
-        message += `24h Volume Change: ${analysis.volumeChange24h.toFixed(2)}%\n`;
-        message += `Volume Status: ${analysis.unusualVolume ? '🚨 Unusual Volume Detected' : '📊 Normal Volume'}\n`;
-        message += `Recommendation: ${analysis.recommendation}`;
+        ctx.reply(`🔄 Analyzing news and social sentiment for ${symbol}...`);
+
+        const analysis = await newsAnalyzer.analyzeNews(symbol);
+        ctx.reply(analysis);
+    } catch (error) {
+        console.error('News analysis error:', error);
+        ctx.reply(`❌ Error analyzing news for ${symbol}. Please try again later.`);
+    }
+
+    return;
+});
+
+bot.command('twitter', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply(`Please provide a symbol. Example: /twitter BTCUSDT
+
+🐦 This command analyzes Twitter sentiment including:
+• Recent tweets about the cryptocurrency
+• Influencer opinions
+• Social media trends
+• Community sentiment analysis`);
+    }
+
+    try {
+        ctx.reply(`🔄 Analyzing Twitter sentiment for ${symbol}...
+
+⏳ This may take 10-15 seconds due to rate limiting protection.`);
+
+        const comprehensiveAnalysis = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+
+        if (comprehensiveAnalysis.twitterAnalysis) {
+            const twitter = comprehensiveAnalysis.twitterAnalysis;
+
+            let message = `🐦 TWITTER ANALYSIS for ${symbol}\n\n`;
+            message += `📊 SENTIMENT: ${twitter.sentiment.label}\n`;
+            message += `Confidence: ${twitter.sentiment.confidence.toFixed(1)}%\n`;
+            message += `Posts Analyzed: ${twitter.posts.length}\n\n`;
+
+            if (twitter.influencers.length > 0) {
+                message += `🔥 TOP INFLUENCERS:\n`;
+                twitter.influencers.slice(0, 3).forEach(influencer => {
+                    message += `• @${influencer.username}: ${influencer.sentiment}\n`;
+                });
+                message += '\n';
+            }
+
+            if (twitter.trends.length > 0) {
+                message += `📈 TRENDING: ${twitter.trends.join(', ')}\n\n`;
+            }
+
+            if (twitter.posts.length > 0) {
+                message += `💬 RECENT TWEETS:\n`;
+                twitter.posts.slice(0, 3).forEach((post, index) => {
+                    const date = post.createdAt.toLocaleDateString();
+                    message += `${index + 1}. @${post.author.username} [${date}]\n`;
+                    message += `   ${post.text.substring(0, 100)}...\n`;
+                    message += `   💚 ${post.metrics.likes} 🔄 ${post.metrics.retweets}\n\n`;
+                });
+            }
+
+            message += `⏰ Analysis Time: ${comprehensiveAnalysis.timestamp.toLocaleString()}`;
+
+            ctx.reply(message);
+        } else {
+            ctx.reply(`❌ Twitter analysis not available for ${symbol}.
+
+This could be due to:
+• Twitter API not configured
+• Twitter API rate limit exceeded
+• No recent tweets found for this symbol
+
+💡 You can still use /news ${symbol} for traditional news analysis.`);
+        }
+    } catch (error: any) {
+        console.error('Twitter command error:', error);
+
+        if (error.message?.includes('rate limit')) {
+            ctx.reply(`⏸️ Twitter API rate limit exceeded for ${symbol}.
+
+The Twitter API has temporary usage limits. Please try again in a few minutes.
+
+💡 In the meantime, you can use:
+• /news ${symbol} - Traditional news analysis
+• /analyze ${symbol} - Complete technical analysis`);
+        } else {
+            ctx.reply(`❌ Error analyzing Twitter sentiment for ${symbol}: ${error.message}`);
+        }
+    }
+
+    return;
+});
+
+bot.command('influencers', async (ctx) => {
+    const defaultInfluencers = [
+        'elonmusk',
+        'michael_saylor',
+        'cz_binance',
+        'VitalikButerin',
+        'aantonop',
+        'BitcoinMagazine',
+        'coinbase',
+        'binance',
+        'kraken',
+        'starkness'
+    ];
+
+    try {
+        ctx.reply('🔄 Fetching latest tweets from crypto influencers...');
+
+        const influencerTweets = await newsAnalyzer.getInfluencerTweets(defaultInfluencers.slice(0, 5));
+
+        // Split message if too long
+        const maxLength = 4000;
+        if (influencerTweets.length > maxLength) {
+            const parts = [];
+            let currentPart = '';
+            const lines = influencerTweets.split('\n');
+
+            for (const line of lines) {
+                if (currentPart.length + line.length > maxLength) {
+                    parts.push(currentPart);
+                    currentPart = line + '\n';
+                } else {
+                    currentPart += line + '\n';
+                }
+            }
+
+            if (currentPart) {
+                parts.push(currentPart);
+            }
+
+            for (const part of parts) {
+                await ctx.reply(part);
+            }
+        } else {
+            ctx.reply(influencerTweets);
+        }
+    } catch (error) {
+        console.error('Influencer tweets error:', error);
+        ctx.reply('❌ Error fetching influencer tweets. Please try again later.');
+    }
+
+    return;
+});
+
+bot.command('cryptonews', async (ctx) => {
+    const args = ctx.message.text.split(' ');
+    const symbol = args[1]?.toUpperCase();
+    const keywords = args.slice(2);
+
+    if (!symbol) {
+        return ctx.reply(`Please provide a symbol and keywords.
+
+Example: /cryptonews BTCUSDT bull breakout adoption
+
+🔍 This searches Twitter for specific crypto-related keywords`);
+    }
+
+    const searchKeywords = keywords.length > 0 ? keywords : [
+        'bull', 'bear', 'breakout', 'support', 'resistance',
+        'analysis', 'prediction', 'moon', 'dip', 'rally'
+    ];
+
+    try {
+        ctx.reply(`🔄 Searching Twitter for ${symbol} news with keywords: ${searchKeywords.join(', ')}...`);
+
+        const searchResults = await newsAnalyzer.searchCryptoNews(searchKeywords, symbol);
+
+        // Split message if too long
+        const maxLength = 4000;
+        if (searchResults.length > maxLength) {
+            const parts = [];
+            let currentPart = '';
+            const lines = searchResults.split('\n');
+
+            for (const line of lines) {
+                if (currentPart.length + line.length > maxLength) {
+                    parts.push(currentPart);
+                    currentPart = line + '\n';
+                } else {
+                    currentPart += line + '\n';
+                }
+            }
+
+            if (currentPart) {
+                parts.push(currentPart);
+            }
+
+            for (const part of parts) {
+                await ctx.reply(part);
+            }
+        } else {
+            ctx.reply(searchResults);
+        }
+    } catch (error) {
+        console.error('Crypto news search error:', error);
+        ctx.reply('❌ Error searching crypto news. Please try again later.');
+    }
+
+    return;
+});
+
+// Twitter API Status command
+bot.command('twitterstatus', async (ctx) => {
+    try {
+        // Get Twitter service from newsAnalyzer
+        const twitterService = (newsAnalyzer as any).twitterService;
+
+        if (!twitterService || !twitterService.isConfigured()) {
+            return ctx.reply(`❌ Twitter API not configured.
+
+To enable Twitter analysis:
+1. Get Twitter API credentials from developer.twitter.com
+2. Add them to your .env file:
+   - TWITTER_API_KEY
+   - TWITTER_API_KEY_SECRET
+   - TWITTER_ACCESS_TOKEN
+   - TWITTER_ACCESS_TOKEN_SECRET
+   - TWITTER_BEARER_TOKEN`);
+        }
+
+        const rateLimitStatus = twitterService.getRateLimitStatus();
+        const cacheStats = twitterService.getCacheStats();
+
+        let message = `🐦 TWITTER API STATUS\n\n`;
+
+        if (rateLimitStatus.isRateLimited) {
+            const resetMinutes = Math.ceil(rateLimitStatus.rateLimitResetTime / (60 * 1000));
+            message += `🔴 STATUS: Rate Limited\n`;
+            message += `⏰ Reset in: ${resetMinutes} minutes\n\n`;
+        } else {
+            message += `🟢 STATUS: Available\n\n`;
+        }
+
+        message += `📊 RATE LIMITS:\n`;
+        message += `• Last minute: ${rateLimitStatus.requestsInLastMinute}/15 requests\n`;
+        message += `• Last 15 min: ${rateLimitStatus.requestsInLast15Minutes}/180 requests\n`;
+
+        if (rateLimitStatus.nextAvailableSlot > 0) {
+            const nextSlotSeconds = Math.ceil(rateLimitStatus.nextAvailableSlot / 1000);
+            message += `• Next slot: ${nextSlotSeconds}s\n`;
+        }
+
+        message += `\n💾 CACHE:\n`;
+        message += `• Entries: ${cacheStats.size}\n`;
+        if (cacheStats.oldestEntry > 0) {
+            const oldestMinutes = Math.floor(cacheStats.oldestEntry / 60);
+            message += `• Oldest: ${oldestMinutes}m ago\n`;
+        }
+
+        message += `\n💡 Tips:\n`;
+        message += `• Cache expires after 10 minutes\n`;
+        message += `• Use /twitter sparingly to avoid limits\n`;
+        message += `• Traditional news (/news) has no limits`;
 
         ctx.reply(message);
     } catch (error) {
-        ctx.reply(`❌ Error analyzing volume for ${symbol}. ${(error as Error).message}`);
+        console.error('Twitter status error:', error);
+        ctx.reply('❌ Error checking Twitter status. Please try again later.');
     }
 
     return;
 });
-
-// Keep other existing commands...
-bot.command('sr', async (ctx) => {
-    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
-    if (!symbol) {
-        return ctx.reply('Please provide a symbol. Example: /sr BTCUSDT');
-    }
-
-    try {
-        const levels = await advancedAnalyzer.findSupportResistance(symbol);
-        let message = `Support & Resistance Levels for ${symbol}:\n\n`;
-        message += `Current Price: ${levels.currentPrice}\n\n`;
-        message += `Nearest Resistance: ${levels.nearestResistance}\n`;
-        message += `Nearest Support: ${levels.nearestSupport}\n\n`;
-        message += `Distance to Resistance: ${((levels.nearestResistance - levels.currentPrice) / levels.currentPrice * 100).toFixed(2)}%\n`;
-        message += `Distance to Support: ${((levels.currentPrice - levels.nearestSupport) / levels.currentPrice * 100).toFixed(2)}%`;
-
-        ctx.reply(message);
-    } catch (error) {
-        ctx.reply('Error finding support/resistance levels. Please try again later.');
-    }
-
-    return;
-});
-
-// Alert commands (keeping existing functionality)
-bot.command('alert', (ctx) => {
-    const [_, symbol, price, type] = ctx.message.text.split(' ');
-    if (!symbol || !price || !type) {
-        return ctx.reply('Please use format: /alert BTCUSDT 50000 above/below');
-    }
-
-    try {
-        const targetPrice = parseFloat(price);
-        if (isNaN(targetPrice)) {
-            return ctx.reply('Invalid price value');
-        }
-
-        if (type !== 'above' && type !== 'below') {
-            return ctx.reply('Type must be either "above" or "below"');
-        }
-
-        priceAlertManager.addAlert(ctx.message.from.id, symbol.toUpperCase(), targetPrice, type);
-        ctx.reply(`Alert set for ${symbol} when price goes ${type} ${targetPrice}`);
-    } catch (error) {
-        ctx.reply('Error setting price alert. Please try again.');
-    }
-
-    return;
-});
-
-bot.command('alerts', (ctx) => {
-    const alerts = priceAlertManager.getAlerts(ctx.message.from.id);
-    if (alerts.length === 0) {
-        return ctx.reply('You have no active alerts');
-    }
-
-    let message = 'Your active price alerts:\n\n';
-    alerts.forEach((alert, index) => {
-        message += `${index + 1}. ${alert.symbol}: ${alert.type} ${alert.targetPrice}\n`;
-    });
-    ctx.reply(message);
-
-    return;
-});
-
-bot.command('delalert', (ctx) => {
-    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
-    if (!symbol) {
-        return ctx.reply('Please provide a symbol. Example: /delalert BTCUSDT');
-    }
-
-    priceAlertManager.removeAlert(ctx.message.from.id, symbol);
-    ctx.reply(`Alert removed for ${symbol}`);
-
-    return;
-});
-
-// Start price alert checker
-setInterval(async () => {
-    try {
-        const notifications = await priceAlertManager.checkAlerts();
-        for (const notification of notifications) {
-            bot.telegram.sendMessage(notification.userId, notification.message);
-        }
-    } catch (error) {
-        console.error('Error checking price alerts:', error);
-    }
-}, 60000);
 
 // Error handling
 bot.catch((err, ctx) => {
