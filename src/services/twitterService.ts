@@ -200,7 +200,10 @@ export class TwitterService {
             // Check if we're currently rate limited
             if (this.isRateLimited && Date.now() < this.rateLimitResetTime) {
                 const waitTime = Math.ceil((this.rateLimitResetTime - Date.now()) / 1000);
-                throw new Error(`Twitter API rate limited. Please wait ${waitTime} seconds.`);
+                console.log(`Twitter API rate limited, returning fallback analysis for ${symbol}`);
+
+                // Return a fallback analysis instead of throwing error
+                return this.createFallbackAnalysis(symbol, `Rate limited - please wait ${Math.ceil(waitTime/60)} minutes`);
             }
 
             // Search for tweets about the cryptocurrency - reduced queries to minimize API usage
@@ -237,6 +240,12 @@ export class TwitterService {
             }
 
             console.log(`Total posts collected: ${allPosts.length}`);
+
+            // If no posts found due to rate limiting or other issues, return fallback
+            if (allPosts.length === 0) {
+                console.log('No posts found - returning fallback analysis');
+                return this.createFallbackAnalysis(symbol, 'No recent tweets found or API temporarily unavailable');
+            }
 
             // Remove duplicates
             const uniquePosts = allPosts.filter((post, index, self) =>
@@ -276,10 +285,35 @@ export class TwitterService {
                 summary,
             };
 
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error analyzing crypto sentiment:', error);
-            throw error;
+
+            // Return fallback instead of throwing error
+            return this.createFallbackAnalysis(symbol, `Analysis failed: ${error.message}`);
         }
+    }
+
+    private createFallbackAnalysis(symbol: string, reason: string): TwitterAnalysis {
+        return {
+            posts: [],
+            sentiment: {
+                score: 0,
+                label: '⚪ Neutral (Limited Data)',
+                confidence: 25
+            },
+            influencers: [],
+            trends: [`#${this.getBaseCurrency(symbol)}`, '#crypto'],
+            summary: `📊 Twitter Analysis for ${symbol}
+
+⚠️ Limited Analysis: ${reason}
+
+This is a fallback analysis due to Twitter API limitations.
+The sentiment is marked as neutral due to insufficient data.
+
+💡 Try again later when the API is available, or use:
+• /news ${symbol} - Traditional news analysis
+• /analyze ${symbol} - Technical analysis`
+        };
     }
 
     private analyzeSentiment(posts: TwitterPost[]): { score: number; label: string; confidence: number } {

@@ -14,7 +14,8 @@
     "test-twitter-improved": "ts-node scripts/test-twitter-improved.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "jest"
+    "test": "jest",
+    "diagnose-twitter": "ts-node scripts/diagnose-twitter.ts"
   },
   "keywords": [
     "telegram",
