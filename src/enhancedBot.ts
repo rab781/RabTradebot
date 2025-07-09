@@ -16,6 +16,9 @@ import { StrategyOptimizer, OptimizationConfig } from './services/strategyOptimi
 import { SampleStrategy } from './strategies/SampleStrategy';
 import { IStrategy } from './types/strategy';
 
+// Perplexity service
+import { PerplexityService } from './services/perplexityService';
+
 // Load environment variables
 config();
 
@@ -39,6 +42,9 @@ const tradingViewService = new TradingViewService({
 // Initialize new freqtrade-inspired services
 const dataManager = new DataManager();
 const strategy = new SampleStrategy();
+
+// Initialize Perplexity service
+const perplexityService = new PerplexityService();
 
 // Import comprehensive analyzer
 import { SimpleComprehensiveAnalyzer } from './services/simpleComprehensiveAnalyzer';
@@ -99,6 +105,9 @@ This bot now includes powerful freqtrade-inspired features:
 /datainfo [symbol] - Data quality info
 
 🐦 NEWS & SOCIAL MEDIA:
+/pnews [symbol] - Perplexity AI news analysis (NEW!)
+/impact [symbol] - Quick news impact (NEW!)
+/fullanalysis [symbol] - Complete technical + news (NEW!)
 /news [symbol] - Comprehensive news analysis
 /twitter [symbol] - Twitter sentiment analysis
 /twitterstatus - Check Twitter API rate limits and status
@@ -119,13 +128,16 @@ bot.command('help', (ctx) => {
    • Entry/exit recommendations with exact levels
    • Risk assessment and position sizing
    • Chart generation with indicators
+/fullanalysis [symbol] - Technical + News analysis (NEW!)
 
-🔹 BASIC ANALYSIS COMMANDS:
-/signal [symbol] - Get trading signals for a cryptocurrency
-/volume [symbol] - Analyze volume patterns and anomalies
-/sr [symbol] - Find support and resistance levels
-/timeframes [symbol] - Multi-timeframe analysis
-/chart [symbol] - Generate interactive price chart
+🔹 NEWS & SENTIMENT ANALYSIS:
+/pnews [symbol] - Perplexity AI news analysis (NEW!)
+/impact [symbol] - Quick news impact assessment (NEW!)
+/news [symbol] - Comprehensive news analysis (traditional + Twitter)
+/twitter [symbol] - Twitter sentiment analysis
+/twitterstatus - Check Twitter API rate limits and status
+/influencers - Latest tweets from crypto influencers
+/cryptonews [symbol] [keywords] - Search Twitter for crypto news
 
 🔹 ADVANCED TRADING COMMANDS:
 /backtest [symbol] [days] - Run strategy backtest
@@ -151,11 +163,20 @@ bot.command('help', (ctx) => {
 /delalert [symbol] - Delete price alert
 
 🔹 NEWS & SOCIAL MEDIA:
+/pnews [symbol] - Perplexity AI news analysis (NEW!)
+/impact [symbol] - Quick news impact assessment (NEW!)
+/fullanalysis [symbol] - Complete technical + fundamental (NEW!)
 /news [symbol] - Comprehensive news analysis (traditional + Twitter)
 /twitter [symbol] - Twitter sentiment analysis
 /twitterstatus - Check Twitter API rate limits and status
 /influencers - Latest tweets from crypto influencers
 /cryptonews [symbol] [keywords] - Search Twitter for crypto news
+
+📈 NEW FEATURES:
+• Perplexity AI integration for latest news
+• Market impact predictions
+• Combined technical + fundamental analysis
+• Real-time sentiment analysis
 
 All commands support major cryptocurrencies (BTCUSDT, ETHUSDT, etc.)
 `;
@@ -217,6 +238,7 @@ Example: /analyze BTCUSDT
 • Run backtests across multiple strategies
 • Analyze multiple timeframes
 • Generate recommendations
+${perplexityService.isConfigured() ? '• Analyze latest news sentiment (AI-powered)' : ''}
 
 Please wait...`);
 
@@ -303,6 +325,65 @@ ${backtestSection}`);
 ✅ Analysis completed at ${analysisResult.timestamp.toLocaleString()}
 💡 Use /backtest ${symbol} 30 for detailed backtesting
 💡 Use /papertrade ${symbol} to start paper trading`);
+
+        // Add Perplexity news analysis if configured
+        if (perplexityService.isConfigured()) {
+            try {
+                ctx.reply(`🔄 Adding news sentiment analysis...`);
+
+                const newsItems = await perplexityService.searchCryptoNews(symbol, 3);
+                if (newsItems.length > 0) {
+                    const newsAnalysis = await perplexityService.analyzeNewsImpact(symbol, newsItems);
+
+                    const newsSection = `
+📰 NEWS SENTIMENT ANALYSIS (Powered by Perplexity AI):
+
+📊 Overall Sentiment: ${newsAnalysis.overallSentiment} ${
+    newsAnalysis.overallSentiment === 'BULLISH' ? '🟢📈' :
+    newsAnalysis.overallSentiment === 'BEARISH' ? '🔴📉' : '🟡➡️'
+}
+
+📈 Market Movement Prediction: ${newsAnalysis.marketMovement.direction} ${
+    newsAnalysis.marketMovement.direction === 'UP' ? '📈' :
+    newsAnalysis.marketMovement.direction === 'DOWN' ? '📉' : '➡️'
+}
+Confidence Level: ${newsAnalysis.marketMovement.confidence.toFixed(1)}%
+
+⏰ IMPACT PREDICTIONS:
+🔹 24H: ${newsAnalysis.impactPrediction.shortTerm}
+🔸 7D: ${newsAnalysis.impactPrediction.mediumTerm}
+🔹 30D: ${newsAnalysis.impactPrediction.longTerm}
+
+�️ KEY MARKET FACTORS:
+${newsAnalysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}
+
+🔥 RECENT NEWS (${newsItems.length} items):
+${newsItems.map((item, index) => {
+    const sentiment = item.sentimentScore > 0.3 ? '🟢' :
+                     item.sentimentScore < -0.3 ? '🔴' : '🟡';
+    return `${index + 1}. ${sentiment} ${item.title.substring(0, 55)}...
+   📊 Impact: ${item.impactLevel} | Sentiment: ${item.sentimentScore.toFixed(2)}`;
+}).join('\n')}
+
+💡 Use /pnews ${symbol} for detailed news analysis`;
+
+                    await ctx.reply(newsSection);
+                }
+            } catch (newsError) {
+                console.error('News analysis error in /analyze:', newsError);
+                await ctx.reply(`💡 For news analysis, try: /pnews ${symbol}`);
+            }
+        } else {
+            await ctx.reply(`� NEWS ANALYSIS AVAILABLE:
+�💡 Setup Perplexity AI for advanced news sentiment analysis!
+
+🔧 Available commands:
+• /pnews ${symbol} - Advanced AI news analysis
+• /impact ${symbol} - Quick impact assessment
+• /pstatus - Check Perplexity configuration
+
+📖 Setup: Add PERPLEXITY_API_KEY to your .env file`);
+        }
 
         // Delete loading message
         try {
@@ -1086,102 +1167,395 @@ Example: /cryptonews BTCUSDT bull breakout adoption
     return;
 });
 
-// Twitter API Status command
-bot.command('twitterstatus', async (ctx) => {
+// PERPLEXITY AI NEWS ANALYSIS COMMANDS
+
+// Perplexity News Analysis Command
+bot.command('pnews', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply(`Please provide a symbol. Example: /pnews BTCUSDT
+
+🔍 This command uses Perplexity AI to:
+• Search for latest crypto news
+• Analyze market impact
+• Predict price movements
+• Provide detailed insights`);
+    }
+
+    if (!perplexityService.isConfigured()) {
+        return ctx.reply(`❌ Perplexity AI not configured.
+
+To enable advanced news analysis:
+1. Get API key from perplexity.ai
+2. Add PERPLEXITY_API_KEY to your .env file
+
+💡 You can still use /news ${symbol} for basic analysis.`);
+    }
+
     try {
-        // Get Twitter service from newsAnalyzer
-        const twitterService = (newsAnalyzer as any).twitterService;
+        const loadingMsg = await ctx.reply(`🔄 Analyzing latest news for ${symbol} with Perplexity AI...
 
-        if (!twitterService || !twitterService.isConfigured()) {
-            return ctx.reply(`❌ Twitter API not configured.
+⏳ This may take 15-30 seconds as we:
+• Search for latest news articles
+• Analyze market sentiment
+• Predict price impact
+• Generate insights
 
-To enable Twitter analysis:
-1. Get Twitter API credentials from developer.twitter.com
-2. Add them to your .env file:
-   - TWITTER_API_KEY
-   - TWITTER_API_KEY_SECRET
-   - TWITTER_ACCESS_TOKEN
-   - TWITTER_ACCESS_TOKEN_SECRET
-   - TWITTER_BEARER_TOKEN`);
+Please wait...`);
+
+        // Get latest news
+        const newsItems = await perplexityService.searchCryptoNews(symbol, 8);
+
+        if (newsItems.length === 0) {
+            return ctx.reply(`❌ No recent news found for ${symbol}.
+
+Try:
+• Different symbol (BTCUSDT, ETHUSDT, etc.)
+• /news ${symbol} for basic analysis
+• Check symbol spelling`);
         }
 
-        const rateLimitStatus = twitterService.getRateLimitStatus();
-        const cacheStats = twitterService.getCacheStats();
+        // Analyze impact
+        const analysis = await perplexityService.analyzeNewsImpact(symbol, newsItems);
 
-        let message = `🐦 TWITTER API STATUS\n\n`;
+        // Format response
+        const newsSection = `🔍 LATEST NEWS ANALYSIS: ${symbol}
+📅 ${analysis.timestamp.toLocaleString()}
 
-        if (rateLimitStatus.isRateLimited) {
-            const resetMinutes = Math.ceil(rateLimitStatus.rateLimitResetTime / (60 * 1000));
-            message += `🔴 STATUS: Rate Limited\n`;
-            message += `⏰ Reset in: ${resetMinutes} minutes\n\n`;
+📰 FOUND ${newsItems.length} RECENT ARTICLES:
+${newsItems.slice(0, 5).map((item, index) => {
+    const sentiment = item.sentimentScore > 0.3 ? '🟢' :
+                     item.sentimentScore < -0.3 ? '🔴' : '🟡';
+    const impact = item.impactLevel === 'CRITICAL' ? '🚨' :
+                  item.impactLevel === 'HIGH' ? '🔥' :
+                  item.impactLevel === 'MEDIUM' ? '📊' : '📰';
+
+    return `${index + 1}. ${impact} ${sentiment} ${item.title.substring(0, 80)}...
+   Impact: ${item.impactLevel} | Sentiment: ${item.sentimentScore.toFixed(2)}
+   Source: ${item.source}`;
+}).join('\n\n')}`;
+
+        const analysisSection = `
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 MARKET IMPACT ANALYSIS:
+
+📊 Overall Sentiment: ${analysis.overallSentiment} ${
+    analysis.overallSentiment === 'BULLISH' ? '🟢📈' :
+    analysis.overallSentiment === 'BEARISH' ? '🔴📉' : '🟡➡️'
+}
+
+🎯 Price Movement Prediction:
+Direction: ${analysis.marketMovement.direction} ${
+    analysis.marketMovement.direction === 'UP' ? '📈' :
+    analysis.marketMovement.direction === 'DOWN' ? '📉' : '➡️'
+}
+Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
+Expected Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${analysis.marketMovement.expectedRange.high.toFixed(1)}%
+
+⏰ TIMEFRAME PREDICTIONS:
+• 24H: ${analysis.impactPrediction.shortTerm}
+• 7D: ${analysis.impactPrediction.mediumTerm}
+• 30D: ${analysis.impactPrediction.longTerm}`;
+
+        const factorsSection = analysis.keyFactors.length > 0 ? `
+🔑 KEY FACTORS:
+${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}` : '';
+
+        // Send analysis in parts
+        await ctx.reply(newsSection);
+        await ctx.reply(analysisSection + factorsSection);
+
+        await ctx.reply(`💡 TRADING RECOMMENDATIONS:
+• Use this analysis with technical indicators
+• Monitor news developments closely
+• Set appropriate stop losses
+• Consider position sizing based on confidence level
+
+🔗 Commands to combine:
+/analyze ${symbol} - Technical analysis
+/signal ${symbol} - Trading signals
+/chart ${symbol} - Price charts`);
+
+        // Delete loading message
+        try {
+            await ctx.deleteMessage(loadingMsg.message_id);
+        } catch (error) {
+            // Ignore delete errors
+        }
+
+    } catch (error: any) {
+        console.error('Perplexity news error:', error);
+
+        if (error.message?.includes('API key')) {
+            ctx.reply(`❌ Perplexity API authentication failed.
+
+Please check:
+• API key is valid
+• Account has sufficient credits
+• API key has proper permissions`);
+        } else if (error.message?.includes('rate limit')) {
+            ctx.reply(`⏸️ Perplexity API rate limit exceeded.
+
+Please wait a few minutes before trying again.
+
+💡 Alternative: /news ${symbol} for basic analysis`);
         } else {
-            message += `🟢 STATUS: Available\n\n`;
+            ctx.reply(`❌ Error analyzing news for ${symbol}: ${error.message}
+
+💡 Try: /news ${symbol} for basic analysis`);
+        }
+    }
+
+    return;
+});
+
+// Quick News Impact Command
+bot.command('impact', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply('Please provide a symbol. Example: /impact BTCUSDT');
+    }
+
+    if (!perplexityService.isConfigured()) {
+        return ctx.reply(`❌ Perplexity AI not configured. Use /pnews for setup instructions.`);
+    }
+
+    try {
+        ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
+
+        const newsItems = await perplexityService.searchCryptoNews(symbol, 5);
+
+        if (newsItems.length === 0) {
+            return ctx.reply(`❌ No recent impactful news found for ${symbol}`);
         }
 
-        message += `📊 RATE LIMITS:\n`;
-        message += `• Last minute: ${rateLimitStatus.requestsInLastMinute}/15 requests\n`;
-        message += `• Last 15 min: ${rateLimitStatus.requestsInLast15Minutes}/180 requests\n`;
+        const analysis = await perplexityService.analyzeNewsImpact(symbol, newsItems);
 
-        if (rateLimitStatus.nextAvailableSlot > 0) {
-            const nextSlotSeconds = Math.ceil(rateLimitStatus.nextAvailableSlot / 1000);
-            message += `• Next slot: ${nextSlotSeconds}s\n`;
+        const quickSummary = `⚡ QUICK IMPACT: ${symbol}
+
+📊 Sentiment: ${analysis.overallSentiment} ${
+    analysis.overallSentiment === 'BULLISH' ? '🟢' :
+    analysis.overallSentiment === 'BEARISH' ? '🔴' : '🟡'
+}
+
+🎯 24H Prediction: ${analysis.impactPrediction.shortTerm}
+
+📈 Expected Move: ${analysis.marketMovement.direction}
+Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${analysis.marketMovement.expectedRange.high.toFixed(1)}%
+Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
+
+🔥 Top News Impact:
+${newsItems.slice(0, 3).map((item, index) =>
+    `${index + 1}. ${item.impactLevel === 'HIGH' || item.impactLevel === 'CRITICAL' ? '🚨' : '📰'} ${item.title.substring(0, 60)}...`
+).join('\n')}
+
+💡 Use /pnews ${symbol} for detailed analysis`;
+
+        ctx.reply(quickSummary);
+
+    } catch (error) {
+        console.error('Quick impact error:', error);
+        ctx.reply(`❌ Error getting impact analysis: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// Combined Analysis Command (Technical + News)
+bot.command('fullanalysis', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply(`Please provide a symbol. Example: /fullanalysis BTCUSDT
+
+🎯 This combines:
+• Technical analysis
+• News sentiment analysis
+• Market impact prediction
+• Trading recommendations`);
+    }
+
+    try {
+        const loadingMsg = await ctx.reply(`🔄 Performing FULL ANALYSIS for ${symbol}...
+
+⏳ This comprehensive analysis includes:
+• Technical indicators analysis
+• Latest news sentiment
+• Market impact prediction
+• Combined trading recommendation
+
+Please wait 30-60 seconds...`);
+
+        // Run both analyses in parallel
+        const [technicalResult, newsAnalysis] = await Promise.allSettled([
+            comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
+            perplexityService.isConfigured() ?
+                perplexityService.searchCryptoNews(symbol, 5).then(news =>
+                    perplexityService.analyzeNewsImpact(symbol, news)
+                ) : null
+        ]);
+
+        // Process technical analysis
+        if (technicalResult.status === 'rejected') {
+            throw new Error(`Technical analysis failed: ${technicalResult.reason}`);
+        }
+        const technical = technicalResult.value;
+
+        // Process news analysis
+        let news = null;
+        if (newsAnalysis.status === 'fulfilled' && newsAnalysis.value) {
+            news = newsAnalysis.value;
         }
 
-        message += `\n💾 CACHE:\n`;
+        // Combine recommendations
+        let combinedRecommendation = technical.recommendation.action;
+        let combinedConfidence = technical.recommendation.confidence;
+
+        if (news) {
+            // Adjust recommendation based on news sentiment
+            if (news.overallSentiment === 'BULLISH' && technical.recommendation.action.includes('buy')) {
+                combinedConfidence = Math.min(95, combinedConfidence + 15);
+            } else if (news.overallSentiment === 'BEARISH' && technical.recommendation.action.includes('sell')) {
+                combinedConfidence = Math.min(95, combinedConfidence + 15);
+            } else if (news.overallSentiment === 'BEARISH' && technical.recommendation.action.includes('buy')) {
+                combinedConfidence = Math.max(30, combinedConfidence - 20);
+                combinedRecommendation = 'hold';
+            } else if (news.overallSentiment === 'BULLISH' && technical.recommendation.action.includes('sell')) {
+                combinedConfidence = Math.max(30, combinedConfidence - 20);
+                combinedRecommendation = 'hold';
+            }
+        }
+
+        // Send combined analysis
+        const mainAnalysis = `🎯 FULL MARKET ANALYSIS: ${symbol}
+📅 ${new Date().toLocaleString()}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💰 CURRENT PRICE: $${technical.currentPrice.toFixed(2)}
+
+🎯 COMBINED RECOMMENDATION: ${combinedRecommendation.toUpperCase()}
+Confidence: ${combinedConfidence.toFixed(1)}% ${
+    combinedConfidence > 75 ? '🟢 HIGH' :
+    combinedConfidence > 50 ? '🟡 MEDIUM' : '🔴 LOW'
+}
+
+📊 TECHNICAL ANALYSIS:
+• Trend: ${technical.technical.trend.toUpperCase()} (${(technical.technical.strength * 100).toFixed(1)}%)
+• RSI: ${technical.technical.rsi.toFixed(1)} ${technical.technical.rsi < 30 ? '🟢 OVERSOLD' : technical.technical.rsi > 70 ? '🔴 OVERBOUGHT' : '🟡 NEUTRAL'}
+• Support: $${technical.technical.supportResistance.support.toFixed(2)}
+• Resistance: $${technical.technical.supportResistance.resistance.toFixed(2)}`;
+
+        let newsSection = '';
+        if (news) {
+            newsSection = `
+📰 NEWS SENTIMENT ANALYSIS:
+• Overall Sentiment: ${news.overallSentiment} ${
+    news.overallSentiment === 'BULLISH' ? '🟢' :
+    news.overallSentiment === 'BEARISH' ? '🔴' : '🟡'
+}
+• News Impact: ${news.marketMovement.direction} (${(news.marketMovement.confidence * 100).toFixed(1)}% confidence)
+• 24H Prediction: ${news.impactPrediction.shortTerm.substring(0, 100)}...
+• Key Factors: ${news.keyFactors.slice(0, 2).join(', ')}`;
+        } else {
+            newsSection = `
+📰 NEWS ANALYSIS: Not available (Perplexity not configured)`;
+        }
+
+        const tradingSection = `
+🎯 TRADING SETUP:
+• Entry: $${technical.recommendation.entryPrice.toFixed(2)}
+• Target: $${technical.recommendation.exitPrice.toFixed(2)}
+• Stop Loss: $${technical.recommendation.stopLoss.toFixed(2)}
+• Risk/Reward: ${technical.recommendation.riskReward.toFixed(2)}
+• Timeframe: ${technical.recommendation.timeframe}
+
+💡 COMBINED REASONING:
+${technical.recommendation.reasoning.slice(0, 2).join('\n• ')}${news ? `\n• News sentiment: ${news.overallSentiment.toLowerCase()}` : ''}`;
+
+        await ctx.reply(mainAnalysis + newsSection + tradingSection);
+
+        if (news && news.newsItems.length > 0) {
+            const recentNews = `
+📰 RECENT NEWS IMPACTING ${symbol}:
+${news.newsItems.slice(0, 3).map((item, index) => {
+                const sentiment = item.sentimentScore > 0.3 ? '🟢' :
+                                 item.sentimentScore < -0.3 ? '🔴' : '🟡';
+                return `${index + 1}. ${sentiment} ${item.title.substring(0, 70)}...
+   Impact: ${item.impactLevel} | Source: ${item.source}`;
+            }).join('\n\n')}
+
+🔗 Use /pnews ${symbol} for detailed news analysis`;
+
+            await ctx.reply(recentNews);
+        }
+
+        // Delete loading message
+        try {
+            await ctx.deleteMessage(loadingMsg.message_id);
+        } catch (error) {
+            // Ignore delete errors
+        }
+
+    } catch (error) {
+        console.error('Full analysis error:', error);
+        ctx.reply(`❌ Error performing full analysis: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// Perplexity status command
+bot.command('pstatus', async (ctx) => {
+    try {
+        if (!perplexityService.isConfigured()) {
+            return ctx.reply(`❌ Perplexity AI not configured.
+
+To enable advanced news analysis:
+1. Visit https://www.perplexity.ai/
+2. Sign up for an account
+3. Go to API settings
+4. Generate an API key
+5. Add PERPLEXITY_API_KEY to your .env file
+
+💡 Alternative: Use /news for basic analysis.`);
+        }
+
+        const cacheStats = perplexityService.getCacheStats();
+
+        let message = `🤖 PERPLEXITY AI STATUS\n\n`;
+        message += `🟢 STATUS: Configured & Ready\n\n`;
+
+        message += `💾 CACHE:\n`;
         message += `• Entries: ${cacheStats.size}\n`;
         if (cacheStats.oldestEntry > 0) {
             const oldestMinutes = Math.floor(cacheStats.oldestEntry / 60);
             message += `• Oldest: ${oldestMinutes}m ago\n`;
         }
 
-        message += `\n💡 Tips:\n`;
-        message += `• Cache expires after 10 minutes\n`;
-        message += `• Use /twitter sparingly to avoid limits\n`;
-        message += `• Traditional news (/news) has no limits`;
+        message += `\n📊 FEATURES:\n`;
+        message += `• Latest crypto news search\n`;
+        message += `• AI-powered impact analysis\n`;
+        message += `• Price movement predictions\n`;
+        message += `• Sentiment analysis\n`;
+
+        message += `\n💡 Commands:\n`;
+        message += `• /pnews [symbol] - Full news analysis\n`;
+        message += `• /impact [symbol] - Quick impact check\n`;
+        message += `• /fullanalysis [symbol] - Combined analysis\n`;
+
+        message += `\n⚡ Powered by Perplexity AI`;
 
         ctx.reply(message);
     } catch (error) {
-        console.error('Twitter status error:', error);
-        ctx.reply('❌ Error checking Twitter status. Please try again later.');
+        console.error('Perplexity status error:', error);
+        ctx.reply('❌ Error checking Perplexity status. Please try again later.');
     }
 
     return;
 });
 
-// Error handling
-bot.catch((err, ctx) => {
-    console.error('Telegram bot error:', err);
-    ctx.reply('❌ An unexpected error occurred. Please try again later.');
-});
-
-// Start the bot
-console.log(`[${new Date().toISOString()}] Starting Advanced Crypto Signal Bot...`);
-
-if (!process.env.TELEGRAM_BOT_TOKEN) {
-    console.error('ERROR: TELEGRAM_BOT_TOKEN not found in environment variables');
-    process.exit(1);
-}
-
-bot.launch().then(() => {
-    console.log(`[${new Date().toISOString()}] ✅ Advanced Crypto Signal Bot is running!`);
-    console.log(`[${new Date().toISOString()}] New features available:`);
-    console.log(`   - Backtesting with /backtest`);
-    console.log(`   - Paper trading with /papertrade`);
-    console.log(`   - Strategy optimization with /optimize`);
-    console.log(`   - Data management with /download`);
-    console.log(`   - Portfolio tracking with /portfolio`);
-}).catch((error) => {
-    console.error(`❌ Error starting bot:`, error);
-    process.exit(1);
-});
-
-// Graceful shutdown
-process.once('SIGINT', () => {
-    console.log('Shutting down gracefully...');
-    bot.stop('SIGINT');
-});
-
-process.once('SIGTERM', () => {
-    console.log('Shutting down gracefully...');
-    bot.stop('SIGTERM');
-});
+// Twitter API Status command
