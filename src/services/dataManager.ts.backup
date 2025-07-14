@@ -37,7 +37,7 @@ export class DataManager {
     private connectionConfig: ConnectionPoolConfig;
     private requestQueue: Array<() => Promise<any>> = [];
     private activeRequests = 0;
-
+    
     constructor(
         cacheConfig?: Partial<CacheConfig>,
         connectionConfig?: Partial<ConnectionPoolConfig>
@@ -79,7 +79,7 @@ export class DataManager {
 
     async downloadHistoricalData(config: HistoricalDataConfig): Promise<OHLCVCandle[]> {
         const cacheKey = this.generateCacheKey(config);
-
+        
         // Check cache first
         const cachedData = this.getCachedData(cacheKey);
         if (cachedData) {
@@ -91,10 +91,10 @@ export class DataManager {
 
         try {
             const data = await this.downloadDataWithRetry(config);
-
+            
             // Cache the downloaded data
             this.setCachedData(cacheKey, data);
-
+            
             return data;
         } catch (error) {
             console.error(`Error downloading data for ${config.symbol}:`, error);
@@ -111,7 +111,7 @@ export class DataManager {
                 try {
                     // Wait for connection availability
                     await this.waitForConnection();
-
+                    
                     const data = await this.fetchHistoricalDataBatched(config);
                     resolve(data);
                 } catch (error) {
@@ -159,27 +159,25 @@ export class DataManager {
                 });
 
                 const rawCandles = response.data;
-
+                
                 if (!rawCandles || rawCandles.length === 0) {
                     break;
                 }
 
                 const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                    timestamp: candle[0], // Keep as number (milliseconds)
+                    timestamp: new Date(candle[0]),
                     open: parseFloat(candle[1]),
                     high: parseFloat(candle[2]),
                     low: parseFloat(candle[3]),
                     close: parseFloat(candle[4]),
-                    volume: parseFloat(candle[5]),
-                    date: new Date(candle[0]) // Date object in separate field
+                    volume: parseFloat(candle[5])
                 }));
 
                 allCandles.push(...candles);
 
                 // Update start time for next batch
                 if (candles.length > 0) {
-                    const lastCandle = candles[candles.length - 1];
-                    currentStartTime = lastCandle.timestamp + this.getIntervalMs(interval);
+                    currentStartTime = candles[candles.length - 1].timestamp.getTime() + this.getIntervalMs(interval);
                 } else {
                     break;
                 }
@@ -192,7 +190,7 @@ export class DataManager {
 
             } catch (error) {
                 retryCount++;
-
+                
                 if (retryCount >= this.connectionConfig.maxRetries) {
                     throw new Error(`Failed to download data after ${retryCount} retries: ${error}`);
                 }
@@ -209,7 +207,7 @@ export class DataManager {
     async getRecentData(symbol: string, timeframe: string, limit: number = 100): Promise<OHLCVCandle[]> {
         try {
             const interval = this.convertTimeframeToInterval(timeframe);
-
+            
             const response = await axios.get(`${this.baseUrl}/klines`, {
                 params: {
                     symbol: symbol,
@@ -287,7 +285,7 @@ export class DataManager {
      */
     private evictLeastUsedEntries(): void {
         const entries = Array.from(this.dataCache.entries());
-
+        
         // Sort by hits (ascending) and then by timestamp (ascending)
         entries.sort((a, b) => {
             if (a[1].hits !== b[1].hits) {
@@ -321,7 +319,7 @@ export class DataManager {
             }
 
             expiredKeys.forEach(key => this.dataCache.delete(key));
-
+            
             if (expiredKeys.length > 0) {
                 console.log(`Cleaned up ${expiredKeys.length} expired cache entries`);
             }
@@ -336,25 +334,25 @@ export class DataManager {
             (response) => response,
             async (error) => {
                 const config = error.config;
-
+                
                 // Handle rate limiting (HTTP 429)
                 if (error.response?.status === 429 && !config._retry) {
                     config._retry = true;
                     const retryAfter = error.response.headers['retry-after'] || 1;
-
+                    
                     console.warn(`Rate limited, retrying after ${retryAfter} seconds`);
                     await this.delay(retryAfter * 1000);
-
+                    
                     return this.axiosInstance(config);
                 }
 
                 // Handle server errors (5xx)
                 if (error.response?.status >= 500 && !config._retry) {
                     config._retry = true;
-
+                    
                     console.warn(`Server error (${error.response.status}), retrying...`);
                     await this.delay(this.connectionConfig.retryDelay);
-
+                    
                     return this.axiosInstance(config);
                 }
 
@@ -406,7 +404,7 @@ export class DataManager {
             '1w': '1w',
             '1M': '1M'
         };
-
+        
         return mapping[timeframe] || timeframe;
     }
 
@@ -431,7 +429,7 @@ export class DataManager {
             '1w': 7 * 24 * 60 * 60 * 1000,
             '1M': 30 * 24 * 60 * 60 * 1000
         };
-
+        
         return mapping[interval] || 60 * 1000; // Default to 1 minute
     }
 
@@ -461,11 +459,19 @@ export class DataManager {
     }
 
     /**
+     * Clear cache
+     */
+    clearCache(): void {
+        this.dataCache.clear();
+        console.log('Cache cleared');
+    }
+
+    /**
      * Warm up cache with common symbols
      */
     async warmUpCache(symbols: string[], timeframes: string[] = ['1h', '4h', '1d']): Promise<void> {
         console.log('Warming up cache...');
-
+        
         const endDate = new Date();
         const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
 
@@ -538,16 +544,16 @@ export class DataManager {
         // Check for basic data integrity
         for (let i = 0; i < candles.length; i++) {
             const candle = candles[i];
-
+            
             // Check for invalid OHLC relationships
             if (candle.high < candle.low) {
                 issues.push(`Invalid OHLC at index ${i}: high (${candle.high}) < low (${candle.low})`);
             }
-
+            
             if (candle.high < candle.open || candle.high < candle.close) {
                 issues.push(`Invalid OHLC at index ${i}: high is not the highest price`);
             }
-
+            
             if (candle.low > candle.open || candle.low > candle.close) {
                 issues.push(`Invalid OHLC at index ${i}: low is not the lowest price`);
             }
@@ -565,11 +571,11 @@ export class DataManager {
         // Check for time gaps (assuming consistent timeframe)
         if (candles.length > 1) {
             const timeInterval = candles[1].timestamp - candles[0].timestamp;
-
+            
             for (let i = 1; i < candles.length; i++) {
                 const expectedTime = candles[i - 1].timestamp + timeInterval;
                 const actualTime = candles[i].timestamp;
-
+                
                 if (Math.abs(actualTime - expectedTime) > timeInterval * 0.1) { // Allow 10% tolerance
                     gaps.push({ index: i, expectedTime, actualTime });
                 }
@@ -595,7 +601,7 @@ export class DataManager {
             },
             candles: candles
         };
-
+        
         await fs.writeFile(filename, JSON.stringify(data, null, 2));
         console.log(`Exported ${candles.length} candles to ${filename}`);
     }
@@ -603,7 +609,7 @@ export class DataManager {
     async importFromJson(filename: string): Promise<OHLCVCandle[]> {
         const fs = require('fs').promises;
         const data = JSON.parse(await fs.readFile(filename, 'utf8'));
-
+        
         if (!data.candles || !Array.isArray(data.candles)) {
             throw new Error('Invalid data format in JSON file');
         }
@@ -621,5 +627,124 @@ export class DataManager {
 
     getCacheSize(): number {
         return this.dataCache.size;
+    }
+
+    private setupInterceptors() {
+        // Request interceptor for adding API key
+        this.axiosInstance.interceptors.request.use(config => {
+            // Add your API key here
+            config.headers['X-MBX-APIKEY'] = 'your_api_key';
+            return config;
+        }, error => {
+            return Promise.reject(error);
+        });
+
+        // Response interceptor for caching
+        this.axiosInstance.interceptors.response.use(response => {
+            // Cache response data
+            return response;
+        }, error => {
+            return Promise.reject(error);
+        });
+    }
+
+    private startCacheCleanup() {
+        setInterval(() => {
+            const now = Date.now();
+            const ttl = this.cacheConfig.ttlMinutes * 60 * 1000;
+
+            for (const [key, entry] of this.dataCache.entries()) {
+                if (now - entry.timestamp > ttl) {
+                    this.dataCache.delete(key);
+                    console.log(`Cache entry expired and removed: ${key}`);
+                }
+            }
+        }, 60 * 1000); // Run every minute
+    }
+
+    private generateCacheKey(config: HistoricalDataConfig): string {
+        return `${config.symbol}_${config.timeframe}_${config.startDate.getTime()}_${config.endDate.getTime()}`;
+    }
+
+    private getCachedData(key: string): CacheEntry | undefined {
+        const entry = this.dataCache.get(key);
+        if (entry) {
+            entry.hits++;
+        }
+        return entry;
+    }
+
+    private setCachedData(key: string, data: OHLCVCandle[]): void {
+        if (this.dataCache.size >= this.cacheConfig.maxCacheSize) {
+            this.evictCacheEntry();
+        }
+
+        const entry: CacheEntry = {
+            data,
+            timestamp: Date.now(),
+            hits: 1
+        };
+
+        this.dataCache.set(key, entry);
+    }
+
+    private evictCacheEntry(): void {
+        let oldestKey: string | undefined;
+        let oldestTimestamp = Date.now();
+
+        for (const [key, entry] of this.dataCache.entries()) {
+            if (entry.timestamp < oldestTimestamp) {
+                oldestTimestamp = entry.timestamp;
+                oldestKey = key;
+            }
+        }
+
+        if (oldestKey) {
+            this.dataCache.delete(oldestKey);
+            console.log(`Evicted oldest cache entry: ${oldestKey}`);
+        }
+    }
+
+    private async waitForConnection(): Promise<void> {
+        while (this.activeRequests >= this.connectionConfig.maxConnections) {
+            await this.delay(100);
+        }
+    }
+
+    private processQueue(): void {
+        if (this.requestQueue.length === 0) {
+            return;
+        }
+
+        const request = this.requestQueue.shift();
+        if (request) {
+            request();
+        }
+    }
+
+    private delay(ms: number): Promise<void> {
+        return new Promise(resolve => setTimeout(resolve, ms));
+    }
+
+    private getIntervalMs(interval: string): number {
+        const mapping: { [key: string]: number } = {
+            '1m': 60 * 1000,
+            '3m': 3 * 60 * 1000,
+            '5m': 5 * 60 * 1000,
+            '15m': 15 * 60 * 1000,
+            '30m': 30 * 60 * 1000,
+            '1h': 60 * 60 * 1000,
+            '2h': 2 * 60 * 60 * 1000,
+            '4h': 4 * 60 * 60 * 1000,
+            '6h': 6 * 60 * 60 * 1000,
+            '8h': 8 * 60 * 60 * 1000,
+            '12h': 12 * 60 * 60 * 1000,
+            '1d': 24 * 60 * 60 * 1000,
+            '3d': 3 * 24 * 60 * 60 * 1000,
+            '1w': 7 * 24 * 60 * 60 * 1000,
+            '1M': 30 * 24 * 60 * 60 * 1000 // Approximation
+        };
+
+        return mapping[interval] || 60 * 1000;
     }
 }

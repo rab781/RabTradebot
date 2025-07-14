@@ -1,5 +1,15 @@
-import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
+import { DataFrame, DataFrameBuilder } from '../types/dataframe';
 import axios, { AxiosInstance } from 'axios';
+
+// Define our own OHLCV interface to avoid conflicts
+export interface OHLCVCandle {
+    timestamp: Date;
+    open: number;
+    high: number;
+    low: number;
+    close: number;
+    volume: number;
+}
 
 export interface HistoricalDataConfig {
     symbol: string;
@@ -29,7 +39,7 @@ interface ConnectionPoolConfig {
     maxRetries: number;
 }
 
-export class DataManager {
+export class EnhancedDataManager {
     private baseUrl = 'https://api.binance.com/api/v3';
     private dataCache = new Map<string, CacheEntry>();
     private axiosInstance: AxiosInstance;
@@ -63,20 +73,19 @@ export class DataManager {
         this.axiosInstance = axios.create({
             timeout: this.connectionConfig.timeout,
             maxRedirects: 5,
-            // Connection pooling configuration
             headers: {
                 'Connection': 'keep-alive',
                 'Keep-Alive': 'timeout=5, max=1000'
             }
         });
 
-        // Setup request interceptors for rate limiting and retry logic
         this.setupInterceptors();
-
-        // Start cache cleanup interval
         this.startCacheCleanup();
     }
 
+    /**
+     * Download historical data with caching and optimizations
+     */
     async downloadHistoricalData(config: HistoricalDataConfig): Promise<OHLCVCandle[]> {
         const cacheKey = this.generateCacheKey(config);
 
@@ -87,14 +96,11 @@ export class DataManager {
             return cachedData.data;
         }
 
-        console.log(`Downloading historical data for ${config.symbol} from ${config.startDate} to ${config.endDate}`);
+        console.log(`Downloading historical data for ${config.symbol}`);
 
         try {
             const data = await this.downloadDataWithRetry(config);
-
-            // Cache the downloaded data
             this.setCachedData(cacheKey, data);
-
             return data;
         } catch (error) {
             console.error(`Error downloading data for ${config.symbol}:`, error);
@@ -109,9 +115,7 @@ export class DataManager {
         return new Promise((resolve, reject) => {
             const executeRequest = async () => {
                 try {
-                    // Wait for connection availability
                     await this.waitForConnection();
-
                     const data = await this.fetchHistoricalDataBatched(config);
                     resolve(data);
                 } catch (error) {
@@ -122,7 +126,6 @@ export class DataManager {
                 }
             };
 
-            // Add to queue if max connections reached
             if (this.activeRequests >= this.connectionConfig.maxConnections) {
                 this.requestQueue.push(executeRequest);
             } else {
@@ -133,7 +136,7 @@ export class DataManager {
     }
 
     /**
-     * Fetch historical data in batches to handle large date ranges
+     * Fetch historical data in batches
      */
     private async fetchHistoricalDataBatched(config: HistoricalDataConfig): Promise<OHLCVCandle[]> {
         const interval = this.convertTimeframeToInterval(config.timeframe);
@@ -165,13 +168,12 @@ export class DataManager {
                 }
 
                 const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                    timestamp: candle[0], // Keep as number (milliseconds)
+                    timestamp: new Date(candle[0]),
                     open: parseFloat(candle[1]),
                     high: parseFloat(candle[2]),
                     low: parseFloat(candle[3]),
                     close: parseFloat(candle[4]),
-                    volume: parseFloat(candle[5]),
-                    date: new Date(candle[0]) // Date object in separate field
+                    volume: parseFloat(candle[5])
                 }));
 
                 allCandles.push(...candles);
@@ -179,16 +181,13 @@ export class DataManager {
                 // Update start time for next batch
                 if (candles.length > 0) {
                     const lastCandle = candles[candles.length - 1];
-                    currentStartTime = lastCandle.timestamp + this.getIntervalMs(interval);
+                    currentStartTime = (lastCandle.timestamp as any).getTime() + this.getIntervalMs(interval);
                 } else {
                     break;
                 }
 
-                // Reset retry count on successful request
                 retryCount = 0;
-
-                // Add delay between requests to respect rate limits
-                await this.delay(100);
+                await this.delay(100); // Rate limiting
 
             } catch (error) {
                 retryCount++;
@@ -206,44 +205,27 @@ export class DataManager {
         return allCandles;
     }
 
-    async getRecentData(symbol: string, timeframe: string, limit: number = 100): Promise<OHLCVCandle[]> {
-        try {
-            const interval = this.convertTimeframeToInterval(timeframe);
-
-            const response = await axios.get(`${this.baseUrl}/klines`, {
-                params: {
-                    symbol: symbol,
-                    interval: interval,
-                    limit: limit
-                }
-            });
-
-            const rawCandles = response.data;
-            const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                timestamp: candle[0],
-                open: parseFloat(candle[1]),
-                high: parseFloat(candle[2]),
-                low: parseFloat(candle[3]),
-                close: parseFloat(candle[4]),
-                volume: parseFloat(candle[5]),
-                date: new Date(candle[0])
-            }));
-
-            return candles;
-
-        } catch (error) {
-            console.error(`Error fetching recent data for ${symbol}:`, error);
-            throw error;
-        }
-    }
-
-    convertToDataFrame(candles: OHLCVCandle[]): DataFrame {
-        return DataFrameBuilder.fromCandles(candles);
-    }
-
     /**
-     * Get cached data if available and not expired
+     * Create DataFrame from OHLCV data
      */
+    createDataFrame(candles: OHLCVCandle[]): DataFrame {
+        const builder = new DataFrameBuilder();
+
+        const ohlcvCandles = candles.map(candle => ({
+            timestamp: candle.timestamp.getTime(),
+            open: candle.open,
+            high: candle.high,
+            low: candle.low,
+            close: candle.close,
+            volume: candle.volume,
+            date: candle.timestamp
+        }));
+
+        builder.addCandles(ohlcvCandles);
+        return builder.build();
+    }
+
+    // Cache management methods
     private getCachedData(cacheKey: string): CacheEntry | null {
         const entry = this.dataCache.get(cacheKey);
         if (!entry) return null;
@@ -254,41 +236,28 @@ export class DataManager {
             return null;
         }
 
-        // Increment hit counter
         entry.hits++;
         return entry;
     }
 
-    /**
-     * Cache data with TTL
-     */
     private setCachedData(cacheKey: string, data: OHLCVCandle[]): void {
-        // Check if cache is full
         if (this.dataCache.size >= this.cacheConfig.maxCacheSize) {
             this.evictLeastUsedEntries();
         }
 
         this.dataCache.set(cacheKey, {
-            data: [...data], // Deep copy to prevent mutations
+            data: [...data],
             timestamp: Date.now(),
             hits: 1
         });
     }
 
-    /**
-     * Generate cache key for data request
-     */
     private generateCacheKey(config: HistoricalDataConfig): string {
         return `${config.symbol}_${config.timeframe}_${config.startDate.getTime()}_${config.endDate.getTime()}_${config.limit || 'all'}`;
     }
 
-    /**
-     * Evict least recently used cache entries
-     */
     private evictLeastUsedEntries(): void {
         const entries = Array.from(this.dataCache.entries());
-
-        // Sort by hits (ascending) and then by timestamp (ascending)
         entries.sort((a, b) => {
             if (a[1].hits !== b[1].hits) {
                 return a[1].hits - b[1].hits;
@@ -296,7 +265,6 @@ export class DataManager {
             return a[1].timestamp - b[1].timestamp;
         });
 
-        // Remove 20% of least used entries
         const entriesToRemove = Math.floor(entries.length * 0.2);
         for (let i = 0; i < entriesToRemove; i++) {
             this.dataCache.delete(entries[i][0]);
@@ -305,9 +273,6 @@ export class DataManager {
         console.log(`Evicted ${entriesToRemove} cache entries`);
     }
 
-    /**
-     * Start cache cleanup interval
-     */
     private startCacheCleanup(): void {
         setInterval(() => {
             const expiredKeys: string[] = [];
@@ -325,19 +290,16 @@ export class DataManager {
             if (expiredKeys.length > 0) {
                 console.log(`Cleaned up ${expiredKeys.length} expired cache entries`);
             }
-        }, 5 * 60 * 1000); // Every 5 minutes
+        }, 5 * 60 * 1000);
     }
 
-    /**
-     * Setup axios interceptors for retry logic and rate limiting
-     */
+    // Connection management methods
     private setupInterceptors(): void {
         this.axiosInstance.interceptors.response.use(
             (response) => response,
             async (error) => {
                 const config = error.config;
 
-                // Handle rate limiting (HTTP 429)
                 if (error.response?.status === 429 && !config._retry) {
                     config._retry = true;
                     const retryAfter = error.response.headers['retry-after'] || 1;
@@ -348,13 +310,10 @@ export class DataManager {
                     return this.axiosInstance(config);
                 }
 
-                // Handle server errors (5xx)
                 if (error.response?.status >= 500 && !config._retry) {
                     config._retry = true;
-
                     console.warn(`Server error (${error.response.status}), retrying...`);
                     await this.delay(this.connectionConfig.retryDelay);
-
                     return this.axiosInstance(config);
                 }
 
@@ -363,18 +322,12 @@ export class DataManager {
         );
     }
 
-    /**
-     * Wait for available connection slot
-     */
     private async waitForConnection(): Promise<void> {
         while (this.activeRequests >= this.connectionConfig.maxConnections) {
             await this.delay(100);
         }
     }
 
-    /**
-     * Process queued requests
-     */
     private processQueue(): void {
         if (this.requestQueue.length > 0 && this.activeRequests < this.connectionConfig.maxConnections) {
             const nextRequest = this.requestQueue.shift();
@@ -385,66 +338,34 @@ export class DataManager {
         }
     }
 
-    /**
-     * Convert timeframe to Binance interval format
-     */
+    // Utility methods
     private convertTimeframeToInterval(timeframe: string): string {
         const mapping: { [key: string]: string } = {
-            '1m': '1m',
-            '3m': '3m',
-            '5m': '5m',
-            '15m': '15m',
-            '30m': '30m',
-            '1h': '1h',
-            '2h': '2h',
-            '4h': '4h',
-            '6h': '6h',
-            '8h': '8h',
-            '12h': '12h',
-            '1d': '1d',
-            '3d': '3d',
-            '1w': '1w',
-            '1M': '1M'
+            '1m': '1m', '3m': '3m', '5m': '5m', '15m': '15m', '30m': '30m',
+            '1h': '1h', '2h': '2h', '4h': '4h', '6h': '6h', '8h': '8h', '12h': '12h',
+            '1d': '1d', '3d': '3d', '1w': '1w', '1M': '1M'
         };
 
         return mapping[timeframe] || timeframe;
     }
 
-    /**
-     * Get interval in milliseconds
-     */
     private getIntervalMs(interval: string): number {
         const mapping: { [key: string]: number } = {
-            '1m': 60 * 1000,
-            '3m': 3 * 60 * 1000,
-            '5m': 5 * 60 * 1000,
-            '15m': 15 * 60 * 1000,
-            '30m': 30 * 60 * 1000,
-            '1h': 60 * 60 * 1000,
-            '2h': 2 * 60 * 60 * 1000,
-            '4h': 4 * 60 * 60 * 1000,
-            '6h': 6 * 60 * 60 * 1000,
-            '8h': 8 * 60 * 60 * 1000,
-            '12h': 12 * 60 * 60 * 1000,
-            '1d': 24 * 60 * 60 * 1000,
-            '3d': 3 * 24 * 60 * 60 * 1000,
-            '1w': 7 * 24 * 60 * 60 * 1000,
-            '1M': 30 * 24 * 60 * 60 * 1000
+            '1m': 60 * 1000, '3m': 3 * 60 * 1000, '5m': 5 * 60 * 1000,
+            '15m': 15 * 60 * 1000, '30m': 30 * 60 * 1000, '1h': 60 * 60 * 1000,
+            '2h': 2 * 60 * 60 * 1000, '4h': 4 * 60 * 60 * 1000, '6h': 6 * 60 * 60 * 1000,
+            '8h': 8 * 60 * 60 * 1000, '12h': 12 * 60 * 60 * 1000, '1d': 24 * 60 * 60 * 1000,
+            '3d': 3 * 24 * 60 * 60 * 1000, '1w': 7 * 24 * 60 * 60 * 1000, '1M': 30 * 24 * 60 * 60 * 1000
         };
 
-        return mapping[interval] || 60 * 1000; // Default to 1 minute
+        return mapping[interval] || 60 * 1000;
     }
 
-    /**
-     * Utility delay function
-     */
     private delay(ms: number): Promise<void> {
         return new Promise(resolve => setTimeout(resolve, ms));
     }
 
-    /**
-     * Get cache statistics
-     */
+    // Public utility methods
     getCacheStats(): { size: number; hitRate: number; totalHits: number } {
         let totalHits = 0;
         for (const entry of this.dataCache.values()) {
@@ -453,32 +374,26 @@ export class DataManager {
 
         const hitRate = this.dataCache.size > 0 ? totalHits / this.dataCache.size : 0;
 
-        return {
-            size: this.dataCache.size,
-            hitRate,
-            totalHits
-        };
+        return { size: this.dataCache.size, hitRate, totalHits };
     }
 
-    /**
-     * Warm up cache with common symbols
-     */
+    clearCache(): void {
+        this.dataCache.clear();
+        console.log('Cache cleared');
+    }
+
     async warmUpCache(symbols: string[], timeframes: string[] = ['1h', '4h', '1d']): Promise<void> {
         console.log('Warming up cache...');
 
         const endDate = new Date();
-        const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000); // 30 days ago
+        const startDate = new Date(endDate.getTime() - 30 * 24 * 60 * 60 * 1000);
 
         const promises: Promise<any>[] = [];
 
         for (const symbol of symbols) {
             for (const timeframe of timeframes) {
                 const config: HistoricalDataConfig = {
-                    symbol,
-                    timeframe,
-                    startDate,
-                    endDate,
-                    limit: 500
+                    symbol, timeframe, startDate, endDate, limit: 500
                 };
 
                 promises.push(
@@ -487,139 +402,11 @@ export class DataManager {
                     })
                 );
 
-                // Add small delay between requests
                 await this.delay(50);
             }
         }
 
         await Promise.allSettled(promises);
         console.log(`Cache warmed up with ${symbols.length} symbols and ${timeframes.length} timeframes`);
-    }
-
-    // Utility methods for data analysis
-    getDataSummary(candles: OHLCVCandle[]): {
-        count: number;
-        startDate: Date;
-        endDate: Date;
-        priceRange: { min: number; max: number };
-        avgVolume: number;
-    } {
-        if (candles.length === 0) {
-            throw new Error('No candles provided');
-        }
-
-        const prices = candles.flatMap(c => [c.open, c.high, c.low, c.close]);
-        const volumes = candles.map(c => c.volume);
-
-        return {
-            count: candles.length,
-            startDate: candles[0].date,
-            endDate: candles[candles.length - 1].date,
-            priceRange: {
-                min: Math.min(...prices),
-                max: Math.max(...prices)
-            },
-            avgVolume: volumes.reduce((sum, v) => sum + v, 0) / volumes.length
-        };
-    }
-
-    validateDataQuality(candles: OHLCVCandle[]): {
-        isValid: boolean;
-        issues: string[];
-        gaps: { index: number; expectedTime: number; actualTime: number }[];
-    } {
-        const issues: string[] = [];
-        const gaps: { index: number; expectedTime: number; actualTime: number }[] = [];
-
-        if (candles.length === 0) {
-            return { isValid: false, issues: ['No data provided'], gaps: [] };
-        }
-
-        // Check for basic data integrity
-        for (let i = 0; i < candles.length; i++) {
-            const candle = candles[i];
-
-            // Check for invalid OHLC relationships
-            if (candle.high < candle.low) {
-                issues.push(`Invalid OHLC at index ${i}: high (${candle.high}) < low (${candle.low})`);
-            }
-
-            if (candle.high < candle.open || candle.high < candle.close) {
-                issues.push(`Invalid OHLC at index ${i}: high is not the highest price`);
-            }
-
-            if (candle.low > candle.open || candle.low > candle.close) {
-                issues.push(`Invalid OHLC at index ${i}: low is not the lowest price`);
-            }
-
-            // Check for zero or negative values
-            if (candle.open <= 0 || candle.high <= 0 || candle.low <= 0 || candle.close <= 0) {
-                issues.push(`Invalid prices at index ${i}: zero or negative values`);
-            }
-
-            if (candle.volume < 0) {
-                issues.push(`Invalid volume at index ${i}: negative volume`);
-            }
-        }
-
-        // Check for time gaps (assuming consistent timeframe)
-        if (candles.length > 1) {
-            const timeInterval = candles[1].timestamp - candles[0].timestamp;
-
-            for (let i = 1; i < candles.length; i++) {
-                const expectedTime = candles[i - 1].timestamp + timeInterval;
-                const actualTime = candles[i].timestamp;
-
-                if (Math.abs(actualTime - expectedTime) > timeInterval * 0.1) { // Allow 10% tolerance
-                    gaps.push({ index: i, expectedTime, actualTime });
-                }
-            }
-        }
-
-        return {
-            isValid: issues.length === 0,
-            issues,
-            gaps
-        };
-    }
-
-    // Data export/import functions
-    async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
-        const fs = require('fs').promises;
-        const data = {
-            metadata: {
-                count: candles.length,
-                startDate: candles[0]?.date,
-                endDate: candles[candles.length - 1]?.date,
-                exported: new Date()
-            },
-            candles: candles
-        };
-
-        await fs.writeFile(filename, JSON.stringify(data, null, 2));
-        console.log(`Exported ${candles.length} candles to ${filename}`);
-    }
-
-    async importFromJson(filename: string): Promise<OHLCVCandle[]> {
-        const fs = require('fs').promises;
-        const data = JSON.parse(await fs.readFile(filename, 'utf8'));
-
-        if (!data.candles || !Array.isArray(data.candles)) {
-            throw new Error('Invalid data format in JSON file');
-        }
-
-        return data.candles.map((candle: any) => ({
-            ...candle,
-            date: new Date(candle.date)
-        }));
-    }
-
-    clearCache(): void {
-        this.dataCache.clear();
-        console.log('Data cache cleared');
-    }
-
-    getCacheSize(): number {
-        return this.dataCache.size;
     }
 }
