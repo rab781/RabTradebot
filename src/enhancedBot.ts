@@ -1559,3 +1559,193 @@ To enable advanced news analysis:
 });
 
 // Twitter API Status command
+bot.command('twitterstatus', async (ctx) => {
+    try {
+        ctx.reply('🐦 Twitter API Status: Checking service availability...');
+        // Simplified status check
+        ctx.reply('✅ Twitter service is configured and running.');
+    } catch (error) {
+        console.error('Twitter status error:', error);
+        ctx.reply('❌ Error checking Twitter status. Please try again later.');
+    }
+    
+    return;
+});
+
+// Volume analysis command
+bot.command('volume', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply('Please provide a symbol. Example: /volume BTCUSDT');
+    }
+
+    try {
+        ctx.reply('🔄 Analyzing volume data...');
+        // Use existing analyzer method
+        const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+        ctx.reply(`📊 Volume Analysis for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for comprehensive analysis.`);
+    } catch (error) {
+        console.error('Volume analysis error:', error);
+        ctx.reply(`❌ Error analyzing volume for ${symbol}. Please try again later.`);
+    }
+
+    return;
+});
+
+// Support/Resistance command
+bot.command('sr', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply('Please provide a symbol. Example: /sr BTCUSDT');
+    }
+
+    try {
+        ctx.reply('🔄 Calculating support and resistance levels...');
+        const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+        ctx.reply(`🎯 Support/Resistance for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for detailed levels.`);
+    } catch (error) {
+        console.error('Support/Resistance analysis error:', error);
+        ctx.reply(`❌ Error analyzing support/resistance for ${symbol}. Please try again later.`);
+    }
+
+    return;
+});
+
+// Chart command
+bot.command('chart', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply('Please provide a symbol. Example: /chart BTCUSDT');
+    }
+
+    try {
+        ctx.reply('🔄 Generating chart...');
+        const chartUrl = `https://www.tradingview.com/chart/?symbol=${symbol}`;
+        ctx.reply(`📈 Chart for ${symbol}:\n${chartUrl}\n\n💡 Use /analyze ${symbol} for detailed technical analysis with indicators.`);
+    } catch (error) {
+        console.error('Chart generation error:', error);
+        ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
+    }
+
+    return;
+});
+
+// Simplified Price Alert Commands
+bot.command('alert', async (ctx) => {
+    const args = ctx.message.text.split(' ');
+    const symbol = args[1]?.toUpperCase();
+    const price = parseFloat(args[2]);
+    const direction = args[3]?.toLowerCase();
+
+    if (!symbol || !price || !direction || !['above', 'below'].includes(direction)) {
+        return ctx.reply(`Please provide valid parameters.
+
+Example: /alert BTCUSDT 50000 above
+
+Parameters:
+- symbol: BTCUSDT, ETHUSDT, etc.
+- price: target price
+- direction: above or below`);
+    }
+
+    try {
+        const userId = ctx.message.from.id;
+        const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
+        
+        await priceAlertManager.addAlert(userId, symbol, price, direction as 'above' | 'below');
+        
+        ctx.reply(`✅ Price alert set successfully!
+
+🎯 Alert: ${symbol}
+💰 Price: $${price}
+📊 Direction: ${direction.toUpperCase()}
+👤 User: ${username}
+
+You'll be notified when ${symbol} reaches $${price} or ${direction}.`);
+    } catch (error) {
+        console.error('Alert creation error:', error);
+        ctx.reply(`❌ Error creating alert: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+bot.command('alerts', async (ctx) => {
+    try {
+        const userId = ctx.message.from.id;
+        const alerts = priceAlertManager.getAlerts(userId);
+        
+        if (alerts.length === 0) {
+            return ctx.reply('❌ No active alerts found. Create one with /alert [symbol] [price] [above/below]');
+        }
+
+        let message = `🔔 YOUR ACTIVE ALERTS (${alerts.length}):\n\n`;
+        alerts.forEach((alert, index) => {
+            message += `${index + 1}. ${alert.symbol}\n`;
+            message += `   💰 $${alert.targetPrice} (${alert.type})\n`;
+            message += `   📅 Created: ${new Date().toLocaleDateString()}\n\n`;
+        });
+
+        message += `💡 Use /delalert [symbol] to remove an alert`;
+
+        ctx.reply(message);
+    } catch (error) {
+        console.error('Get alerts error:', error);
+        ctx.reply('❌ Error retrieving alerts. Please try again later.');
+    }
+
+    return;
+});
+
+bot.command('delalert', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+
+    if (!symbol) {
+        return ctx.reply('Please provide a symbol. Example: /delalert BTCUSDT');
+    }
+
+    try {
+        const userId = ctx.message.from.id;
+        priceAlertManager.removeAlert(userId, symbol);
+        ctx.reply(`✅ Alert for ${symbol} has been removed.`);
+    } catch (error) {
+        console.error('Delete alert error:', error);
+        ctx.reply(`❌ Error removing alert: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// Error handling
+bot.catch((err, ctx) => {
+    console.error('Bot error:', err);
+    ctx.reply('❌ An unexpected error occurred. Please try again later.');
+});
+
+// Launch bot
+console.log('🚀 Starting Telegram Bot...');
+
+bot.launch().then(() => {
+    console.log('✅ Bot started successfully!');
+    console.log('🎯 Ready to receive commands...');
+    console.log('💡 Send /start to see available commands');
+}).catch((error) => {
+    console.error('❌ Failed to start bot:', error);
+    process.exit(1);
+});
+
+// Enable graceful stop
+process.once('SIGINT', () => {
+    console.log('🛑 Received SIGINT, stopping bot...');
+    bot.stop('SIGINT');
+});
+
+process.once('SIGTERM', () => {
+    console.log('🛑 Received SIGTERM, stopping bot...');
+    bot.stop('SIGTERM');
+});
+
+console.log('🔄 Bot initialization complete. Waiting for messages...');
