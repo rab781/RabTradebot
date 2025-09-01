@@ -59,13 +59,13 @@ export class ConfigManager {
 
             const configData = fs.readFileSync(this.configPath, 'utf8');
             const config = JSON.parse(configData) as BotConfig;
-            
+
             // Validate required fields
             this.validateConfig(config);
-            
+
             console.log(`✅ Configuration loaded from ${this.configPath}`);
             return config;
-            
+
         } catch (error) {
             console.error('❌ Error loading configuration:', error);
             throw error;
@@ -112,7 +112,14 @@ export class ConfigManager {
     }
 
     public getTelegramConfig(): TelegramConfig {
-        return { ...this.config.telegram };
+        const config = { ...this.config.telegram };
+
+        // Use environment variable if token is empty in config
+        if (!config.token && process.env.TELEGRAM_BOT_TOKEN) {
+            config.token = process.env.TELEGRAM_BOT_TOKEN;
+        }
+
+        return config;
     }
 
     public updateConfig(updates: Partial<BotConfig>): void {
@@ -192,27 +199,27 @@ export class ConfigManager {
         if (process.env.STAKE_CURRENCY) {
             this.config.trading.stake_currency = process.env.STAKE_CURRENCY;
         }
-        
+
         if (process.env.STAKE_AMOUNT) {
             this.config.trading.stake_amount = parseFloat(process.env.STAKE_AMOUNT);
         }
-        
+
         if (process.env.MAX_OPEN_TRADES) {
             this.config.trading.max_open_trades = parseInt(process.env.MAX_OPEN_TRADES);
         }
-        
+
         if (process.env.BINANCE_API_KEY) {
             this.config.exchange.key = process.env.BINANCE_API_KEY;
         }
-        
+
         if (process.env.BINANCE_API_SECRET) {
             this.config.exchange.secret = process.env.BINANCE_API_SECRET;
         }
-        
+
         if (process.env.TELEGRAM_BOT_TOKEN) {
             this.config.telegram.token = process.env.TELEGRAM_BOT_TOKEN;
         }
-        
+
         if (process.env.TELEGRAM_CHAT_ID) {
             this.config.telegram.chat_id = process.env.TELEGRAM_CHAT_ID;
         }
@@ -256,7 +263,7 @@ export class ConfigManager {
 
     public getConfigSummary(): string {
         const validation = this.validateTradingSetup();
-        
+
         return `
 📊 TRADING CONFIGURATION SUMMARY
 
