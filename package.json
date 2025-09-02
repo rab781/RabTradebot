@@ -50,6 +50,7 @@
     "@types/cheerio": "^0.22.35",
     "@types/node-telegram-bot-api": "^0.64.9",
     "@types/uuid": "^10.0.0",
+    "@types/ws": "^8.18.1",
     "axios": "^1.10.0",
     "cheerio": "^1.0.0",
     "compromise": "^14.14.4",
@@ -67,7 +68,8 @@
     "ts-node": "^10.9.2",
     "twitter-api-v2": "^1.24.0",
     "typescript": "^5.8.3",
-    "uuid": "^11.1.0"
+    "uuid": "^11.1.0",
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/jest": "^29.5.12",

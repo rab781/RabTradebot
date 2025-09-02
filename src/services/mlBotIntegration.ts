@@ -15,7 +15,7 @@ export class MLBotIntegration {
   private ensembleService: EnsembleStrategyService;
   private randomForestService: RandomForestService;
   private lstmService: LSTMPredictionService;
-  private sentimentService: AdvancedSentimentService;
+  // private sentimentService: AdvancedSentimentService; // Temporarily disabled
   private isInitialized: boolean = false;
 
   constructor(bot: TelegramBot) {
@@ -23,7 +23,7 @@ export class MLBotIntegration {
     this.ensembleService = new EnsembleStrategyService();
     this.randomForestService = new RandomForestService();
     this.lstmService = new LSTMPredictionService();
-    this.sentimentService = new AdvancedSentimentService();
+    // this.sentimentService = new AdvancedSentimentService(); // Temporarily disabled
 
     console.log('🤖 ML Bot Integration initialized');
   }
@@ -293,9 +293,13 @@ export class MLBotIntegration {
         `${symbol} community is very optimistic about upcoming developments`
       ];
 
-      const sentimentResult = await this.sentimentService.analyzeSentiment(symbol, sampleTexts, true);
+      // const sentimentResult = await this.sentimentService.analyzeSentiment(symbol, sampleTexts, true);
 
       let response = `💭 **Sentiment Analysis for ${symbol}**\n\n`;
+      response += `🚧 **Status**: Temporarily disabled for debugging\n`;
+      response += `🎯 **Coming Soon**: Full sentiment analysis\n\n`;
+      
+      /*
       response += `🎭 **Overall Sentiment**: ${sentimentResult.overall_sentiment.toFixed(3)}\n`;
       response += `💪 **Sentiment Strength**: ${(sentimentResult.sentiment_strength * 100).toFixed(1)}%\n`;
       response += `📈 **Trend**: ${sentimentResult.sentiment_trend.toUpperCase()}\n\n`;
@@ -317,6 +321,7 @@ export class MLBotIntegration {
 
       const cacheStats = this.sentimentService.getCacheStats();
       response += `\n📊 **Cache Stats**: ${cacheStats.size} entries, ${cacheStats.memoryUsage}`;
+      */
 
       await this.bot.editMessageText(response, {
         chat_id: chatId,
@@ -348,16 +353,16 @@ export class MLBotIntegration {
       const [
         ensembleResult,
         rfPrediction,
-        lstmPrediction,
-        sentimentResult
+        lstmPrediction
+        // sentimentResult
       ] = await Promise.all([
         this.ensembleService.generateEnsembleSignal(symbol, sampleCandles),
         this.randomForestService.predict(symbol, sampleCandles, '1h'),
-        this.lstmService.predict(symbol, sampleCandles, '1h'),
-        this.sentimentService.analyzeSentiment(symbol, [
-          `${symbol} technical analysis shows strong signals`,
-          `Market sentiment for ${symbol} is positive`
-        ])
+        this.lstmService.predict(symbol, sampleCandles, '1h')
+        // this.sentimentService.analyzeSentiment(symbol, [
+        //   `${symbol} technical analysis shows strong signals`,
+        //   `Market sentiment for ${symbol} is positive`
+        // ])
       ]);
 
       let response = `🔬 **Comprehensive ML Analysis for ${symbol}**\n\n`;
@@ -378,14 +383,17 @@ export class MLBotIntegration {
       response += `• Confidence: ${(lstmPrediction.confidence * 100).toFixed(1)}%\n\n`;
 
       response += `💭 **SENTIMENT ANALYSIS**\n`;
+      response += `• Status: 🚧 Temporarily disabled\n\n`;
+      /*
       response += `• Trend: ${sentimentResult.sentiment_trend}\n`;
       response += `• Score: ${sentimentResult.overall_sentiment.toFixed(3)}\n`;
       response += `• Strength: ${(sentimentResult.sentiment_strength * 100).toFixed(1)}%\n\n`;
+      */
 
       response += `⚖️ **CONSENSUS**: `;
-      const signals = [rfPrediction.direction, lstmPrediction.direction, sentimentResult.sentiment_trend];
-      const bullishCount = signals.filter(s => s === 'up' || s === 'bullish').length;
-      const bearishCount = signals.filter(s => s === 'down' || s === 'bearish').length;
+      const signals = [rfPrediction.direction, lstmPrediction.direction]; // removed sentimentResult.sentiment_trend
+      const bullishCount = signals.filter(s => s === 'up').length;
+      const bearishCount = signals.filter(s => s === 'down').length;
 
       if (bullishCount > bearishCount) {
         response += `BULLISH (${bullishCount}/3 models)`;
@@ -417,7 +425,7 @@ export class MLBotIntegration {
       const rfStats = this.randomForestService.getServiceStats();
       const lstmStats = this.lstmService.getServiceStats();
       const ensembleStats = this.ensembleService.getEnsembleStats();
-      const sentimentStats = this.sentimentService.getCacheStats();
+      // const sentimentStats = this.sentimentService.getCacheStats();
 
       let response = `📊 **ML Services Statistics**\n\n`;
 
@@ -437,9 +445,12 @@ export class MLBotIntegration {
       response += `• Current Regime: ${ensembleStats.currentRegime}\n\n`;
 
       response += `💭 **Sentiment Service**\n`;
+      response += `• Status: 🚧 Temporarily disabled\n`;
+      /*
       response += `• Cache Size: ${sentimentStats.size}\n`;
       response += `• Memory Usage: ${sentimentStats.memoryUsage}\n`;
       response += `• Configured: ${this.sentimentService.isConfigured() ? '✅' : '❌'}\n\n`;
+      */
 
       response += `🤖 **Overall Status**: ${this.isInitialized ? '✅ Ready' : '❌ Not Ready'}`;
 
@@ -541,7 +552,7 @@ export class MLBotIntegration {
     response += `🤖 **Services Status**:\n`;
     response += `• Random Forest: ${this.randomForestService.isConfigured() ? '✅' : '❌'}\n`;
     response += `• LSTM: ${this.lstmService.isConfigured() ? '✅' : '❌'}\n`;
-    response += `• Sentiment: ${this.sentimentService.isConfigured() ? '✅' : '❌'}\n`;
+    response += `• Sentiment: 🚧 Disabled\n`; // ${this.sentimentService.isConfigured() ? '✅' : '❌'}\n`;
     response += `• Ensemble: ${this.ensembleService.isConfigured() ? '✅' : '❌'}\n`;
 
     this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
@@ -592,7 +603,7 @@ export class MLBotIntegration {
         ensemble: this.ensembleService.isConfigured(),
         randomForest: this.randomForestService.isConfigured(),
         lstm: this.lstmService.isConfigured(),
-        sentiment: this.sentimentService.isConfigured()
+        sentiment: false // this.sentimentService.isConfigured()
       }
     };
   }

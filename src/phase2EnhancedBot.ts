@@ -13,6 +13,9 @@ import { DataManager } from './services/dataManager';
 import { RiskManagementService } from './services/riskManagementService';
 import { PerformanceMonitoringService } from './services/performanceMonitoringService';
 import { MLBotIntegration } from './services/mlBotIntegration';
+import { AdvancedDataAggregator } from './services/advancedDataAggregator';
+import { WhaleAlertService } from './services/whaleAlertService';
+import { FearGreedService } from './services/fearGreedService';
 
 class Phase2EnhancedBot {
   private bot: TelegramBot;
@@ -21,6 +24,9 @@ class Phase2EnhancedBot {
   private riskManager: RiskManagementService;
   private performanceMonitor: PerformanceMonitoringService;
   private mlIntegration: MLBotIntegration;
+  private dataAggregator: AdvancedDataAggregator;
+  private whaleAlert: WhaleAlertService;
+  private fearGreed: FearGreedService;
   private isInitialized: boolean = false;
 
   constructor() {
@@ -36,6 +42,11 @@ class Phase2EnhancedBot {
     this.riskManager = new RiskManagementService();
     this.performanceMonitor = new PerformanceMonitoringService();
     this.mlIntegration = new MLBotIntegration(this.bot);
+    
+    // Initialize real-time services
+    this.dataAggregator = new AdvancedDataAggregator();
+    this.whaleAlert = new WhaleAlertService();
+    this.fearGreed = new FearGreedService();
 
     console.log('🚀 Phase 2 Enhanced Bot starting...');
   }
@@ -52,6 +63,11 @@ class Phase2EnhancedBot {
 
       // Initialize ML services
       await this.mlIntegration.initialize();
+
+      // Initialize real-time services
+      console.log('🔄 Initializing real-time data services...');
+      await this.dataAggregator.start();
+      console.log('✅ Real-time data aggregator initialized');
 
       // Register all commands
       this.registerCommands();
@@ -87,12 +103,15 @@ class Phase2EnhancedBot {
     // Phase 2 ML Commands (new)
     this.mlIntegration.registerCommands();
 
+    // Real-time data commands (new)
+    this.registerRealTimeCommands();
+
     // Enhanced help command
     this.bot.onText(/\/help/, this.handleHelp.bind(this));
 
     // System status command
     this.bot.onText(/\/system/, this.handleSystemStatus.bind(this));
-    
+
     // Handle any text message (for unknown commands and general interaction)
     this.bot.on('message', this.handleUnknownCommand.bind(this));
 
@@ -105,21 +124,21 @@ class Phase2EnhancedBot {
   private registerPhase1Commands(): void {
     // Start command - Essential for Telegram bots
     this.bot.onText(/\/start/, this.handleStart.bind(this));
-    
+
     // Demo command
     this.bot.onText(/\/demo/, this.handleDemo.bind(this));
-    
+
     // Risk management commands
     this.bot.onText(/\/risk (.+)/, this.handleRisk.bind(this));
     this.bot.onText(/\/risk/, this.handleRiskStatus.bind(this));
-    
+
     // Performance monitoring commands
     this.bot.onText(/\/performance (.+)/, this.handlePerformance.bind(this));
     this.bot.onText(/\/performance/, this.handlePerformanceOverview.bind(this));
-    
+
     // Status command
     this.bot.onText(/\/status/, this.handleStatus.bind(this));
-    
+
     // Celebration command
     this.bot.onText(/\/celebrate/, this.handleCelebrate.bind(this));
   }  /**
@@ -148,6 +167,16 @@ class Phase2EnhancedBot {
     helpText += `• /lstm [symbol] - LSTM neural network prediction\n`;
     helpText += `• /sentiment [symbol] - Sentiment analysis\n\n`;
 
+    // Real-time data commands
+    helpText += `⚡ **Real-time Data Commands:**\n`;
+    helpText += `• /realtime [symbol] - Live price updates\n`;
+    helpText += `• /orderbook [symbol] - Order book analysis\n`;
+    helpText += `• /whales - Recent whale movements\n`;
+    helpText += `• /feargreed - Fear & Greed Index\n`;
+    helpText += `• /volume [symbol] - Volume analysis\n`;
+    helpText += `• /arbitrage - Arbitrage opportunities\n`;
+    helpText += `• /streams - WebSocket status\n\n`;
+
     helpText += `🔬 **ML Analysis & Configuration:**\n`;
     helpText += `• /mlanalysis [symbol] - Comprehensive ML analysis\n`;
     helpText += `• /marketregime - Current market regime\n`;
@@ -171,17 +200,17 @@ class Phase2EnhancedBot {
   private async handleStart(msg: TelegramBot.Message): Promise<void> {
     const chatId = msg.chat.id;
     const userName = msg.from?.first_name || 'Trader';
-    
+
     let welcomeText = `🚀 **Welcome to Phase 2 Enhanced Trading Bot!** 🚀\n\n`;
     welcomeText += `Hello ${userName}! 👋\n\n`;
-    
+
     welcomeText += `🎯 **What's New in Phase 2:**\n`;
     welcomeText += `🧠 AI-Powered Predictions\n`;
     welcomeText += `🌲 Random Forest Analysis\n`;
     welcomeText += `🧠 LSTM Neural Networks\n`;
     welcomeText += `💭 Advanced Sentiment Analysis\n`;
     welcomeText += `🎯 Ensemble Strategy System\n\n`;
-    
+
     welcomeText += `🔥 **Quick Start Commands:**\n`;
     welcomeText += `• /help - See all available commands\n`;
     welcomeText += `• /demo - Bot capabilities demo\n`;
@@ -189,9 +218,9 @@ class Phase2EnhancedBot {
     welcomeText += `• /mlpredict BTC - AI analysis for Bitcoin\n`;
     welcomeText += `• /ensemble ETH - Multi-model analysis\n`;
     welcomeText += `• /sentiment DOGE - Sentiment analysis\n\n`;
-    
+
     welcomeText += `💡 **Pro Tip:** Try /mlpredict followed by any crypto symbol (like BTC, ETH, DOGE) for complete AI analysis!\n\n`;
-    
+
     welcomeText += `🎉 **Ready to trade with AI assistance!**\n`;
     welcomeText += `Type /help anytime to see all commands.`;
 
@@ -211,12 +240,12 @@ class Phase2EnhancedBot {
         '/lstm', '/sentiment', '/mlanalysis', '/marketregime', '/mlstats',
         '/mlconfig', '/mlweights'
       ];
-      
+
       // If it's a known command, let the specific handler deal with it
       if (knownCommands.includes(command)) {
         return;
       }
-      
+
       // Handle unknown command
       const chatId = msg.chat.id;
       let response = `❓ **Unknown command**: ${command}\n\n`;
@@ -227,7 +256,7 @@ class Phase2EnhancedBot {
       response += `• /mlpredict [symbol] - AI analysis\n`;
       response += `• /ensemble [symbol] - Ensemble strategy\n\n`;
       response += `💡 Try /help for complete list!`;
-      
+
       await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
     }
   }
@@ -524,6 +553,290 @@ class Phase2EnhancedBot {
     celebrationText += `🚀 Ready for AI-powered trading! 🚀`;
 
     await this.bot.sendMessage(chatId, celebrationText, { parse_mode: 'Markdown' });
+  }
+
+  /**
+   * Register real-time data commands
+   */
+  private registerRealTimeCommands(): void {
+    // Real-time price updates
+    this.bot.onText(/\/realtime (.+)/, this.handleRealTime.bind(this));
+    
+    // Order book analysis
+    this.bot.onText(/\/orderbook (.+)/, this.handleOrderBook.bind(this));
+    
+    // Whale alerts
+    this.bot.onText(/\/whales/, this.handleWhales.bind(this));
+    
+    // Fear & Greed Index
+    this.bot.onText(/\/feargreed/, this.handleFearGreed.bind(this));
+    
+    // Volume analysis
+    this.bot.onText(/\/volume (.+)/, this.handleVolume.bind(this));
+    
+    // Arbitrage opportunities
+    this.bot.onText(/\/arbitrage/, this.handleArbitrage.bind(this));
+    
+    // Connection status
+    this.bot.onText(/\/streams/, this.handleStreams.bind(this));
+  }
+
+  /**
+   * Handle real-time price updates
+   */
+  private async handleRealTime(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+    const symbol = match?.[1]?.toUpperCase() || 'BTCUSDT';
+
+    try {
+      const loadingMsg = await this.bot.sendMessage(chatId, '🔄 Getting real-time data...');
+
+      // For now, return placeholder data until full implementation
+      const response = `📊 **Real-time Data: ${symbol}**
+
+💰 **Feature Status**: 🚧 Under Development
+⚡ **WebSocket Feeds**: Initializing...
+� **Data Aggregator**: Starting up...
+
+🎯 **Coming Soon**:
+• Live price updates (<100ms latency)
+• Real-time order book analysis  
+• Multi-exchange price feeds
+• WebSocket connection monitoring
+
+� Use other commands while real-time features are being optimized.`;
+
+      await this.bot.editMessageText(response, {
+        chat_id: chatId,
+        message_id: loadingMsg.message_id,
+        parse_mode: 'Markdown'
+      });
+
+    } catch (error) {
+      console.error('Real-time command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle order book analysis
+   */
+  private async handleOrderBook(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+    const symbol = match?.[1]?.toUpperCase() || 'BTCUSDT';
+
+    try {
+      const response = `📖 **Order Book Analysis: ${symbol}**
+
+🚧 **Feature Status**: Under Development
+
+🎯 **Planned Features**:
+• Real-time order book depth
+• Buy/sell pressure analysis
+• Large order detection
+• Liquidity analysis
+• Order flow imbalance
+• Market maker activity
+
+� This feature will provide:
+• Live bid/ask spreads
+• Order book walls detection
+• Liquidity scoring
+• Market depth analysis
+
+⚡ **Coming Soon** - Full implementation in progress`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Order book command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle whale alerts
+   */
+  private async handleWhales(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      const response = `🐋 **Whale Movement Monitor**
+
+🚧 **Feature Status**: Under Development
+
+🎯 **Planned Features**:
+• Real-time whale transaction detection
+• Large transfer monitoring (>$1M)
+• Exchange flow analysis
+• Institutional wallet tracking
+• Market impact assessment
+• Smart money detection
+
+� **Data Sources**:
+• Blockchain scanners
+• Exchange APIs  
+• Whale Alert API
+• On-chain analytics
+
+⚡ **Coming Soon** - Whale tracking implementation in progress`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Whale alerts command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle Fear & Greed Index
+   */
+  private async handleFearGreed(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      const response = `😱 **Fear & Greed Index Monitor**
+
+🚧 **Feature Status**: Under Development
+
+🎯 **Planned Features**:
+• Real-time Fear & Greed Index
+• Historical sentiment analysis
+• Market sentiment correlation
+• Trading bias detection
+• Extreme sentiment alerts
+• Sentiment-based signals
+
+� **Analysis Includes**:
+• Market volatility
+• Market momentum/volume
+• Social media sentiment
+• Surveys and trends
+• Bitcoin dominance
+
+⚡ **Coming Soon** - Sentiment analysis implementation in progress`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Fear & Greed command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle volume analysis
+   */
+  private async handleVolume(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+    const symbol = match?.[1]?.toUpperCase() || 'BTCUSDT';
+
+    try {
+      const response = `📊 **Volume Analysis: ${symbol}**
+
+🚧 **Feature Status**: Under Development
+
+🎯 **Planned Features**:
+• Real-time volume tracking
+• Volume spike detection
+• Buy/sell volume ratio
+• Volume profile analysis
+• Unusual volume alerts
+• Market pressure indicators
+
+� **Analysis Includes**:
+• 24h volume trends
+• Volume moving averages
+• Volume-price correlation
+• Market maker vs taker volume
+• Time-based volume patterns
+
+⚡ **Coming Soon** - Volume analysis implementation in progress`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Volume analysis command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle arbitrage opportunities
+   */
+  private async handleArbitrage(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      const response = `🔄 **Arbitrage Scanner**
+
+🚧 **Feature Status**: Under Development
+
+🎯 **Planned Features**:
+• Multi-exchange price comparison
+• Real-time arbitrage detection
+• Profit opportunity calculation
+• Execution time estimation
+• Fee consideration
+• Risk assessment
+
+� **Supported Exchanges**:
+• Binance
+• Bybit  
+• OKX
+• MEXC
+• And more...
+
+⚡ **Coming Soon** - Arbitrage scanning implementation in progress`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Arbitrage command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle stream status
+   */
+  private async handleStreams(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      const response = `🌐 **WebSocket Connection Status**
+
+🚧 **Feature Status**: Under Development
+
+🎯 **Planned Monitoring**:
+• Real-time connection status
+• Latency monitoring
+• Message throughput
+• Error rate tracking
+• Reconnection attempts
+• Health check results
+
+💡 **Exchange Connections**:
+• Binance WebSocket
+• Bybit WebSocket
+• OKX WebSocket
+• Connection redundancy
+
+📊 **Metrics Dashboard**:
+• Uptime statistics
+• Performance metrics
+• Error logs
+• System health
+
+⚡ **Coming Soon** - Connection monitoring implementation in progress`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Streams command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
   }
 
   /**

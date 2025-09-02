@@ -12,14 +12,14 @@ import { Candle } from '../types/trading';
 export class EnsembleStrategyService {
   private randomForest: RandomForestService;
   private lstmService: LSTMPredictionService;
-  private sentimentService: AdvancedSentimentService;
+  // private sentimentService: AdvancedSentimentService; // Temporarily disabled
   private isInitialized: boolean = false;
 
-  // Current strategy weights
+  // Current strategy weights (sentiment disabled)
   private strategyWeights: StrategyWeights = {
-    'RandomForest': 0.4,
-    'LSTM': 0.35,
-    'Sentiment': 0.25
+    'RandomForest': 0.6,  // Increased weight
+    'LSTM': 0.4,         // Increased weight
+    'Sentiment': 0.0     // Disabled
   };
 
   // Performance tracking
@@ -37,7 +37,7 @@ export class EnsembleStrategyService {
   constructor() {
     this.randomForest = new RandomForestService();
     this.lstmService = new LSTMPredictionService();
-    this.sentimentService = new AdvancedSentimentService();
+    // this.sentimentService = new AdvancedSentimentService(); // Temporarily disabled
 
     console.log('🎯 Ensemble Strategy Service initialized');
   }
@@ -70,8 +70,8 @@ export class EnsembleStrategyService {
   isConfigured(): boolean {
     return this.isInitialized &&
            this.randomForest.isConfigured() &&
-           this.lstmService.isConfigured() &&
-           this.sentimentService.isConfigured();
+           this.lstmService.isConfigured();
+           // && this.sentimentService.isConfigured(); // Temporarily disabled
   }
 
   /**
@@ -193,12 +193,14 @@ export class EnsembleStrategyService {
     }
 
     try {
-      // Sentiment Signal
+      // Sentiment Signal - Temporarily disabled
       const allTexts = [...newsTexts, ...socialTexts];
       if (allTexts.length > 0) {
-        const sentimentResult = await this.sentimentService.analyzeSentiment(symbol, allTexts, newsTexts.length > 0);
-
-        let sentimentSignal: 'BUY' | 'SELL' | 'HOLD';
+        // const sentimentResult = await this.sentimentService.analyzeSentiment(symbol, allTexts, newsTexts.length > 0);
+        
+        // Placeholder sentiment signal (neutral)
+        const sentimentSignal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
+        /*
         if (sentimentResult.overall_sentiment > 0.1 && sentimentResult.sentiment_strength > 0.3) {
           sentimentSignal = 'BUY';
         } else if (sentimentResult.overall_sentiment < -0.1 && sentimentResult.sentiment_strength > 0.3) {
@@ -206,13 +208,14 @@ export class EnsembleStrategyService {
         } else {
           sentimentSignal = 'HOLD';
         }
+        */
 
         signals.push({
           strategy_name: 'Sentiment',
           signal: sentimentSignal,
-          confidence: sentimentResult.sentiment_strength,
+          confidence: 0.0, // sentimentResult.sentiment_strength,
           weight: this.strategyWeights['Sentiment'],
-          reasoning: `Market sentiment is ${sentimentResult.sentiment_trend} with ${(sentimentResult.sentiment_strength * 100).toFixed(1)}% strength`,
+          reasoning: `Sentiment analysis temporarily disabled`, // `Market sentiment is ${sentimentResult.sentiment_trend} with ${(sentimentResult.sentiment_strength * 100).toFixed(1)}% strength`,
           timestamp: new Date()
         });
       } else {
