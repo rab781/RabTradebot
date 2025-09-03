@@ -1,10 +1,10 @@
 import WebSocket from 'ws';
 import { EventEmitter } from 'events';
-import { 
-    PriceData, 
-    OrderBook, 
-    TradeData, 
-    ExchangeConfig, 
+import {
+    PriceData,
+    OrderBook,
+    TradeData,
+    ExchangeConfig,
     ParsedMessage,
     RealTimeEvent,
     DataAggregatorConfig,
@@ -28,12 +28,18 @@ export class AdvancedDataAggregator extends EventEmitter {
     private priceCache: Map<string, CacheEntry<PriceData>> = new Map();
     private orderBookCache: Map<string, CacheEntry<OrderBook>> = new Map();
     private tradesCache: Map<string, CacheEntry<TradeData[]>> = new Map();
-    
+
     private config: DataAggregatorConfig;
     private isRunning: boolean = false;
     private healthCheckInterval: NodeJS.Timeout | null = null;
     private metricsStartTime: number = Date.now();
     private messageCount: number = 0;
+
+    // Enhanced display controls
+    private lastDisplayTime: Map<string, number> = new Map();
+    private displayThrottle: number = 3000; // 3 detik per symbol
+    private significantVolumeThreshold: number = 10000; // $10k USD
+    private enablePrettyDisplay: boolean = true;
 
     // Exchange configurations
     private exchanges: Map<string, ExchangeConfig> = new Map([
@@ -77,7 +83,7 @@ export class AdvancedDataAggregator extends EventEmitter {
 
     constructor(config?: Partial<DataAggregatorConfig>) {
         super();
-        
+
         this.config = {
             exchanges: ['binance', 'bybit', 'okx'],
             symbols: ['BTCUSDT', 'ETHUSDT', 'BNBUSDT', 'ADAUSDT', 'SOLUSDT'],
@@ -131,7 +137,7 @@ export class AdvancedDataAggregator extends EventEmitter {
         this.metricsStartTime = Date.now();
 
         // Connect to all configured exchanges
-        const connectionPromises = this.config.exchanges.map(exchange => 
+        const connectionPromises = this.config.exchanges.map(exchange =>
             this.connectToExchange(exchange)
         );
 
@@ -209,7 +215,7 @@ export class AdvancedDataAggregator extends EventEmitter {
      */
     private handleOpen(exchange: string): void {
         console.log(`✅ Connected to ${exchange}`);
-        
+
         this.updateConnectionStatus(exchange, {
             status: 'connected',
             lastUpdate: Date.now(),
@@ -226,7 +232,7 @@ export class AdvancedDataAggregator extends EventEmitter {
     private subscribeToSymbols(exchange: string): void {
         const exchangeConfig = this.exchanges.get(exchange);
         const ws = this.connections.get(exchange);
-        
+
         if (!exchangeConfig || !ws || ws.readyState !== WebSocket.OPEN) {
             return;
         }
@@ -234,7 +240,7 @@ export class AdvancedDataAggregator extends EventEmitter {
         try {
             const subscription = exchangeConfig.subscribeFormat(this.config.symbols);
             ws.send(JSON.stringify(subscription));
-            
+
             console.log(`📋 Subscribed to ${this.config.symbols.length} symbols on ${exchange}`);
         } catch (error) {
             this.handleError(exchange, error as Error);
@@ -248,28 +254,23 @@ export class AdvancedDataAggregator extends EventEmitter {
         try {
             this.messageCount++;
             const exchangeConfig = this.exchanges.get(exchange);
-            
+
             if (!exchangeConfig) return;
 
             const message = JSON.parse(data.toString());
-            
-            // Debug logging for OKX and Bybit
-            if (exchange === 'okx' || exchange === 'bybit') {
-                console.log(`📨 ${exchange} message:`, JSON.stringify(message).substring(0, 200));
-            }
-            
+
+            // Reduced debug logging - hanya untuk failed parsing
             const parsed = exchangeConfig.parseMessage(message);
 
             if (parsed) {
-                const symbolInfo = (parsed.data as any).symbol || 'N/A';
-                console.log(`✅ ${exchange} parsed data:`, parsed.type, symbolInfo);
                 this.processMessage(exchange, parsed);
                 this.updateConnectionStatus(exchange, {
                     status: 'connected',
                     lastUpdate: Date.now()
                 });
-            } else if (exchange === 'okx' || exchange === 'bybit') {
-                console.log(`❌ ${exchange} failed to parse message`);
+            } else if ((exchange === 'okx' || exchange === 'bybit') && this.messageCount % 50 === 0) {
+                // Hanya log parse failures sesekali untuk debug
+                console.log(`⚠️ ${exchange} parse failure (${this.messageCount} messages processed)`);
             }
 
         } catch (error) {
@@ -300,9 +301,14 @@ export class AdvancedDataAggregator extends EventEmitter {
     private processPriceUpdate(priceData: PriceData): void {
         const cacheKey = `${priceData.exchange}_${priceData.symbol}`;
         const previous = this.priceCache.get(cacheKey);
-        
+
         // Cache the new price data
         this.setCacheEntry(this.priceCache, cacheKey, priceData, this.config.caching.priceCache);
+
+        // Pretty display with throttling
+        if (this.enablePrettyDisplay) {
+            this.displayPriceUpdate(priceData, previous?.data);
+        }
 
         // Emit price update event
         this.emit('price:update', {
@@ -321,7 +327,7 @@ export class AdvancedDataAggregator extends EventEmitter {
         // Check for price spikes
         if (previous?.data) {
             const priceChange = ((priceData.price - previous.data.price) / previous.data.price) * 100;
-            
+
             if (Math.abs(priceChange) >= this.config.alerts.priceSpike) {
                 this.emit('price:spike', {
                     type: 'price:spike',
@@ -373,21 +379,26 @@ export class AdvancedDataAggregator extends EventEmitter {
     private processTradeUpdate(tradeData: TradeData): void {
         const cacheKey = `${tradeData.exchange}_${tradeData.symbol}`;
         let trades = this.tradesCache.get(cacheKey)?.data || [];
-        
+
         // Add new trade and keep only recent trades (last 5 minutes)
         const fiveMinutesAgo = Date.now() - 300000;
         trades = trades.filter(trade => trade.timestamp > fiveMinutesAgo);
         trades.push(tradeData);
-        
+
         this.setCacheEntry(this.tradesCache, cacheKey, trades, this.config.caching.priceCache);
+
+        // Pretty display untuk trades yang signifikan
+        if (this.enablePrettyDisplay) {
+            this.displayTradeUpdate(tradeData);
+        }
 
         // Calculate current volume and average
         const currentVolume = trades.reduce((sum, trade) => sum + (trade.price * trade.quantity), 0);
         const averageVolume = this.calculateAverageVolume(tradeData.symbol, tradeData.exchange);
-        
+
         if (averageVolume > 0) {
             const volumeRatio = currentVolume / averageVolume;
-            
+
             if (volumeRatio >= this.config.alerts.volumeAnomaly) {
                 this.emit('volume:anomaly', {
                     type: 'volume:anomaly',
@@ -418,7 +429,7 @@ export class AdvancedDataAggregator extends EventEmitter {
      */
     private handleError(exchange: string, error: Error): void {
         console.error(`❌ WebSocket error on ${exchange}:`, error.message);
-        
+
         this.updateConnectionStatus(exchange, {
             status: 'error',
             errorCount: (this.connectionStatus.get(exchange)?.errorCount || 0) + 1
@@ -432,7 +443,13 @@ export class AdvancedDataAggregator extends EventEmitter {
             stack: error.stack
         };
 
-        this.emit('error', realTimeError);
+        // Log error instead of emitting to avoid crash
+        console.error(`❌ WebSocket error on ${exchange}:`, error.message);
+        
+        // Update connection status
+        this.updateConnectionStatus(exchange, {
+            status: 'error'
+        });
     }
 
     /**
@@ -440,7 +457,7 @@ export class AdvancedDataAggregator extends EventEmitter {
      */
     private handleClose(exchange: string, code: number, reason: Buffer): void {
         console.log(`🔌 Connection to ${exchange} closed: ${code} - ${reason.toString()}`);
-        
+
         this.updateConnectionStatus(exchange, {
             status: 'disconnected'
         });
@@ -456,7 +473,7 @@ export class AdvancedDataAggregator extends EventEmitter {
      */
     private handleConnectionError(exchange: string, error: Error): void {
         console.error(`❌ Failed to connect to ${exchange}:`, error.message);
-        
+
         this.updateConnectionStatus(exchange, {
             status: 'error',
             errorCount: (this.connectionStatus.get(exchange)?.errorCount || 0) + 1
@@ -473,7 +490,7 @@ export class AdvancedDataAggregator extends EventEmitter {
     private scheduleReconnect(exchange: string): void {
         const attempts = this.reconnectAttempts.get(exchange) || 0;
         const maxAttempts = 10;
-        
+
         if (attempts >= maxAttempts) {
             console.error(`❌ Max reconnection attempts reached for ${exchange}`);
             return;
@@ -667,7 +684,7 @@ export class AdvancedDataAggregator extends EventEmitter {
      */
     async healthCheck(): Promise<HealthCheckResult> {
         const metrics = this.getMetrics();
-        
+
         const checks = {
             websockets: Array.from(this.connectionStatus.values())
                 .some(status => status.status === 'connected'),
@@ -676,7 +693,7 @@ export class AdvancedDataAggregator extends EventEmitter {
             latency: true // Simplified
         };
 
-        const status = Object.values(checks).every(check => check) ? 'healthy' : 
+        const status = Object.values(checks).every(check => check) ? 'healthy' :
                       Object.values(checks).some(check => check) ? 'degraded' : 'unhealthy';
 
         return {
@@ -772,7 +789,7 @@ export class AdvancedDataAggregator extends EventEmitter {
     private parseBinanceMessage(message: any): ParsedMessage | null {
         if (message.stream && message.data) {
             const [symbol, type] = message.stream.split('@');
-            
+
             if (type === 'ticker') {
                 return {
                     type: 'price',
@@ -799,12 +816,12 @@ export class AdvancedDataAggregator extends EventEmitter {
             // Bybit WebSocket response format
             if (message.topic && message.data) {
                 const topic = message.topic;
-                
+
                 // Handle ticker data: tickers.BTCUSDT
                 if (topic.startsWith('tickers.')) {
                     const symbol = topic.replace('tickers.', '');
                     const data = Array.isArray(message.data) ? message.data[0] : message.data;
-                    
+
                     return {
                         type: 'price',
                         data: {
@@ -821,12 +838,12 @@ export class AdvancedDataAggregator extends EventEmitter {
                         exchange: 'bybit'
                     };
                 }
-                
+
                 // Handle orderbook data: orderbook.1.BTCUSDT
                 if (topic.startsWith('orderbook.')) {
                     const symbol = topic.split('.')[2];
                     const data = Array.isArray(message.data) ? message.data[0] : message.data;
-                    
+
                     if (data.b && data.a) {
                         return {
                             type: 'orderbook',
@@ -860,11 +877,11 @@ export class AdvancedDataAggregator extends EventEmitter {
             if (message.arg && message.data) {
                 const channel = message.arg.channel;
                 const instId = message.arg.instId;
-                
+
                 // Handle ticker data
                 if (channel === 'tickers') {
                     const data = Array.isArray(message.data) ? message.data[0] : message.data;
-                    
+
                     return {
                         type: 'price',
                         data: {
@@ -881,11 +898,11 @@ export class AdvancedDataAggregator extends EventEmitter {
                         exchange: 'okx'
                     };
                 }
-                
+
                 // Handle orderbook data
                 if (channel === 'books5') {
                     const data = Array.isArray(message.data) ? message.data[0] : message.data;
-                    
+
                     if (data.bids && data.asks) {
                         return {
                             type: 'orderbook',
@@ -911,6 +928,160 @@ export class AdvancedDataAggregator extends EventEmitter {
             console.error('Error parsing OKX message:', error);
         }
         return null;
+    }
+
+    /**
+     * Display formatted price update with throttling
+     */
+    private displayPriceUpdate(current: PriceData, previous?: PriceData): void {
+        const now = Date.now();
+        const throttleKey = `${current.exchange}_${current.symbol}`;
+        const lastDisplay = this.lastDisplayTime.get(throttleKey) || 0;
+
+        // Throttle: hanya tampilkan setiap X detik per symbol
+        if (now - lastDisplay < this.displayThrottle) {
+            return;
+        }
+
+        this.lastDisplayTime.set(throttleKey, now);
+
+        const time = new Date(current.timestamp).toLocaleTimeString('id-ID');
+        const price = this.formatPrice(current.price);
+        const volume24h = this.formatVolume(current.volume24h * current.price);
+        
+        // Hitung perubahan harga dari previous
+        let priceChangeText = '';
+        let priceEmoji = '📊';
+        
+        if (previous) {
+            const priceChange = ((current.price - previous.price) / previous.price) * 100;
+            if (Math.abs(priceChange) > 0.01) { // Hanya tampilkan jika perubahan > 0.01%
+                if (priceChange > 0) {
+                    priceChangeText = ` 📈 +${priceChange.toFixed(2)}%`;
+                    priceEmoji = '🚀';
+                } else {
+                    priceChangeText = ` 📉 ${priceChange.toFixed(2)}%`;
+                    priceEmoji = '🔻';
+                }
+            }
+        }
+
+        // Highlight volume besar
+        const volumeUSD = current.volume24h * current.price;
+        let volumeEmoji = '💰';
+        if (volumeUSD > 1000000) volumeEmoji = '🐋'; // Whale alert
+        else if (volumeUSD > 100000) volumeEmoji = '🔥'; // Hot
+        else if (volumeUSD > 50000) volumeEmoji = '⚡'; // Active
+
+        console.log(`
+╭─────────────────────────────────────────╮
+│ ${priceEmoji} ${current.symbol.padEnd(8)} | ${current.exchange.toUpperCase().padEnd(6)} │
+│ 💵 ${price.padEnd(12)} | ⏰ ${time}     │
+│ ${volumeEmoji} ${volume24h.padEnd(12)} ${priceChangeText.padEnd(15)} │
+╰─────────────────────────────────────────╯`);
+    }
+
+    /**
+     * Display formatted trade data (untuk trades yang significant)
+     */
+    private displayTradeUpdate(trade: TradeData): void {
+        const tradeValue = trade.price * trade.quantity;
+        
+        // Hanya tampilkan trade dengan nilai signifikan
+        if (tradeValue < this.significantVolumeThreshold) {
+            return;
+        }
+
+        const time = new Date(trade.timestamp).toLocaleTimeString('id-ID');
+        const price = this.formatPrice(trade.price);
+        const quantity = this.formatQuantity(trade.quantity);
+        const value = this.formatVolume(tradeValue);
+        
+        // Emoji berdasarkan ukuran trade
+        let tradeEmoji = '💸';
+        if (tradeValue > 1000000) tradeEmoji = '🐋💥'; // Mega whale
+        else if (tradeValue > 500000) tradeEmoji = '🐋'; // Whale
+        else if (tradeValue > 100000) tradeEmoji = '🔥'; // Large trade
+        else if (tradeValue > 50000) tradeEmoji = '⚡'; // Medium trade
+
+        // Side indicator
+        const sideEmoji = trade.side === 'buy' ? '🟢 BUY' : '🔴 SELL';
+
+        console.log(`
+🎯 TRADE ALERT ${tradeEmoji}
+┌─────────────────────────────────────────┐
+│ ${trade.symbol} on ${trade.exchange.toUpperCase()} | ${time}           │
+│ ${sideEmoji} ${price} x ${quantity}      │
+│ 💰 Total Value: ${value}                 │
+└─────────────────────────────────────────┘`);
+    }
+
+    /**
+     * Format price untuk display
+     */
+    private formatPrice(price: number): string {
+        if (price >= 1000) {
+            return new Intl.NumberFormat('id-ID', {
+                style: 'currency',
+                currency: 'USD',
+                minimumFractionDigits: 2,
+                maximumFractionDigits: 2
+            }).format(price);
+        } else if (price >= 1) {
+            return `$${price.toFixed(4)}`;
+        } else {
+            return `$${price.toFixed(6)}`;
+        }
+    }
+
+    /**
+     * Format volume untuk display
+     */
+    private formatVolume(volume: number): string {
+        if (volume >= 1000000) {
+            return `$${(volume / 1000000).toFixed(2)}M`;
+        } else if (volume >= 1000) {
+            return `$${(volume / 1000).toFixed(1)}K`;
+        } else {
+            return `$${volume.toFixed(0)}`;
+        }
+    }
+
+    /**
+     * Format quantity untuk display
+     */
+    private formatQuantity(quantity: number): string {
+        if (quantity >= 1000) {
+            return `${(quantity / 1000).toFixed(2)}K`;
+        } else if (quantity >= 1) {
+            return quantity.toFixed(4);
+        } else {
+            return quantity.toFixed(8);
+        }
+    }
+
+    /**
+     * Enable/disable pretty display
+     */
+    setPrettyDisplay(enabled: boolean): void {
+        this.enablePrettyDisplay = enabled;
+        console.log(`🎨 Pretty display ${enabled ? 'enabled' : 'disabled'}`);
+    }
+
+    /**
+     * Set display throttle time (in milliseconds)
+     */
+    setDisplayThrottle(ms: number): void {
+        this.displayThrottle = ms;
+        console.log(`⏱️ Display throttle set to ${ms}ms`);
+    }
+
+    /**
+     * Set significant volume threshold for trade alerts
+     */
+    setVolumeThreshold(threshold: number): void {
+        this.significantVolumeThreshold = threshold;
+        console.log(`🎯 Volume threshold set to $${threshold}`);
     }
 
     /**

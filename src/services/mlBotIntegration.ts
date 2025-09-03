@@ -298,7 +298,7 @@ export class MLBotIntegration {
       let response = `💭 **Sentiment Analysis for ${symbol}**\n\n`;
       response += `🚧 **Status**: Temporarily disabled for debugging\n`;
       response += `🎯 **Coming Soon**: Full sentiment analysis\n\n`;
-      
+
       /*
       response += `🎭 **Overall Sentiment**: ${sentimentResult.overall_sentiment.toFixed(3)}\n`;
       response += `💪 **Sentiment Strength**: ${(sentimentResult.sentiment_strength * 100).toFixed(1)}%\n`;

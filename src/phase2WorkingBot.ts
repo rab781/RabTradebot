@@ -158,6 +158,11 @@ class Phase2WorkingBot {
     // Price alerts
     this.bot.onText(/\/alert (.+) (.+) (above|below)/, this.handleSetAlert.bind(this));
     this.bot.onText(/\/alerts/, this.handleListAlerts.bind(this));
+    
+    // Display controls
+    this.bot.onText(/\/display (on|off)/, this.handleDisplayToggle.bind(this));
+    this.bot.onText(/\/throttle (\d+)/, this.handleThrottle.bind(this));
+    this.bot.onText(/\/threshold (\d+)/, this.handleThreshold.bind(this));
 
     // Market overview
     this.bot.onText(/\/market/, this.handleMarketOverview.bind(this));
@@ -194,14 +199,22 @@ class Phase2WorkingBot {
     helpText += `• /alert [symbol] [price] [above/below] - Set price alert\n`;
     helpText += `• /alerts - List active alerts\n\n`;
 
-    helpText += `🏛️ **System Commands:**\n`;
+    helpText += `� **Display Controls:**\n`;
+    helpText += `• /display [on/off] - Toggle pretty console output\n`;
+    helpText += `• /throttle [seconds] - Set update frequency (1-60s)\n`;
+    helpText += `• /threshold [amount] - Set minimum trade alert value\n\n`;
+
+    helpText += `�🏛️ **System Commands:**\n`;
     helpText += `• /system - Complete system status\n`;
     helpText += `• /help - Show this help message\n\n`;
 
     helpText += `🎯 **Examples:**\n`;
     helpText += `• /realtime BTCUSDT\n`;
     helpText += `• /whales\n`;
-    helpText += `• /alert BTCUSDT 50000 above`;
+    helpText += `• /alert BTCUSDT 50000 above\n`;
+    helpText += `• /display on\n`;
+    helpText += `• /throttle 5\n`;
+    helpText += `• /threshold 25000`;
 
     await this.bot.sendMessage(chatId, helpText, { parse_mode: 'Markdown' });
   }
@@ -785,6 +798,158 @@ Currently no active alerts set.
 
     } catch (error) {
       console.error('List alerts command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle display toggle command
+   */
+  private async handleDisplayToggle(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      if (!match || !match[1]) {
+        await this.bot.sendMessage(chatId, '❌ Please specify: /display on or /display off');
+        return;
+      }
+
+      const action = match[1].toLowerCase();
+      const enabled = action === 'on';
+      
+      this.dataAggregator.setPrettyDisplay(enabled);
+
+      const response = `🎨 **Display Settings Updated**
+
+📊 **Pretty Display**: ${enabled ? '✅ Enabled' : '❌ Disabled'}
+
+${enabled ? 
+`✨ **Now showing**:
+• 📈 Real-time price updates with emojis
+• 🎯 Big trade alerts (>$10K)
+• 🐋 Whale transaction highlights
+• ⚡ Volume spike notifications
+• 📊 Formatted price changes
+
+⚙️ **Current Settings**:
+• Update frequency: Every 3 seconds per symbol
+• Trade threshold: $10,000 USD
+• Volume highlights: Enabled` :
+
+`🔇 **Display disabled**:
+• No console output formatting
+• Raw data processing only
+• Background monitoring continues
+
+💡 Use /display on to re-enable pretty formatting`}
+
+🎛️ **Additional Controls**:
+• /throttle [seconds] - Change update frequency
+• /threshold [amount] - Set minimum trade value for alerts`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Display toggle error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle throttle setting
+   */
+  private async handleThrottle(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      if (!match || !match[1]) {
+        await this.bot.sendMessage(chatId, '❌ Please specify seconds: /throttle 5');
+        return;
+      }
+
+      const seconds = parseInt(match[1]);
+      if (isNaN(seconds) || seconds < 1 || seconds > 60) {
+        await this.bot.sendMessage(chatId, '❌ Throttle must be between 1-60 seconds');
+        return;
+      }
+
+      const milliseconds = seconds * 1000;
+      this.dataAggregator.setDisplayThrottle(milliseconds);
+
+      const response = `⏱️ **Display Throttle Updated**
+
+🕒 **Update Frequency**: Every ${seconds} second${seconds > 1 ? 's' : ''}
+
+📊 **Effect**:
+• Each symbol updates every ${seconds}s maximum
+• Reduces console output spam
+• Maintains data processing speed
+• Better readability for monitoring
+
+💡 **Recommendations**:
+• 1-2s: High frequency monitoring
+• 3-5s: Balanced updates (recommended)
+• 10s+: Low frequency overview
+
+🎛️ **Other Controls**:
+• /display on/off - Toggle formatting
+• /threshold [amount] - Set trade alert minimum`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Throttle setting error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle volume threshold setting
+   */
+  private async handleThreshold(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      if (!match || !match[1]) {
+        await this.bot.sendMessage(chatId, '❌ Please specify amount in USD: /threshold 50000');
+        return;
+      }
+
+      const threshold = parseInt(match[1]);
+      if (isNaN(threshold) || threshold < 100 || threshold > 10000000) {
+        await this.bot.sendMessage(chatId, '❌ Threshold must be between $100 - $10,000,000');
+        return;
+      }
+
+      this.dataAggregator.setVolumeThreshold(threshold);
+
+      const response = `🎯 **Trade Alert Threshold Updated**
+
+💰 **Minimum Trade Value**: $${threshold.toLocaleString()}
+
+📊 **What you'll see**:
+${threshold >= 1000000 ? '🐋 Only mega whale trades' :
+  threshold >= 500000 ? '🐋 Large whale trades and above' :
+  threshold >= 100000 ? '🔥 Big trades and whale activity' :
+  threshold >= 50000 ? '⚡ Medium to large trades' :
+  '💸 Most significant trades'}
+
+💡 **Threshold Guide**:
+• $1,000+ : All significant trades
+• $10,000+ : Large retail/small institutional
+• $50,000+ : Institutional activity  
+• $100,000+ : Major institutional trades
+• $500,000+ : Whale activity
+• $1,000,000+ : Mega whale moves
+
+🎛️ **Other Controls**:
+• /display on/off - Toggle formatting
+• /throttle [seconds] - Change update frequency`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Threshold setting error:', error);
       await this.bot.sendMessage(chatId, `❌ Error: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   }

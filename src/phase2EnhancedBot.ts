@@ -42,7 +42,7 @@ class Phase2EnhancedBot {
     this.riskManager = new RiskManagementService();
     this.performanceMonitor = new PerformanceMonitoringService();
     this.mlIntegration = new MLBotIntegration(this.bot);
-    
+
     // Initialize real-time services
     this.dataAggregator = new AdvancedDataAggregator();
     this.whaleAlert = new WhaleAlertService();
@@ -561,22 +561,22 @@ class Phase2EnhancedBot {
   private registerRealTimeCommands(): void {
     // Real-time price updates
     this.bot.onText(/\/realtime (.+)/, this.handleRealTime.bind(this));
-    
+
     // Order book analysis
     this.bot.onText(/\/orderbook (.+)/, this.handleOrderBook.bind(this));
-    
+
     // Whale alerts
     this.bot.onText(/\/whales/, this.handleWhales.bind(this));
-    
+
     // Fear & Greed Index
     this.bot.onText(/\/feargreed/, this.handleFearGreed.bind(this));
-    
+
     // Volume analysis
     this.bot.onText(/\/volume (.+)/, this.handleVolume.bind(this));
-    
+
     // Arbitrage opportunities
     this.bot.onText(/\/arbitrage/, this.handleArbitrage.bind(this));
-    
+
     // Connection status
     this.bot.onText(/\/streams/, this.handleStreams.bind(this));
   }
@@ -600,7 +600,7 @@ class Phase2EnhancedBot {
 
 🎯 **Coming Soon**:
 • Live price updates (<100ms latency)
-• Real-time order book analysis  
+• Real-time order book analysis
 • Multi-exchange price feeds
 • WebSocket connection monitoring
 
@@ -675,7 +675,7 @@ class Phase2EnhancedBot {
 
 � **Data Sources**:
 • Blockchain scanners
-• Exchange APIs  
+• Exchange APIs
 • Whale Alert API
 • On-chain analytics
 
@@ -783,7 +783,7 @@ class Phase2EnhancedBot {
 
 � **Supported Exchanges**:
 • Binance
-• Bybit  
+• Bybit
 • OKX
 • MEXC
 • And more...

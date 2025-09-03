@@ -197,7 +197,7 @@ export class EnsembleStrategyService {
       const allTexts = [...newsTexts, ...socialTexts];
       if (allTexts.length > 0) {
         // const sentimentResult = await this.sentimentService.analyzeSentiment(symbol, allTexts, newsTexts.length > 0);
-        
+
         // Placeholder sentiment signal (neutral)
         const sentimentSignal: 'BUY' | 'SELL' | 'HOLD' = 'HOLD';
         /*

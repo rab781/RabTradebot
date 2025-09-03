@@ -185,12 +185,12 @@ export interface SentimentChangeEvent {
     };
 }
 
-export type RealTimeEvent = 
-    | PriceUpdateEvent 
-    | PriceSpikeEvent 
-    | OrderBookImbalanceEvent 
-    | VolumeAnomalyEvent 
-    | WhaleMovementEvent 
+export type RealTimeEvent =
+    | PriceUpdateEvent
+    | PriceSpikeEvent
+    | OrderBookImbalanceEvent
+    | VolumeAnomalyEvent
+    | WhaleMovementEvent
     | SentimentChangeEvent;
 
 // ================== AGGREGATOR TYPES ==================

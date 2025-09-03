@@ -174,7 +174,7 @@ export class WhaleAlertService extends EventEmitter {
         }
 
         // Determine market sentiment
-        const marketSentiment = alertType === 'exchange_inflow' ? 'bearish' : 
+        const marketSentiment = alertType === 'exchange_inflow' ? 'bearish' :
                                alertType === 'exchange_outflow' ? 'bullish' : 'neutral';
 
         return {
@@ -190,7 +190,7 @@ export class WhaleAlertService extends EventEmitter {
      */
     async getWhaleStats(): Promise<any> {
         const transactions = this.getFromCache('recent_transactions') || [];
-        
+
         const stats = {
             totalTransactions: transactions.length,
             totalVolume: transactions.reduce((sum: number, tx: WhaleTransaction) => sum + tx.amountUsd, 0),
@@ -200,7 +200,7 @@ export class WhaleAlertService extends EventEmitter {
             hourlyActivity: this.getHourlyActivity(transactions)
         };
 
-        stats.avgTransactionSize = stats.totalTransactions > 0 ? 
+        stats.avgTransactionSize = stats.totalTransactions > 0 ?
             stats.totalVolume / stats.totalTransactions : 0;
 
         return stats;
@@ -211,7 +211,7 @@ export class WhaleAlertService extends EventEmitter {
      */
     private getTopSymbols(transactions: WhaleTransaction[]): any[] {
         const symbolVolumes: { [key: string]: number } = {};
-        
+
         transactions.forEach(tx => {
             symbolVolumes[tx.symbol] = (symbolVolumes[tx.symbol] || 0) + tx.amountUsd;
         });
@@ -250,7 +250,7 @@ export class WhaleAlertService extends EventEmitter {
      */
     private getHourlyActivity(transactions: WhaleTransaction[]): any[] {
         const hourlyCount: { [key: number]: number } = {};
-        
+
         transactions.forEach(tx => {
             const hour = new Date(tx.timestamp).getHours();
             hourlyCount[hour] = (hourlyCount[hour] || 0) + 1;
@@ -289,12 +289,12 @@ export class WhaleAlertService extends EventEmitter {
     private getMockWhaleTransactions(limit: number = 10): WhaleTransaction[] {
         const mockTransactions: WhaleTransaction[] = [];
         const symbols = ['BTC', 'ETH', 'USDT', 'BNB', 'ADA', 'XRP', 'SOL', 'AVAX'];
-        
+
         for (let i = 0; i < Math.min(limit, 10); i++) {
             const symbol = symbols[i % symbols.length];
             const amount = Math.random() * 1000 + 100;
             const timestamp = Date.now() - (i * 3600000);
-            
+
             mockTransactions.push({
                 id: `mock_${i}_${timestamp}`,
                 blockchain: symbol === 'BTC' ? 'bitcoin' : 'ethereum',
@@ -316,7 +316,7 @@ export class WhaleAlertService extends EventEmitter {
                 transactionType: 'transfer'
             });
         }
-        
+
         return mockTransactions;
     }
 
