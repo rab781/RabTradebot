@@ -1,0 +1,171 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = "file:./dev.db"
+}
+
+// ==================== PRICE DATA ====================
+model PriceData {
+  id                  String   @id @default(uuid())
+  symbol              String
+  price               Float
+  change24h           Float
+  changePercent24h    Float
+  volume24h           Float
+  high24h             Float
+  low24h              Float
+  timestamp           DateTime
+  exchange            String
+  createdAt           DateTime @default(now())
+
+  @@map("price_data")
+}
+
+// ==================== TRADE DATA ====================
+model TradeData {
+  id                  String   @id @default(uuid())
+  symbol              String
+  price               Float
+  quantity            Float
+  side                String   // 'buy' or 'sell'
+  tradeId             String
+  timestamp           DateTime
+  exchange            String
+  totalValue          Float    // calculated: price * quantity
+  createdAt           DateTime @default(now())
+
+  @@map("trade_data")
+}
+
+// ==================== ORDER BOOK DATA ====================
+model OrderBookSnapshot {
+  id                  String   @id @default(uuid())
+  symbol              String
+  timestamp           DateTime
+  exchange            String
+  bids                String   // JSON string of bid data
+  asks                String   // JSON string of ask data
+  totalBidVolume      Float
+  totalAskVolume      Float
+  spread              Float
+  imbalanceRatio      Float
+  createdAt           DateTime @default(now())
+
+  @@map("orderbook_snapshots")
+}
+
+// ==================== USER PREFERENCES ====================
+model UserPreference {
+  id                  String   @id @default(uuid())
+  userId              String   @unique // Telegram user ID
+  displayEnabled      Boolean  @default(true)
+  throttleMs          Int      @default(3000)
+  volumeThreshold     Float    @default(10000.0)
+  favoriteSymbols     String   // JSON array of symbols
+  alertSettings       String   // JSON object of alert preferences
+  createdAt           DateTime @default(now())
+  updatedAt           DateTime @updatedAt
+
+  @@map("user_preferences")
+}
+
+// ==================== PRICE ALERTS ====================
+model PriceAlert {
+  id                  String   @id @default(uuid())
+  userId              String   // Telegram user ID
+  symbol              String
+  targetPrice         Float
+  direction           String   // 'above' or 'below'
+  isActive            Boolean  @default(true)
+  triggeredAt         DateTime?
+  createdAt           DateTime @default(now())
+  expiresAt           DateTime
+
+  @@map("price_alerts")
+}
+
+// ==================== WHALE ALERTS ====================
+model WhaleAlert {
+  id                  String   @id @default(uuid())
+  symbol              String
+  amount              Float
+  amountUsd           Float
+  blockchain          String
+  fromAddress         String?
+  toAddress           String?
+  txHash              String
+  timestamp           DateTime
+  alertType           String   // 'large_transaction', 'whale_movement', etc.
+  createdAt           DateTime @default(now())
+
+  @@map("whale_alerts")
+}
+
+// ==================== PERFORMANCE METRICS ====================
+model PerformanceMetric {
+  id                  String   @id @default(uuid())
+  symbol              String?  // null for overall metrics
+  metricType          String   // 'daily_pnl', 'sharpe_ratio', 'max_drawdown', etc.
+  value               Float
+  calculatedAt        DateTime
+  timeframe           String   // '1h', '1d', '1w', '1m'
+  metadata            String?  // JSON string for additional data
+  createdAt           DateTime @default(now())
+
+  @@map("performance_metrics")
+}
+
+// ==================== ARBITRAGE OPPORTUNITIES ====================
+model ArbitrageOpportunity {
+  id                  String   @id @default(uuid())
+  symbol              String
+  buyExchange         String
+  sellExchange        String
+  buyPrice            Float
+  sellPrice           Float
+  priceDifference     Float
+  percentageGain      Float
+  volume              Float
+  detectedAt          DateTime
+  isStillActive       Boolean  @default(true)
+  createdAt           DateTime @default(now())
+
+  @@map("arbitrage_opportunities")
+}
+
+// ==================== SYSTEM METRICS ====================
+model SystemMetric {
+  id                  String   @id @default(uuid())
+  metricName          String   // 'message_count', 'connection_uptime', 'error_rate', etc.
+  value               Float
+  exchange            String?  // null for system-wide metrics
+  timestamp           DateTime
+  createdAt           DateTime @default(now())
+
+  @@map("system_metrics")
+}
+
+// ==================== ERROR LOGS ====================
+model ErrorLog {
+  id                  String   @id @default(uuid())
+  errorType           String   // 'websocket_error', 'parse_error', 'api_error', etc.
+  errorMessage        String
+  exchange            String?
+  symbol              String?
+  stackTrace          String?
+  severity            String   // 'low', 'medium', 'high', 'critical'
+  timestamp           DateTime
+  createdAt           DateTime @default(now())
+
+  @@map("error_logs")
+}

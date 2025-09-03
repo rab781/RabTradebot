@@ -15,6 +15,7 @@ import {
     RealTimeError,
     HealthCheckResult
 } from '../types/realTimeTypes';
+import { DatabaseService } from './databaseService';
 
 /**
  * AdvancedDataAggregator - Central hub for real-time cryptocurrency data
@@ -40,6 +41,9 @@ export class AdvancedDataAggregator extends EventEmitter {
     private displayThrottle: number = 3000; // 3 detik per symbol
     private significantVolumeThreshold: number = 10000; // $10k USD
     private enablePrettyDisplay: boolean = true;
+
+    // Database integration
+    private databaseService: DatabaseService;
 
     // Exchange configurations
     private exchanges: Map<string, ExchangeConfig> = new Map([
@@ -107,6 +111,9 @@ export class AdvancedDataAggregator extends EventEmitter {
         };
 
         this.initializeConnectionStatus();
+        
+        // Initialize database service
+        this.databaseService = new DatabaseService();
     }
 
     /**
@@ -135,6 +142,13 @@ export class AdvancedDataAggregator extends EventEmitter {
         console.log('📡 Starting Advanced Data Aggregator...');
         this.isRunning = true;
         this.metricsStartTime = Date.now();
+
+        // Initialize database connection
+        try {
+            await this.databaseService.initialize();
+        } catch (error) {
+            console.error('❌ Failed to initialize database, continuing without persistence');
+        }
 
         // Connect to all configured exchanges
         const connectionPromises = this.config.exchanges.map(exchange =>
@@ -305,6 +319,11 @@ export class AdvancedDataAggregator extends EventEmitter {
         // Cache the new price data
         this.setCacheEntry(this.priceCache, cacheKey, priceData, this.config.caching.priceCache);
 
+        // Store to database (async, don't block main thread)
+        this.databaseService.storePriceData(priceData).catch(error => {
+            console.error('Database error storing price data:', error);
+        });
+
         // Pretty display with throttling
         if (this.enablePrettyDisplay) {
             this.displayPriceUpdate(priceData, previous?.data);
@@ -352,6 +371,13 @@ export class AdvancedDataAggregator extends EventEmitter {
         const cacheKey = `${orderBook.exchange}_${orderBook.symbol}`;
         this.setCacheEntry(this.orderBookCache, cacheKey, orderBook, this.config.caching.orderbookCache);
 
+        // Store significant order book snapshots to database (every 10th update to reduce load)
+        if (Math.random() < 0.1) { // 10% sampling rate
+            this.databaseService.storeOrderBookSnapshot(orderBook).catch(error => {
+                console.error('Database error storing order book data:', error);
+            });
+        }
+
         // Calculate order book imbalance
         const totalBids = orderBook.bids.reduce((sum, bid) => sum + (bid.price * bid.quantity), 0);
         const totalAsks = orderBook.asks.reduce((sum, ask) => sum + (ask.price * ask.quantity), 0);
@@ -386,6 +412,11 @@ export class AdvancedDataAggregator extends EventEmitter {
         trades.push(tradeData);
 
         this.setCacheEntry(this.tradesCache, cacheKey, trades, this.config.caching.priceCache);
+
+        // Store to database (async, don't block main thread)
+        this.databaseService.storeTradeData(tradeData).catch(error => {
+            console.error('Database error storing trade data:', error);
+        });
 
         // Pretty display untuk trades yang signifikan
         if (this.enablePrettyDisplay) {
@@ -864,6 +895,29 @@ export class AdvancedDataAggregator extends EventEmitter {
                         };
                     }
                 }
+
+                // Handle trade data: publicTrade.BTCUSDT
+                if (topic.startsWith('publicTrade.')) {
+                    const symbol = topic.replace('publicTrade.', '');
+                    const data = Array.isArray(message.data) ? message.data : [message.data];
+                    
+                    // Bybit sends multiple trades in array
+                    for (const trade of data) {
+                        return {
+                            type: 'trade',
+                            data: {
+                                symbol,
+                                price: parseFloat(trade.p || trade.price || '0'),
+                                quantity: parseFloat(trade.v || trade.size || '0'),
+                                side: trade.S === 'Buy' ? 'buy' : 'sell', // Bybit uses 'Buy'/'Sell'
+                                timestamp: parseInt(trade.T || trade.timestamp || Date.now().toString()),
+                                tradeId: trade.i || trade.id || `${Date.now()}_${Math.random()}`,
+                                exchange: 'bybit'
+                            } as TradeData,
+                            exchange: 'bybit'
+                        };
+                    }
+                }
             }
         } catch (error) {
             console.error('Error parsing Bybit message:', error);
@@ -919,6 +973,28 @@ export class AdvancedDataAggregator extends EventEmitter {
                                 timestamp: parseInt(data.ts || Date.now().toString()),
                                 exchange: 'okx'
                             } as OrderBook,
+                            exchange: 'okx'
+                        };
+                    }
+                }
+
+                // Handle trade data
+                if (channel === 'trades') {
+                    const data = Array.isArray(message.data) ? message.data : [message.data];
+                    
+                    // OKX sends multiple trades in array
+                    for (const trade of data) {
+                        return {
+                            type: 'trade',
+                            data: {
+                                symbol: instId.replace('-', ''),
+                                price: parseFloat(trade.px || '0'), // OKX uses 'px' for price
+                                quantity: parseFloat(trade.sz || '0'), // OKX uses 'sz' for size
+                                side: trade.side === 'buy' ? 'buy' : 'sell', // OKX uses 'buy'/'sell'
+                                timestamp: parseInt(trade.ts || Date.now().toString()),
+                                tradeId: trade.tradeId || `${Date.now()}_${Math.random()}`,
+                                exchange: 'okx'
+                            } as TradeData,
                             exchange: 'okx'
                         };
                     }
@@ -1090,5 +1166,17 @@ export class AdvancedDataAggregator extends EventEmitter {
     destroy(): void {
         this.stop();
         this.removeAllListeners();
+        
+        // Cleanup database connection
+        this.databaseService.cleanup().catch(error => {
+            console.error('Error cleaning up database:', error);
+        });
+    }
+
+    /**
+     * Get database service instance
+     */
+    getDatabaseService(): DatabaseService {
+        return this.databaseService;
     }
 }

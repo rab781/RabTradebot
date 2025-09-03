@@ -47,6 +47,7 @@
   "homepage": "https://github.com/yourusername/crypto-signal-bot#readme",
   "type": "commonjs",
   "dependencies": {
+    "@prisma/client": "^6.15.0",
     "@types/cheerio": "^0.22.35",
     "@types/node-telegram-bot-api": "^0.64.9",
     "@types/uuid": "^10.0.0",
@@ -62,7 +63,9 @@
     "node-binance-api": "^1.0.9",
     "node-telegram-bot-api": "^0.66.0",
     "plotly.js-dist": "^3.0.1",
+    "prisma": "^6.15.0",
     "sentiment": "^5.0.2",
+    "sqlite3": "^5.1.7",
     "technicalindicators": "^3.1.0",
     "telegraf": "^4.16.3",
     "ts-node": "^10.9.2",

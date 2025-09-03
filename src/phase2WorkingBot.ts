@@ -163,6 +163,11 @@ class Phase2WorkingBot {
     this.bot.onText(/\/display (on|off)/, this.handleDisplayToggle.bind(this));
     this.bot.onText(/\/throttle (\d+)/, this.handleThrottle.bind(this));
     this.bot.onText(/\/threshold (\d+)/, this.handleThreshold.bind(this));
+    
+    // Database analytics
+    this.bot.onText(/\/stats/, this.handleStats.bind(this));
+    this.bot.onText(/\/history (.+)/, this.handleHistory.bind(this));
+    this.bot.onText(/\/volume (.+)/, this.handleVolumeStats.bind(this));
 
     // Market overview
     this.bot.onText(/\/market/, this.handleMarketOverview.bind(this));
@@ -1446,6 +1451,190 @@ All systems optimized for high-frequency trading analysis and real-time market m
       console.error('❌ Failed to start Phase 2 Working Bot:', error);
       process.exit(1);
     }
+  }
+
+  /**
+   * Handle database statistics command
+   */
+  private async handleStats(msg: TelegramBot.Message): Promise<void> {
+    const chatId = msg.chat.id;
+
+    try {
+      const databaseService = this.dataAggregator.getDatabaseService();
+      const stats = await databaseService.getTradingStats('1d');
+
+      const response = `📊 **Trading Statistics (24h)**
+
+🔢 **Data Processing**:
+• Trades Processed: ${stats.tradesProcessed.toLocaleString()}
+• Price Updates: ${stats.priceUpdatesProcessed.toLocaleString()} 
+• OrderBook Updates: ${stats.orderBookSnapshotsProcessed.toLocaleString()}
+
+💰 **Trading Volume**:
+• Total Volume: $${(stats.totalTradeVolume / 1000000).toFixed(2)}M
+• Avg Trade Value: $${stats.averageTradeValue.toFixed(2)}
+
+⚡ **Processing Rate**:
+• Trades/Hour: ${stats.dataProcessingRate.tradesPerHour}
+• Price Updates/Hour: ${stats.dataProcessingRate.priceUpdatesPerHour}
+• OrderBook Updates/Hour: ${stats.dataProcessingRate.orderBookUpdatesPerHour}
+
+📈 **Performance**: Excellent
+🔄 **Data Collection**: Active`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Stats command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error retrieving statistics: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle price history command
+   */
+  private async handleHistory(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+    const symbol = match?.[1]?.toUpperCase();
+
+    if (!symbol) {
+      await this.bot.sendMessage(chatId, '❌ Please specify a symbol. Example: /history BTCUSDT');
+      return;
+    }
+
+    try {
+      const databaseService = this.dataAggregator.getDatabaseService();
+      const history = await databaseService.getPriceHistory(symbol, '1d');
+
+      if (history.length === 0) {
+        await this.bot.sendMessage(chatId, `📊 No price history found for ${symbol}`);
+        return;
+      }
+
+      // Calculate statistics from history
+      const prices = history.map(h => h.price);
+      const currentPrice = prices[prices.length - 1];
+      const startPrice = prices[0];
+      const maxPrice = Math.max(...prices);
+      const minPrice = Math.min(...prices);
+      const priceChange = ((currentPrice - startPrice) / startPrice) * 100;
+      const volatility = this.calculateVolatility(prices);
+
+      const response = `📈 **${symbol} Price History (24h)**
+
+💵 **Current Price**: $${currentPrice.toFixed(2)}
+📊 **24h Change**: ${priceChange >= 0 ? '🟢' : '🔴'} ${priceChange.toFixed(2)}%
+📈 **24h High**: $${maxPrice.toFixed(2)}
+📉 **24h Low**: $${minPrice.toFixed(2)}
+📊 **Volatility**: ${volatility.toFixed(2)}%
+
+📋 **Data Points**: ${history.length}
+⏱️ **Last Update**: ${new Date(history[history.length - 1].timestamp).toLocaleString('id-ID')}
+
+💡 **Analysis**: ${this.getPriceAnalysis(priceChange, volatility)}`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('History command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error retrieving history: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Handle volume statistics command  
+   */
+  private async handleVolumeStats(msg: TelegramBot.Message, match: RegExpExecArray | null): Promise<void> {
+    const chatId = msg.chat.id;
+    const symbol = match?.[1]?.toUpperCase();
+
+    if (!symbol) {
+      await this.bot.sendMessage(chatId, '❌ Please specify a symbol. Example: /volume BTCUSDT');
+      return;
+    }
+
+    try {
+      const databaseService = this.dataAggregator.getDatabaseService();
+      const stats = await databaseService.getTradeVolumeStats(symbol, '1d');
+
+      if (stats.tradeCount === 0) {
+        await this.bot.sendMessage(chatId, `📊 No trading data found for ${symbol}`);
+        return;
+      }
+
+      const response = `📊 **${symbol} Volume Statistics (24h)**
+
+💰 **Total Volume**: $${(stats.totalVolume / 1000000).toFixed(2)}M
+📈 **Total Quantity**: ${stats.totalQuantity.toFixed(2)} ${symbol.replace('USDT', '')}
+🔢 **Trade Count**: ${stats.tradeCount.toLocaleString()}
+
+📊 **Averages**:
+• Avg Price: $${stats.averagePrice.toFixed(2)}
+• Avg Trade Size: $${stats.averageTradeValue.toFixed(2)}
+
+⚡ **Activity Level**: ${this.getActivityLevel(stats.tradeCount)}
+🎯 **Market Interest**: ${this.getMarketInterest(stats.totalVolume)}`;
+
+      await this.bot.sendMessage(chatId, response, { parse_mode: 'Markdown' });
+
+    } catch (error) {
+      console.error('Volume stats command error:', error);
+      await this.bot.sendMessage(chatId, `❌ Error retrieving volume stats: ${error instanceof Error ? error.message : 'Unknown error'}`);
+    }
+  }
+
+  /**
+   * Calculate price volatility
+   */
+  private calculateVolatility(prices: number[]): number {
+    if (prices.length < 2) return 0;
+    
+    const returns = [];
+    for (let i = 1; i < prices.length; i++) {
+      returns.push((prices[i] - prices[i-1]) / prices[i-1]);
+    }
+    
+    const mean = returns.reduce((sum, r) => sum + r, 0) / returns.length;
+    const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
+    
+    return Math.sqrt(variance) * 100; // Convert to percentage
+  }
+
+  /**
+   * Get price analysis text
+   */
+  private getPriceAnalysis(priceChange: number, volatility: number): string {
+    if (Math.abs(priceChange) > 10) {
+      return priceChange > 0 ? '🚀 Strong bullish momentum' : '📉 Significant bearish pressure';
+    } else if (Math.abs(priceChange) > 5) {
+      return priceChange > 0 ? '📈 Moderate upward movement' : '📊 Moderate downward movement';
+    } else if (volatility > 5) {
+      return '🌊 High volatility with sideways movement';
+    } else {
+      return '😴 Stable price action';
+    }
+  }
+
+  /**
+   * Get activity level description
+   */
+  private getActivityLevel(tradeCount: number): string {
+    if (tradeCount > 10000) return '🔥 Very High';
+    if (tradeCount > 5000) return '⚡ High';
+    if (tradeCount > 1000) return '📊 Moderate';
+    if (tradeCount > 100) return '📈 Low';
+    return '😴 Very Low';
+  }
+
+  /**
+   * Get market interest description
+   */
+  private getMarketInterest(volume: number): string {
+    if (volume > 100000000) return '🐋 Whale Activity';
+    if (volume > 10000000) return '🔥 High Interest';
+    if (volume > 1000000) return '⚡ Active Trading';
+    if (volume > 100000) return '📊 Moderate Interest';
+    return '😴 Low Interest';
   }
 
   /**
