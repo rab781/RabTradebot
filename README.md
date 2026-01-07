@@ -4,7 +4,17 @@ A comprehensive Telegram bot that provides cryptocurrency trading signals, marke
 
 ## Features
 
-### Analysis Tools
+### 🤖 AI-Powered Analysis (NEW!)
+
+- **Chutes AI Integration**: Advanced news analysis and price predictions
+- **Multi-factor Analysis**: Analyzes regulations, whale movements, on-chain metrics
+- **Price Target Predictions**: Bullish, bearish, and neutral scenarios
+- **24h/7d/30d Forecasts**: Short, medium, and long-term predictions
+- **Trading Recommendations**: Entry points, stop loss, take profit targets
+- **Sentiment Scoring**: Real-time market sentiment from latest news
+- **Impact Assessment**: Critical, high, medium, low news categorization
+
+### 📊 Analysis Tools
 
 - Comprehensive market analysis with `/analyze` command
 - Technical Analysis using multiple indicators (RSI, MACD, Bollinger Bands, Moving Averages)
@@ -98,9 +108,13 @@ Price Alerts:
 - `/alerts` - List your active price alerts
 - `/delalert [symbol]` - Delete price alert
 
-News & Social Media Analysis:
+News & AI Analysis:
 
 - `/news [symbol]` - Comprehensive news analysis (traditional + social media)
+- `/pnews [symbol]` - **Advanced AI-powered news analysis with Chutes AI**
+- `/impact [symbol]` - Quick news impact assessment with price predictions
+- `/fullanalysis [symbol]` - Combined technical + fundamental AI analysis
+- `/pstatus` - Check Chutes AI configuration status
 - `/twitter [symbol]` - Twitter sentiment analysis for a cryptocurrency
 - `/influencers` - Latest tweets from major crypto influencers
 - `/cryptonews [symbol] [keywords]` - Search Twitter for specific crypto news
@@ -126,6 +140,7 @@ Data Management:
 - Telegram Bot Token (get it from @BotFather)
 - Binance API credentials (optional - for advanced features)
 - Twitter API credentials (optional - for social media analysis)
+- **Chutes AI API Key (NEW!)** - For advanced news analysis and price predictions
 
 ## API Configuration
 
@@ -137,7 +152,9 @@ Data Management:
 
 - **Binance API**: For advanced trading features and better rate limits
 - **Twitter API**: For social media sentiment analysis and influencer tracking
+- **Chutes AI API**: For AI-powered news analysis and price impact predictions
 
+See [CHUTES_SETUP.md](CHUTES_SETUP.md) for detailed Chutes AI setup instructions and advanced usage.
 See `TWITTER_SETUP.md` for detailed Twitter API setup instructions.
 
 ## Development

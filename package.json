@@ -12,6 +12,8 @@
     "rebuild": "npm run clean && npm run build",
     "test-twitter": "ts-node scripts/test-twitter.ts",
     "test-twitter-improved": "ts-node scripts/test-twitter-improved.ts",
+    "test-chutes": "ts-node scripts/test-chutes.ts",
+    "test-chutes-api": "ts-node scripts/test-chutes-api.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest",
