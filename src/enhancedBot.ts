@@ -16,8 +16,8 @@ import { StrategyOptimizer, OptimizationConfig } from './services/strategyOptimi
 import { SampleStrategy } from './strategies/SampleStrategy';
 import { IStrategy } from './types/strategy';
 
-// Perplexity service
-import { PerplexityService } from './services/perplexityService';
+// Chutes AI service
+import { ChutesService } from './services/chutesService';
 
 // Load environment variables
 config();
@@ -43,8 +43,8 @@ const tradingViewService = new TradingViewService({
 const dataManager = new DataManager();
 const strategy = new SampleStrategy();
 
-// Initialize Perplexity service
-const perplexityService = new PerplexityService();
+// Initialize Chutes AI service
+const chutesService = new ChutesService();
 
 // Import comprehensive analyzer
 import { SimpleComprehensiveAnalyzer } from './services/simpleComprehensiveAnalyzer';
@@ -238,7 +238,7 @@ Example: /analyze BTCUSDT
 • Run backtests across multiple strategies
 • Analyze multiple timeframes
 • Generate recommendations
-${perplexityService.isConfigured() ? '• Analyze latest news sentiment (AI-powered)' : ''}
+${chutesService.isConfigured() ? '• Analyze latest news sentiment (AI-powered by Chutes)' : ''}
 
 Please wait...`);
 
@@ -326,17 +326,17 @@ ${backtestSection}`);
 💡 Use /backtest ${symbol} 30 for detailed backtesting
 💡 Use /papertrade ${symbol} to start paper trading`);
 
-        // Add Perplexity news analysis if configured
-        if (perplexityService.isConfigured()) {
+        // Add Chutes news analysis if configured
+        if (chutesService.isConfigured()) {
             try {
                 ctx.reply(`🔄 Adding news sentiment analysis...`);
 
-                const newsItems = await perplexityService.searchCryptoNews(symbol, 3);
+                const newsItems = await chutesService.searchCryptoNews(symbol, 3);
                 if (newsItems.length > 0) {
-                    const newsAnalysis = await perplexityService.analyzeNewsImpact(symbol, newsItems);
+                    const newsAnalysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
 
                     const newsSection = `
-📰 NEWS SENTIMENT ANALYSIS (Powered by Perplexity AI):
+📰 NEWS SENTIMENT ANALYSIS (Powered by Chutes AI):
 
 📊 Overall Sentiment: ${newsAnalysis.overallSentiment} ${
     newsAnalysis.overallSentiment === 'BULLISH' ? '🟢📈' :
@@ -1183,18 +1183,18 @@ bot.command('pnews', async (ctx) => {
 • Provide detailed insights`);
     }
 
-    if (!perplexityService.isConfigured()) {
-        return ctx.reply(`❌ Perplexity AI not configured.
+    if (!chutesService.isConfigured()) {
+        return ctx.reply(`❌ Chutes AI not configured.
 
 To enable advanced news analysis:
-1. Get API key from perplexity.ai
-2. Add PERPLEXITY_API_KEY to your .env file
+1. Get API key from chutes.ai
+2. Add CHUTES_API_KEY to your .env file
 
 💡 You can still use /news ${symbol} for basic analysis.`);
     }
 
     try {
-        const loadingMsg = await ctx.reply(`🔄 Analyzing latest news for ${symbol} with Perplexity AI...
+        const loadingMsg = await ctx.reply(`🔄 Analyzing latest news for ${symbol} with Chutes AI...
 
 ⏳ This may take 15-30 seconds as we:
 • Search for latest news articles
@@ -1205,7 +1205,7 @@ To enable advanced news analysis:
 Please wait...`);
 
         // Get latest news
-        const newsItems = await perplexityService.searchCryptoNews(symbol, 8);
+        const newsItems = await chutesService.searchCryptoNews(symbol, 8);
 
         if (newsItems.length === 0) {
             return ctx.reply(`❌ No recent news found for ${symbol}.
@@ -1217,7 +1217,7 @@ Try:
         }
 
         // Analyze impact
-        const analysis = await perplexityService.analyzeNewsImpact(symbol, newsItems);
+        const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
 
         // Format response
         const newsSection = `🔍 LATEST NEWS ANALYSIS: ${symbol}
@@ -1319,20 +1319,20 @@ bot.command('impact', async (ctx) => {
         return ctx.reply('Please provide a symbol. Example: /impact BTCUSDT');
     }
 
-    if (!perplexityService.isConfigured()) {
-        return ctx.reply(`❌ Perplexity AI not configured. Use /pnews for setup instructions.`);
+    if (!chutesService.isConfigured()) {
+        return ctx.reply(`❌ Chutes AI not configured. Use /pnews for setup instructions.`);
     }
 
     try {
         ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
 
-        const newsItems = await perplexityService.searchCryptoNews(symbol, 5);
+        const newsItems = await chutesService.searchCryptoNews(symbol, 5);
 
         if (newsItems.length === 0) {
             return ctx.reply(`❌ No recent impactful news found for ${symbol}`);
         }
 
-        const analysis = await perplexityService.analyzeNewsImpact(symbol, newsItems);
+        const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
 
         const quickSummary = `⚡ QUICK IMPACT: ${symbol}
 
@@ -1392,9 +1392,9 @@ Please wait 30-60 seconds...`);
         // Run both analyses in parallel
         const [technicalResult, newsAnalysis] = await Promise.allSettled([
             comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
-            perplexityService.isConfigured() ?
-                perplexityService.searchCryptoNews(symbol, 5).then(news =>
-                    perplexityService.analyzeNewsImpact(symbol, news)
+            chutesService.isConfigured() ?
+                chutesService.searchCryptoNews(symbol, 5).then(news =>
+                    chutesService.analyzeNewsImpact(symbol, news)
                 ) : null
         ]);
 
@@ -1508,35 +1508,26 @@ ${news.newsItems.slice(0, 3).map((item, index) => {
     return;
 });
 
-// Perplexity status command
+// Chutes AI status command
 bot.command('pstatus', async (ctx) => {
     try {
-        if (!perplexityService.isConfigured()) {
-            return ctx.reply(`❌ Perplexity AI not configured.
+        if (!chutesService.isConfigured()) {
+            return ctx.reply(`❌ Chutes AI not configured.
 
 To enable advanced news analysis:
-1. Visit https://www.perplexity.ai/
+1. Visit https://chutes.ai/
 2. Sign up for an account
 3. Go to API settings
 4. Generate an API key
-5. Add PERPLEXITY_API_KEY to your .env file
+5. Add CHUTES_API_KEY to your .env file
 
 💡 Alternative: Use /news for basic analysis.`);
         }
 
-        const cacheStats = perplexityService.getCacheStats();
-
-        let message = `🤖 PERPLEXITY AI STATUS\n\n`;
+        let message = `🤖 CHUTES AI STATUS\n\n`;
         message += `🟢 STATUS: Configured & Ready\n\n`;
 
-        message += `💾 CACHE:\n`;
-        message += `• Entries: ${cacheStats.size}\n`;
-        if (cacheStats.oldestEntry > 0) {
-            const oldestMinutes = Math.floor(cacheStats.oldestEntry / 60);
-            message += `• Oldest: ${oldestMinutes}m ago\n`;
-        }
-
-        message += `\n📊 FEATURES:\n`;
+        message += `📊 FEATURES:\n`;
         message += `• Latest crypto news search\n`;
         message += `• AI-powered impact analysis\n`;
         message += `• Price movement predictions\n`;
@@ -1547,12 +1538,12 @@ To enable advanced news analysis:
         message += `• /impact [symbol] - Quick impact check\n`;
         message += `• /fullanalysis [symbol] - Combined analysis\n`;
 
-        message += `\n⚡ Powered by Perplexity AI`;
+        message += `\n⚡ Powered by Chutes AI`;
 
         ctx.reply(message);
     } catch (error) {
-        console.error('Perplexity status error:', error);
-        ctx.reply('❌ Error checking Perplexity status. Please try again later.');
+        console.error('Chutes status error:', error);
+        ctx.reply('❌ Error checking Chutes status. Please try again later.');
     }
 
     return;
@@ -1568,7 +1559,7 @@ bot.command('twitterstatus', async (ctx) => {
         console.error('Twitter status error:', error);
         ctx.reply('❌ Error checking Twitter status. Please try again later.');
     }
-    
+
     return;
 });
 
@@ -1654,9 +1645,9 @@ Parameters:
     try {
         const userId = ctx.message.from.id;
         const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
-        
+
         await priceAlertManager.addAlert(userId, symbol, price, direction as 'above' | 'below');
-        
+
         ctx.reply(`✅ Price alert set successfully!
 
 🎯 Alert: ${symbol}
@@ -1677,7 +1668,7 @@ bot.command('alerts', async (ctx) => {
     try {
         const userId = ctx.message.from.id;
         const alerts = priceAlertManager.getAlerts(userId);
-        
+
         if (alerts.length === 0) {
             return ctx.reply('❌ No active alerts found. Create one with /alert [symbol] [price] [above/below]');
         }
