@@ -22,8 +22,10 @@ import { ChutesService } from './services/chutesService';
 // Load environment variables
 config();
 
-// Initialize bot and existing services
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!);
+// Initialize bot and existing services with extended timeout
+const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!, {
+    handlerTimeout: 600000 // 10 minutes timeout for long-running operations
+});
 const technicalAnalyzer = new TechnicalAnalyzer();
 const newsAnalyzer = new NewsAnalyzer();
 const signalGenerator = new SignalGenerator(technicalAnalyzer, newsAnalyzer);
@@ -331,7 +333,7 @@ ${backtestSection}`);
             try {
                 ctx.reply(`🔄 Adding news sentiment analysis...`);
 
-                const newsItems = await chutesService.searchCryptoNews(symbol, 3);
+                const newsItems = await chutesService.searchCryptoNews(symbol, 5);
                 if (newsItems.length > 0) {
                     const newsAnalysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
 
@@ -1193,64 +1195,66 @@ To enable advanced news analysis:
 💡 You can still use /news ${symbol} for basic analysis.`);
     }
 
-    try {
-        const loadingMsg = await ctx.reply(`🔄 Analyzing latest news for ${symbol} with Chutes AI...
+    // Send initial loading message
+    const loadingMsg = await ctx.reply(`🔄 Analyzing latest news for ${symbol} with Chutes AI...
 
-⏳ This may take 15-30 seconds as we:
-• Search for latest news articles
-• Analyze market sentiment
-• Predict price impact
-• Generate insights
+⏳ This may take 2-3 minutes for detailed analysis:
+• Searching latest news articles (30-60s)
+• Analyzing market sentiment (60-90s)
+• Predicting price impact (30-60s)
+• Generating comprehensive insights
 
-Please wait...`);
+☕ Please be patient, quality analysis takes time...`);
 
-        // Get latest news
-        const newsItems = await chutesService.searchCryptoNews(symbol, 8);
+    // Process in background without blocking
+    (async () => {
+        try {
+            // Get latest news
+            const newsItems = await chutesService.searchCryptoNews(symbol, 10);
 
-        if (newsItems.length === 0) {
-            return ctx.reply(`❌ No recent news found for ${symbol}.
+            if (newsItems.length === 0) {
+                await ctx.reply(`❌ No recent news found for ${symbol}.
 
 Try:
 • Different symbol (BTCUSDT, ETHUSDT, etc.)
 • /news ${symbol} for basic analysis
 • Check symbol spelling`);
-        }
+                return;
+            }
 
-        // Analyze impact
-        const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
+            // Analyze impact
+            const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
 
-        // Format response
-        const newsSection = `🔍 LATEST NEWS ANALYSIS: ${symbol}
+            // Format response
+            const newsSection = `🔍 LATEST NEWS ANALYSIS: ${symbol}
 📅 ${analysis.timestamp.toLocaleString()}
 
 📰 FOUND ${newsItems.length} RECENT ARTICLES:
 ${newsItems.slice(0, 5).map((item, index) => {
-    const sentiment = item.sentimentScore > 0.3 ? '🟢' :
-                     item.sentimentScore < -0.3 ? '🔴' : '🟡';
-    const impact = item.impactLevel === 'CRITICAL' ? '🚨' :
-                  item.impactLevel === 'HIGH' ? '🔥' :
-                  item.impactLevel === 'MEDIUM' ? '📊' : '📰';
+                const sentiment = item.sentimentScore > 0.3 ? '🟢' :
+                    item.sentimentScore < -0.3 ? '🔴' : '🟡';
+                const impact = item.impactLevel === 'CRITICAL' ? '🚨' :
+                    item.impactLevel === 'HIGH' ? '🔥' :
+                        item.impactLevel === 'MEDIUM' ? '📊' : '📰';
 
-    return `${index + 1}. ${impact} ${sentiment} ${item.title.substring(0, 80)}...
+                return `${index + 1}. ${impact} ${sentiment} ${item.title.substring(0, 80)}...
    Impact: ${item.impactLevel} | Sentiment: ${item.sentimentScore.toFixed(2)}
    Source: ${item.source}`;
-}).join('\n\n')}`;
+            }).join('\n\n')}`;
 
-        const analysisSection = `
+            const analysisSection = `
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 🎯 MARKET IMPACT ANALYSIS:
 
-📊 Overall Sentiment: ${analysis.overallSentiment} ${
-    analysis.overallSentiment === 'BULLISH' ? '🟢📈' :
-    analysis.overallSentiment === 'BEARISH' ? '🔴📉' : '🟡➡️'
-}
+📊 Overall Sentiment: ${analysis.overallSentiment} ${analysis.overallSentiment === 'BULLISH' ? '🟢📈' :
+                    analysis.overallSentiment === 'BEARISH' ? '🔴📉' : '🟡➡️'
+                }
 
 🎯 Price Movement Prediction:
-Direction: ${analysis.marketMovement.direction} ${
-    analysis.marketMovement.direction === 'UP' ? '📈' :
-    analysis.marketMovement.direction === 'DOWN' ? '📉' : '➡️'
-}
+Direction: ${analysis.marketMovement.direction} ${analysis.marketMovement.direction === 'UP' ? '📈' :
+                    analysis.marketMovement.direction === 'DOWN' ? '📉' : '➡️'
+                }
 Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
 Expected Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${analysis.marketMovement.expectedRange.high.toFixed(1)}%
 
@@ -1259,15 +1263,15 @@ Expected Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${an
 • 7D: ${analysis.impactPrediction.mediumTerm}
 • 30D: ${analysis.impactPrediction.longTerm}`;
 
-        const factorsSection = analysis.keyFactors.length > 0 ? `
+            const factorsSection = analysis.keyFactors.length > 0 ? `
 🔑 KEY FACTORS:
 ${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}` : '';
 
-        // Send analysis in parts
-        await ctx.reply(newsSection);
-        await ctx.reply(analysisSection + factorsSection);
+            // Send analysis in parts
+            await ctx.reply(newsSection);
+            await ctx.reply(analysisSection + factorsSection);
 
-        await ctx.reply(`💡 TRADING RECOMMENDATIONS:
+            await ctx.reply(`💡 TRADING RECOMMENDATIONS:
 • Use this analysis with technical indicators
 • Monitor news developments closely
 • Set appropriate stop losses
@@ -1278,36 +1282,38 @@ ${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n
 /signal ${symbol} - Trading signals
 /chart ${symbol} - Price charts`);
 
-        // Delete loading message
-        try {
-            await ctx.deleteMessage(loadingMsg.message_id);
-        } catch (error) {
-            // Ignore delete errors
-        }
+            // Delete loading message
+            try {
+                await ctx.deleteMessage(loadingMsg.message_id);
+            } catch (error) {
+                // Ignore delete errors
+            }
 
-    } catch (error: any) {
-        console.error('Perplexity news error:', error);
+        } catch (error: any) {
+            console.error('Perplexity news error:', error);
 
-        if (error.message?.includes('API key')) {
-            ctx.reply(`❌ Perplexity API authentication failed.
+            if (error.message?.includes('API key')) {
+                await ctx.reply(`❌ Perplexity API authentication failed.
 
 Please check:
 • API key is valid
 • Account has sufficient credits
 • API key has proper permissions`);
-        } else if (error.message?.includes('rate limit')) {
-            ctx.reply(`⏸️ Perplexity API rate limit exceeded.
+            } else if (error.message?.includes('rate limit')) {
+                await ctx.reply(`⏸️ Perplexity API rate limit exceeded.
 
 Please wait a few minutes before trying again.
 
 💡 Alternative: /news ${symbol} for basic analysis`);
-        } else {
-            ctx.reply(`❌ Error analyzing news for ${symbol}: ${error.message}
+            } else {
+                await ctx.reply(`❌ Error analyzing news for ${symbol}: ${error.message}
 
 💡 Try: /news ${symbol} for basic analysis`);
+            }
         }
-    }
-
+    })(); // Execute immediately and don't wait
+    
+    // Return immediately to avoid timeout
     return;
 });
 
@@ -1326,7 +1332,7 @@ bot.command('impact', async (ctx) => {
     try {
         ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
 
-        const newsItems = await chutesService.searchCryptoNews(symbol, 5);
+        const newsItems = await chutesService.searchCryptoNews(symbol, 8);
 
         if (newsItems.length === 0) {
             return ctx.reply(`❌ No recent impactful news found for ${symbol}`);
@@ -1393,7 +1399,7 @@ Please wait 30-60 seconds...`);
         const [technicalResult, newsAnalysis] = await Promise.allSettled([
             comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
             chutesService.isConfigured() ?
-                chutesService.searchCryptoNews(symbol, 5).then(news =>
+                chutesService.searchCryptoNews(symbol, 8).then(news =>
                     chutesService.analyzeNewsImpact(symbol, news)
                 ) : null
         ]);

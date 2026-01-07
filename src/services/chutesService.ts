@@ -103,6 +103,11 @@ export class ChutesService {
         let cleaned = content.replace(/<think>[\s\S]*?<\/think>/g, '');
         cleaned = cleaned.replace(/<think>[\s\S]*$/g, ''); // Unclosed think tags
 
+        // Remove markdown code blocks (```json, ```, etc.)
+        cleaned = cleaned.replace(/```json\s*/g, '');
+        cleaned = cleaned.replace(/```\s*/g, '');
+        cleaned = cleaned.replace(/`/g, ''); // Remove any remaining backticks
+
         // Trim whitespace
         cleaned = cleaned.trim();
 
@@ -123,49 +128,17 @@ export class ChutesService {
 
         const cryptoName = this.getCryptoName(symbol);
 
-        // Optimized prompt for Chutes AI to fetch crypto news
-        const prompt = `You are a cryptocurrency news aggregator and analyzer. Your task is to find and analyze the latest news about ${cryptoName} (${symbol}).
+        // Optimized prompt for multiple news items
+        const prompt = `Find ${limit} latest ${cryptoName} (${symbol}) crypto news from last 24-48h.
 
-CRITICAL INSTRUCTIONS:
-1. Search for the most recent news (last 24-48 hours) from reliable sources
-2. Focus on news that directly impacts price movement
-3. Include both positive and negative news for balanced analysis
-4. Analyze regulatory news, partnerships, technical developments, market sentiment
-5. Return structured data with sentiment scoring
-
-For each news item, provide:
-- Exact headline/title
-- Brief summary (2-3 sentences focusing on price impact)
-- Source credibility
-- Sentiment score (-1 to 1, where -1=very bearish, 0=neutral, 1=very bullish)
-- Impact level (LOW/MEDIUM/HIGH/CRITICAL)
-- URL to original article if available
-
-Format response as JSON array:
+Return JSON array with EXACTLY ${limit} news items:
 [
-  {
-    "title": "exact headline",
-    "content": "concise summary with price implications",
-    "url": "source URL",
-    "publishedAt": "ISO timestamp",
-    "source": "source name",
-    "sentimentScore": 0.0,
-    "impactLevel": "MEDIUM",
-    "relevanceScore": 0.0
-  }
+  {"title":"headline 1","content":"summary","source":"source","sentimentScore":0.5,"impactLevel":"HIGH"},
+  {"title":"headline 2","content":"summary","source":"source","sentimentScore":-0.3,"impactLevel":"MEDIUM"},
+  ...(continue for ${limit} items)
 ]
 
-Focus on:
-- Price predictions from analysts
-- Whale movements and large transactions
-- Exchange listings/delistings
-- Protocol upgrades or hard forks
-- Regulatory decisions
-- Major partnerships or integrations
-- Market manipulation signals
-- Technical analysis from credible traders
-- On-chain metrics changes
-- Social media sentiment shifts`;
+Focus on: price movements, partnerships, regulations, whale activity, exchange news.`;
 
         try {
             const response = await axios.post(
@@ -191,7 +164,7 @@ Focus on:
                         'Authorization': `Bearer ${this.apiKey}`,
                         'Content-Type': 'application/json'
                     },
-                    timeout: 30000000
+                    timeout: 300000  // 5 minutes for quality results
                 }
             );
 
@@ -264,100 +237,78 @@ Focus on:
 
         const cryptoName = this.getCryptoName(symbol);
         const newsContext = newsItems.map((item, idx) =>
-            `[News ${idx + 1}]
-Title: ${item.title}
-Content: ${item.content}
-Source: ${item.source}
-Sentiment: ${item.sentimentScore}
-Impact: ${item.impactLevel}
-Published: ${item.publishedAt.toISOString()}`
-        ).join('\n\n');
+            `${idx + 1}. ${item.title} (${item.impactLevel}, sentiment: ${item.sentimentScore.toFixed(2)})`
+        ).join('\n');
 
-        const priceContext = currentPrice ? `Current ${symbol} price: $${currentPrice}` : '';
+        const priceContext = currentPrice ? `Price: $${currentPrice}` : '';
 
-        // Advanced prompt for maximum prediction accuracy
-        const analysisPrompt = `You are an elite cryptocurrency trading analyst with expertise in technical analysis, fundamental analysis, and market psychology. Analyze the following news for ${cryptoName} (${symbol}) and provide actionable trading insights.
+        // Detailed prompt for high-quality analysis
+        const analysisPrompt = `You are an elite cryptocurrency analyst. Analyze ${cryptoName} (${symbol}) news thoroughly.
 
 ${priceContext}
 
-NEWS CONTEXT:
+NEWS ANALYSIS:
 ${newsContext}
 
-ANALYSIS REQUIREMENTS:
+Provide comprehensive analysis covering:
 
 1. SENTIMENT ANALYSIS:
-- Aggregate sentiment from all news items
-- Weight recent news more heavily
-- Consider source credibility
-- Identify sentiment shifts
+   - Aggregate overall market sentiment
+   - Weight recent news more heavily
+   - Consider source credibility
+   - Identify any sentiment shifts
 
-2. MARKET IMPACT PREDICTION:
-- SHORT TERM (24h): Immediate price reaction expected
-- MEDIUM TERM (7d): Weekly trend prediction
-- LONG TERM (30d): Monthly outlook
+2. PRICE IMPACT PREDICTIONS:
+   - SHORT TERM (24h): Expected immediate price reaction
+   - MEDIUM TERM (7 days): Weekly trend prediction
+   - LONG TERM (30 days): Monthly outlook and fundamentals
 
-3. KEY FACTORS IDENTIFICATION:
-- List 3-5 most critical factors affecting price
-- Prioritize by impact magnitude
-- Include both bullish and bearish factors
+3. KEY MARKET FACTORS:
+   - List 3-5 most critical factors affecting price
+   - Include both bullish and bearish considerations
+   - Analyze whale activity, regulations, partnerships
 
-4. PRICE MOVEMENT PREDICTION:
-- Direction: UP/DOWN/SIDEWAYS
-- Confidence level (0-100%)
-- Expected price range (low-high)
-- Price targets for each scenario
+4. PRICE TARGETS:
+   - Bullish scenario target price
+   - Neutral/base case target price
+   - Bearish scenario target price
 
-5. TRADING RECOMMENDATIONS:
-- Entry points (if bullish)
-- Exit points and stop losses
-- Risk/reward ratio
-- Position sizing advice
+5. MARKET MOVEMENT:
+   - Direction: UP, DOWN, or SIDEWAYS
+   - Confidence level (0-100%)
+   - Expected price range
 
-CRITICAL CONSIDERATIONS:
-✓ Factor in market manipulation signals
-✓ Analyze whale wallet movements if mentioned
-✓ Consider broader market conditions
-✓ Evaluate correlation with BTC/ETH
-✓ Check for FUD vs legitimate concerns
-✓ Assess regulatory impact
-✓ Review on-chain metrics if available
+CRITICAL ANALYSIS POINTS:
+✓ Check for market manipulation signals
+✓ Analyze whale wallet movements
+✓ Consider broader crypto market conditions
+✓ Evaluate BTC/ETH correlation impact
+✓ Distinguish FUD from legitimate concerns
+✓ Assess regulatory and compliance impact
+✓ Review on-chain metrics if mentioned
 
-Return ONLY valid JSON in this exact format:
+Return detailed JSON:
 {
   "overallSentiment": "BULLISH|BEARISH|NEUTRAL",
   "impactPrediction": {
-    "shortTerm": "detailed 24h prediction with specific expectations",
-    "mediumTerm": "detailed 7d prediction with trend analysis",
-    "longTerm": "detailed 30d prediction with fundamental outlook"
+    "shortTerm": "detailed 24h prediction with specific price expectations and reasoning",
+    "mediumTerm": "detailed 7-day trend analysis with technical and fundamental factors",
+    "longTerm": "comprehensive 30-day outlook with market dynamics and catalysts"
   },
   "keyFactors": [
-    "Most important factor affecting price",
-    "Second critical factor",
-    "Third factor"
+    "Most critical factor with detailed explanation",
+    "Second important factor with context",
+    "Third key factor with impact assessment"
   ],
   "marketMovement": {
     "direction": "UP|DOWN|SIDEWAYS",
     "confidence": 75,
-    "expectedRange": {
-      "low": 0,
-      "high": 0
-    }
+    "expectedRange": {"low": 0, "high": 0}
   },
-  "priceTarget": {
-    "bullish": 0,
-    "bearish": 0,
-    "neutral": 0
-  },
-  "tradingAdvice": {
-    "action": "BUY|SELL|HOLD",
-    "entryZone": {"low": 0, "high": 0},
-    "stopLoss": 0,
-    "takeProfit": [0, 0, 0],
-    "riskReward": "1:3"
-  }
+  "priceTarget": {"bullish": 0, "bearish": 0, "neutral": 0}
 }
 
-Be precise, data-driven, and conservative in predictions. Quality over hype.`;
+Be thorough, data-driven, and provide actionable insights.`;
 
         try {
             const response = await axios.post(
@@ -374,7 +325,7 @@ Be precise, data-driven, and conservative in predictions. Quality over hype.`;
                             content: analysisPrompt
                         }
                     ],
-                    max_tokens: 2500,
+                    max_tokens: 3000,  // More tokens for detailed quality analysis
                     temperature: 0.2,
                     stream: false
                 },
@@ -383,7 +334,7 @@ Be precise, data-driven, and conservative in predictions. Quality over hype.`;
                         'Authorization': `Bearer ${this.apiKey}`,
                         'Content-Type': 'application/json'
                     },
-                    timeout: 30000000
+                    timeout: 300000  // 5 minutes for detailed analysis
                 }
             );
 
