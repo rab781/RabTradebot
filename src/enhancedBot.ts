@@ -19,6 +19,10 @@ import { IStrategy } from './types/strategy';
 // Chutes AI service
 import { ChutesService } from './services/chutesService';
 
+// Web Dashboard
+import { startWebServer, stateManager } from './webServer';
+import BotStateManager from './services/botStateManager';
+
 // Load environment variables
 config();
 
@@ -192,6 +196,9 @@ bot.command('signal', async (ctx) => {
     const userId = ctx.message.from.id;
 
     console.log(`[${new Date().toISOString()}] User: ${username} (${userId}) requested signal for: ${symbol || 'undefined'}`);
+    
+    // Track command
+    stateManager.incrementCommandCount();
 
     if (!symbol) {
         return ctx.reply('Please provide a symbol. Example: /signal BTCUSDT');
@@ -200,6 +207,17 @@ bot.command('signal', async (ctx) => {
     try {
         ctx.reply('🔄 Generating signal...');
         const signal = await signalGenerator.generateSignal(symbol);
+        
+        // Add signal to dashboard
+        stateManager.addSignal({
+            symbol,
+            action: signal.includes('BUY') ? 'BUY' : signal.includes('SELL') ? 'SELL' : 'HOLD',
+            price: 0, // Will be updated with actual price
+            confidence: 0.75, // Default confidence
+            timestamp: new Date(),
+            indicators: {}
+        });
+        
         ctx.reply(signal);
     } catch (error) {
         console.error(`Error generating signal for ${symbol}:`, error);
@@ -1195,6 +1213,9 @@ To enable advanced news analysis:
 💡 You can still use /news ${symbol} for basic analysis.`);
     }
 
+    // Track command
+    stateManager.incrementCommandCount();
+
     // Send initial loading message
     const loadingMsg = await ctx.reply(`🔄 Analyzing latest news for ${symbol} with Chutes AI...
 
@@ -1224,6 +1245,17 @@ Try:
 
             // Analyze impact
             const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
+
+            // Add news to dashboard
+            newsItems.slice(0, 5).forEach(item => {
+                stateManager.addNews({
+                    symbol,
+                    title: item.title,
+                    sentiment: analysis.overallSentiment,
+                    impact: item.impactLevel as 'HIGH' | 'MEDIUM' | 'LOW',
+                    timestamp: new Date()
+                });
+            });
 
             // Format response
             const newsSection = `🔍 LATEST NEWS ANALYSIS: ${symbol}
@@ -1312,7 +1344,7 @@ Please wait a few minutes before trying again.
             }
         }
     })(); // Execute immediately and don't wait
-    
+
     // Return immediately to avoid timeout
     return;
 });
@@ -1724,6 +1756,10 @@ bot.catch((err, ctx) => {
 
 // Launch bot
 console.log('🚀 Starting Telegram Bot...');
+console.log('🔄 Bot initialization complete. Waiting for messages...');
+
+// Start web server first
+startWebServer();
 
 bot.launch().then(() => {
     console.log('✅ Bot started successfully!');
@@ -1738,11 +1774,11 @@ bot.launch().then(() => {
 process.once('SIGINT', () => {
     console.log('🛑 Received SIGINT, stopping bot...');
     bot.stop('SIGINT');
+    process.exit(0);
 });
 
 process.once('SIGTERM', () => {
     console.log('🛑 Received SIGTERM, stopping bot...');
     bot.stop('SIGTERM');
+    process.exit(0);
 });
-
-console.log('🔄 Bot initialization complete. Waiting for messages...');
