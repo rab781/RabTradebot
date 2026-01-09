@@ -62,7 +62,7 @@ export interface BotStats {
 
 class BotStateManager {
     private static instance: BotStateManager;
-    
+
     private trades: Trade[] = [];
     private signals: Signal[] = [];
     private news: NewsItem[] = [];
@@ -187,12 +187,12 @@ class BotStateManager {
     private updateStats() {
         const closedTrades = this.trades.filter(t => t.status === 'CLOSED');
         const winningTrades = closedTrades.filter(t => (t.profit || 0) > 0);
-        
+
         this.portfolio.performance.totalTrades = closedTrades.length;
-        this.portfolio.performance.winRate = closedTrades.length > 0 
-            ? winningTrades.length / closedTrades.length 
+        this.portfolio.performance.winRate = closedTrades.length > 0
+            ? winningTrades.length / closedTrades.length
             : 0;
-        
+
         const totalProfit = closedTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
         this.portfolio.performance.totalPnl = totalProfit;
         this.portfolio.performance.totalPnlPercentage = (totalProfit / 10000) * 100;

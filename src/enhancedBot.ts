@@ -196,7 +196,7 @@ bot.command('signal', async (ctx) => {
     const userId = ctx.message.from.id;
 
     console.log(`[${new Date().toISOString()}] User: ${username} (${userId}) requested signal for: ${symbol || 'undefined'}`);
-    
+
     // Track command
     stateManager.incrementCommandCount();
 
@@ -207,7 +207,7 @@ bot.command('signal', async (ctx) => {
     try {
         ctx.reply('🔄 Generating signal...');
         const signal = await signalGenerator.generateSignal(symbol);
-        
+
         // Add signal to dashboard
         stateManager.addSignal({
             symbol,
@@ -217,7 +217,7 @@ bot.command('signal', async (ctx) => {
             timestamp: new Date(),
             indicators: {}
         });
-        
+
         ctx.reply(signal);
     } catch (error) {
         console.error(`Error generating signal for ${symbol}:`, error);

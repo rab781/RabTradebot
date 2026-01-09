@@ -104,8 +104,8 @@ app.get('/api/stats', (req: Request, res: Response) => {
 
 // Health check
 app.get('/api/health', (req: Request, res: Response) => {
-    res.json({ 
-        status: 'OK', 
+    res.json({
+        status: 'OK',
         timestamp: new Date(),
         uptime: process.uptime()
     });
