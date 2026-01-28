@@ -1,6 +1,6 @@
 import * as CC from 'cryptocompare';
 import { NewsArticle } from 'cryptocompare';
-import { TwitterService, TwitterAnalysis } from './twitterService';
+
 
 export interface NewsAnalysisResult {
     symbol: string;
@@ -10,7 +10,7 @@ export interface NewsAnalysisResult {
         sentiment: string;
         score: number;
     };
-    twitterAnalysis?: TwitterAnalysis;
+
     combinedSentiment: {
         score: number;
         label: string;
@@ -19,35 +19,9 @@ export interface NewsAnalysisResult {
     summary: string;
 }
 
+
 export class NewsAnalyzer {
-    private twitterService: TwitterService;
-
     constructor() {
-        this.twitterService = new TwitterService();
-        this.initializeTwitter();
-    }
-
-    private initializeTwitter(): void {
-        // Initialize Twitter service with environment variables
-        const twitterConfig = {
-            apiKey: process.env.TWITTER_API_KEY || '',
-            apiKeySecret: process.env.TWITTER_API_KEY_SECRET || '',
-            accessToken: process.env.TWITTER_ACCESS_TOKEN || '',
-            accessTokenSecret: process.env.TWITTER_ACCESS_TOKEN_SECRET || '',
-            bearerToken: process.env.TWITTER_BEARER_TOKEN || '',
-        };
-
-        // Only initialize if all required credentials are present
-        if (twitterConfig.apiKey && twitterConfig.apiKeySecret &&
-            twitterConfig.accessToken && twitterConfig.accessTokenSecret) {
-            try {
-                this.twitterService.initialize(twitterConfig);
-            } catch (error) {
-                console.warn('Twitter service initialization failed:', error);
-            }
-        } else {
-            console.warn('Twitter API credentials not found in environment variables');
-        }
     }
 
     async analyzeNews(symbol: string): Promise<string> {
@@ -75,26 +49,9 @@ export class NewsAnalyzer {
             const traditionalSentimentScore = this.calculateSentiment(relevantNews);
             const traditionalSentiment = this.getSentimentDescription(traditionalSentimentScore);
 
-            // Get Twitter analysis if available
-            let twitterAnalysis: TwitterAnalysis | undefined;
-            if (this.twitterService.isConfigured()) {
-                try {
-                    console.log('Starting Twitter sentiment analysis...');
-                    twitterAnalysis = await this.twitterService.analyzeCryptoSentiment(symbol);
-                    console.log('Twitter sentiment analysis completed successfully');
-                } catch (error: any) {
-                    console.warn('Twitter analysis failed:', error.message);
-                    if (error.message?.includes('rate limit')) {
-                        console.log('Twitter rate limit hit - using traditional news only');
-                    }
-                    // Continue without Twitter data
-                }
-            }
-
-            // Combine sentiments
+            // Combine sentiments (now just traditional)
             const combinedSentiment = this.combineSentiments(
-                traditionalSentimentScore,
-                twitterAnalysis?.sentiment
+                traditionalSentimentScore
             );
 
             // Generate comprehensive summary
@@ -102,7 +59,6 @@ export class NewsAnalyzer {
                 symbol,
                 relevantNews,
                 traditionalSentiment,
-                twitterAnalysis,
                 combinedSentiment
             );
 
@@ -114,7 +70,6 @@ export class NewsAnalyzer {
                     sentiment: traditionalSentiment,
                     score: traditionalSentimentScore,
                 },
-                twitterAnalysis,
                 combinedSentiment,
                 summary,
             };
@@ -143,22 +98,8 @@ export class NewsAnalyzer {
             analysis += `🔹 TRADITIONAL NEWS: No significant news found\n`;
         }
 
-        // Twitter analysis section
-        if (result.twitterAnalysis) {
-            analysis += `\n🔹 TWITTER SENTIMENT:\n`;
-            analysis += `Posts Analyzed: ${result.twitterAnalysis.posts.length}\n`;
-            analysis += `Sentiment: ${result.twitterAnalysis.sentiment.label}\n`;
-            analysis += `Confidence: ${result.twitterAnalysis.sentiment.confidence.toFixed(1)}%\n`;
+        // Twitter analysis section (REMOVED)
 
-            if (result.twitterAnalysis.influencers.length > 0) {
-                analysis += `\nTop Influencers:\n`;
-                result.twitterAnalysis.influencers.slice(0, 3).forEach(influencer => {
-                    analysis += `• @${influencer.username}: ${influencer.sentiment}\n`;
-                });
-            }
-        } else {
-            analysis += `\n🔹 TWITTER ANALYSIS: Not available\n`;
-        }
 
         // Combined sentiment
         analysis += `\n🎯 COMBINED SENTIMENT: ${result.combinedSentiment.label}\n`;
@@ -168,55 +109,20 @@ export class NewsAnalyzer {
     }
 
     private combineSentiments(
-        traditionalScore: number,
-        twitterSentiment?: { score: number; label: string; confidence: number }
+        traditionalScore: number
     ): { score: number; label: string; confidence: number } {
-        if (!twitterSentiment) {
-            // Only traditional news available
-            return {
-                score: traditionalScore,
-                label: this.getSentimentDescription(traditionalScore),
-                confidence: Math.min(Math.abs(traditionalScore) * 20, 70), // Lower confidence without Twitter
-            };
-        }
-
-        // Weight traditional news (40%) and Twitter sentiment (60%)
-        const traditionalWeight = 0.4;
-        const twitterWeight = 0.6;
-
-        // Normalize traditional score to -1 to 1 range
-        const normalizedTraditional = Math.max(-1, Math.min(1, traditionalScore / 5));
-
-        const combinedScore = (normalizedTraditional * traditionalWeight) + (twitterSentiment.score * twitterWeight);
-
-        let label: string;
-        let confidence: number;
-
-        if (combinedScore > 0.3) {
-            label = '🟢 Very Positive';
-            confidence = Math.min(combinedScore * 100, 90);
-        } else if (combinedScore > 0.1) {
-            label = '🟡 Positive';
-            confidence = Math.min(combinedScore * 80, 75);
-        } else if (combinedScore < -0.3) {
-            label = '🔴 Very Negative';
-            confidence = Math.min(Math.abs(combinedScore) * 100, 90);
-        } else if (combinedScore < -0.1) {
-            label = '🟠 Negative';
-            confidence = Math.min(Math.abs(combinedScore) * 80, 75);
-        } else {
-            label = '⚪ Neutral';
-            confidence = 50;
-        }
-
-        return { score: combinedScore, label, confidence };
+        // Only traditional news available
+        return {
+            score: traditionalScore,
+            label: this.getSentimentDescription(traditionalScore),
+            confidence: Math.min(Math.abs(traditionalScore) * 20, 70),
+        };
     }
 
     private generateComprehensiveSummary(
         symbol: string,
         articles: NewsArticle[],
         traditionalSentiment: string,
-        twitterAnalysis?: TwitterAnalysis,
         combinedSentiment?: { score: number; label: string; confidence: number }
     ): string {
         let summary = `📊 Comprehensive News Analysis for ${symbol}\n\n`;
@@ -224,17 +130,6 @@ export class NewsAnalyzer {
         summary += `🔹 TRADITIONAL MEDIA:\n`;
         summary += `Articles: ${articles.length}\n`;
         summary += `Sentiment: ${traditionalSentiment}\n\n`;
-
-        if (twitterAnalysis) {
-            summary += `🔹 SOCIAL MEDIA (Twitter):\n`;
-            summary += `Posts: ${twitterAnalysis.posts.length}\n`;
-            summary += `Sentiment: ${twitterAnalysis.sentiment.label}\n`;
-            summary += `Confidence: ${twitterAnalysis.sentiment.confidence.toFixed(1)}%\n\n`;
-
-            if (twitterAnalysis.trends.length > 0) {
-                summary += `Trending: ${twitterAnalysis.trends.join(', ')}\n\n`;
-            }
-        }
 
         if (combinedSentiment) {
             summary += `🎯 OVERALL SENTIMENT: ${combinedSentiment.label}\n`;
@@ -246,68 +141,7 @@ export class NewsAnalyzer {
         return summary;
     }
 
-    // Method to get tweets from specific crypto influencers
-    async getInfluencerTweets(influencers: string[]): Promise<string> {
-        if (!this.twitterService.isConfigured()) {
-            return '❌ Twitter service not configured. Please set up Twitter API credentials.';
-        }
-
-        let result = '🔥 Crypto Influencer Tweets:\n\n';
-
-        for (const username of influencers) {
-            try {
-                const tweets = await this.twitterService.getTweetsFromUser(username, 5);
-
-                if (tweets.length > 0) {
-                    result += `📱 @${username} (${tweets[0].author.followers.toLocaleString()} followers):\n`;
-
-                    tweets.slice(0, 3).forEach((tweet, index) => {
-                        const date = tweet.createdAt.toLocaleDateString();
-                        result += `${index + 1}. [${date}] ${tweet.text.substring(0, 100)}...\n`;
-                        result += `   💚 ${tweet.metrics.likes} 🔄 ${tweet.metrics.retweets}\n`;
-                    });
-
-                    result += '\n';
-                }
-            } catch (error) {
-                result += `❌ Error fetching tweets from @${username}\n\n`;
-            }
-        }
-
-        return result;
-    }
-
-    // Method to search for specific crypto-related keywords on Twitter
-    async searchCryptoNews(keywords: string[], symbol: string): Promise<string> {
-        if (!this.twitterService.isConfigured()) {
-            return '❌ Twitter service not configured. Please set up Twitter API credentials.';
-        }
-
-        const cryptoName = this.getBaseCurrency(symbol);
-        let result = `🔍 Twitter Search Results for ${symbol}:\n\n`;
-
-        for (const keyword of keywords) {
-            try {
-                const searchQuery = `${cryptoName} ${keyword} -RT`;
-                const tweets = await this.twitterService.searchTweets(searchQuery, 10);
-
-                if (tweets.length > 0) {
-                    result += `📌 Keyword: "${keyword}"\n`;
-
-                    tweets.slice(0, 3).forEach((tweet, index) => {
-                        const date = tweet.createdAt.toLocaleDateString();
-                        result += `${index + 1}. @${tweet.author.username} [${date}]\n`;
-                        result += `   ${tweet.text.substring(0, 120)}...\n`;
-                        result += `   💚 ${tweet.metrics.likes} 🔄 ${tweet.metrics.retweets}\n\n`;
-                    });
-                }
-            } catch (error) {
-                result += `❌ Error searching for "${keyword}"\n\n`;
-            }
-        }
-
-        return result;
-    }    private calculateSentiment(articles: NewsArticle[]): number {
+    private calculateSentiment(articles: NewsArticle[]): number {
         // Enhanced sentiment analysis using both title and body
         const positiveWords = ['surge', 'bull', 'up', 'gain', 'positive', 'rise', 'growth', 'bullish', 'breakthrough', 'support', 'adoption', 'partnership'];
         const negativeWords = ['crash', 'bear', 'down', 'loss', 'negative', 'fall', 'decline', 'bearish', 'resistance', 'ban', 'hack', 'scam'];
@@ -325,7 +159,9 @@ export class NewsAnalyzer {
         });
 
         return score;
-    }    private getSentimentDescription(score: number): string {
+    }
+
+    private getSentimentDescription(score: number): string {
         if (score > 3) return '🟢 Very Positive';
         if (score > 0) return '🟡 Slightly Positive';
         if (score < -3) return '🔴 Very Negative';

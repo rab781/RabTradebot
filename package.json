@@ -10,14 +10,11 @@
     "clean": "rimraf dist",
     "clean:js": "node scripts/cleanup-js.js",
     "rebuild": "npm run clean && npm run build",
-    "test-twitter": "ts-node scripts/test-twitter.ts",
-    "test-twitter-improved": "ts-node scripts/test-twitter-improved.ts",
     "test-chutes": "ts-node scripts/test-chutes.ts",
     "test-chutes-api": "ts-node scripts/test-chutes-api.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "jest",
-    "diagnose-twitter": "ts-node scripts/diagnose-twitter.ts"
+    "test": "jest"
   },
   "keywords": [
     "telegram",
@@ -58,7 +55,6 @@
     "technicalindicators": "^3.1.0",
     "telegraf": "^4.16.3",
     "ts-node": "^10.9.2",
-    "twitter-api-v2": "^1.24.0",
     "uuid": "^11.1.0"
   },
   "devDependencies": {

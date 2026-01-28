@@ -16,7 +16,7 @@ import { StrategyOptimizer, OptimizationConfig } from './services/strategyOptimi
 import { SampleStrategy } from './strategies/SampleStrategy';
 import { IStrategy } from './types/strategy';
 
-// Chutes AI service
+import { ImageChartService } from './services/imageChartService';
 import { ChutesService } from './services/chutesService';
 
 // Web Dashboard
@@ -51,6 +51,7 @@ const strategy = new SampleStrategy();
 
 // Initialize Chutes AI service
 const chutesService = new ChutesService();
+const imageChartService = new ImageChartService();
 
 // Import comprehensive analyzer
 import { SimpleComprehensiveAnalyzer } from './services/simpleComprehensiveAnalyzer';
@@ -110,16 +111,6 @@ This bot now includes powerful freqtrade-inspired features:
 /download [symbol] [days] - Download historical data
 /datainfo [symbol] - Data quality info
 
-🐦 NEWS & SOCIAL MEDIA:
-/pnews [symbol] - Perplexity AI news analysis (NEW!)
-/impact [symbol] - Quick news impact (NEW!)
-/fullanalysis [symbol] - Complete technical + news (NEW!)
-/news [symbol] - Comprehensive news analysis
-/twitter [symbol] - Twitter sentiment analysis
-/twitterstatus - Check Twitter API rate limits and status
-/influencers - Crypto influencer tweets
-/cryptonews [symbol] [keywords] - Search Twitter news
-
 Use /help for detailed command descriptions.`);
 });
 
@@ -136,14 +127,10 @@ bot.command('help', (ctx) => {
    • Chart generation with indicators
 /fullanalysis [symbol] - Technical + News analysis (NEW!)
 
-🔹 NEWS & SENTIMENT ANALYSIS:
-/pnews [symbol] - Perplexity AI news analysis (NEW!)
-/impact [symbol] - Quick news impact assessment (NEW!)
-/news [symbol] - Comprehensive news analysis (traditional + Twitter)
-/twitter [symbol] - Twitter sentiment analysis
-/twitterstatus - Check Twitter API rate limits and status
-/influencers - Latest tweets from crypto influencers
-/cryptonews [symbol] [keywords] - Search Twitter for crypto news
+🔹 🐦 NEWS & SOCIAL MEDIA:
+/pnews [symbol] - AI news analysis (Chutes)
+/impact [symbol] - Quick news impact overview
+/news [symbol] - Comprehensive news analysis
 
 🔹 ADVANCED TRADING COMMANDS:
 /backtest [symbol] [days] - Run strategy backtest
@@ -168,21 +155,10 @@ bot.command('help', (ctx) => {
 /alerts - List your active price alerts
 /delalert [symbol] - Delete price alert
 
-🔹 NEWS & SOCIAL MEDIA:
-/pnews [symbol] - Perplexity AI news analysis (NEW!)
-/impact [symbol] - Quick news impact assessment (NEW!)
-/fullanalysis [symbol] - Complete technical + fundamental (NEW!)
-/news [symbol] - Comprehensive news analysis (traditional + Twitter)
-/twitter [symbol] - Twitter sentiment analysis
-/twitterstatus - Check Twitter API rate limits and status
-/influencers - Latest tweets from crypto influencers
-/cryptonews [symbol] [keywords] - Search Twitter for crypto news
-
 📈 NEW FEATURES:
-• Perplexity AI integration for latest news
+• Chutes AI integration for latest news
 • Market impact predictions
 • Combined technical + fundamental analysis
-• Real-time sentiment analysis
 
 All commands support major cryptocurrencies (BTCUSDT, ETHUSDT, etc.)
 `;
@@ -307,12 +283,11 @@ Insufficient data for backtesting`;
 
         const recommendationSection = `
 🎯 TRADING RECOMMENDATION:
-Action: ${analysisResult.recommendation.action.toUpperCase()} ${
-    analysisResult.recommendation.action === 'strong_buy' ? '🟢🟢' :
-    analysisResult.recommendation.action === 'buy' ? '🟢' :
-    analysisResult.recommendation.action === 'strong_sell' ? '🔴🔴' :
-    analysisResult.recommendation.action === 'sell' ? '🔴' : '🟡'
-}
+Action: ${analysisResult.recommendation.action.toUpperCase()} ${analysisResult.recommendation.action === 'strong_buy' ? '🟢🟢' :
+                analysisResult.recommendation.action === 'buy' ? '🟢' :
+                    analysisResult.recommendation.action === 'strong_sell' ? '🔴🔴' :
+                        analysisResult.recommendation.action === 'sell' ? '🔴' : '🟡'
+            }
 Confidence: ${analysisResult.recommendation.confidence.toFixed(1)}%
 Entry Price: $${analysisResult.recommendation.entryPrice.toFixed(2)}
 Exit Target: $${analysisResult.recommendation.exitPrice.toFixed(2)}
@@ -338,10 +313,38 @@ ${technicalSection}`);
         await ctx.reply(`${timeframeSection}
 ${backtestSection}`);
 
+        // Generate and send charts
+        try {
+            await ctx.reply('🔄 Generating charts...');
+            const timeframes = ['1h', '4h', '1d'];
+
+            for (const tf of timeframes) {
+                // Get data efficiently (limit to 100 candles)
+                const data = await dataManager.getRecentData(symbol, tf, 100);
+
+                if (data && data.length > 0) {
+                    // Convert data to format expected by ImageChartService
+                    const chartData = data.map(d => ({
+                        t: d.timestamp,
+                        o: d.open,
+                        h: d.high,
+                        l: d.low,
+                        c: d.close,
+                        v: d.volume
+                    }));
+
+                    const imageBuffer = await imageChartService.generateCandlestickChart(symbol, tf, chartData);
+                    await ctx.replyWithPhoto({ source: imageBuffer }, { caption: `${symbol} ${tf} Chart` });
+                }
+            }
+        } catch (chartError) {
+            console.error('Chart generation error in /analyze:', chartError);
+            await ctx.reply('⚠️ Could not generate chart images, but analysis continues...');
+        }
+
         await ctx.reply(`${recommendationSection}`);
 
-        await ctx.reply(`${chartsSection}
-
+        await ctx.reply(`
 ✅ Analysis completed at ${analysisResult.timestamp.toLocaleString()}
 💡 Use /backtest ${symbol} 30 for detailed backtesting
 💡 Use /papertrade ${symbol} to start paper trading`);
@@ -358,15 +361,13 @@ ${backtestSection}`);
                     const newsSection = `
 📰 NEWS SENTIMENT ANALYSIS (Powered by Chutes AI):
 
-📊 Overall Sentiment: ${newsAnalysis.overallSentiment} ${
-    newsAnalysis.overallSentiment === 'BULLISH' ? '🟢📈' :
-    newsAnalysis.overallSentiment === 'BEARISH' ? '🔴📉' : '🟡➡️'
-}
+📊 Overall Sentiment: ${newsAnalysis.overallSentiment} ${newsAnalysis.overallSentiment === 'BULLISH' ? '🟢📈' :
+                            newsAnalysis.overallSentiment === 'BEARISH' ? '🔴📉' : '🟡➡️'
+                        }
 
-📈 Market Movement Prediction: ${newsAnalysis.marketMovement.direction} ${
-    newsAnalysis.marketMovement.direction === 'UP' ? '📈' :
-    newsAnalysis.marketMovement.direction === 'DOWN' ? '📉' : '➡️'
-}
+📈 Market Movement Prediction: ${newsAnalysis.marketMovement.direction} ${newsAnalysis.marketMovement.direction === 'UP' ? '📈' :
+                            newsAnalysis.marketMovement.direction === 'DOWN' ? '📉' : '➡️'
+                        }
 Confidence Level: ${newsAnalysis.marketMovement.confidence.toFixed(1)}%
 
 ⏰ IMPACT PREDICTIONS:
@@ -374,16 +375,16 @@ Confidence Level: ${newsAnalysis.marketMovement.confidence.toFixed(1)}%
 🔸 7D: ${newsAnalysis.impactPrediction.mediumTerm}
 🔹 30D: ${newsAnalysis.impactPrediction.longTerm}
 
-�️ KEY MARKET FACTORS:
+️ KEY MARKET FACTORS:
 ${newsAnalysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}
 
 🔥 RECENT NEWS (${newsItems.length} items):
 ${newsItems.map((item, index) => {
-    const sentiment = item.sentimentScore > 0.3 ? '🟢' :
-                     item.sentimentScore < -0.3 ? '🔴' : '🟡';
-    return `${index + 1}. ${sentiment} ${item.title.substring(0, 55)}...
+                            const sentiment = item.sentimentScore > 0.3 ? '🟢' :
+                                item.sentimentScore < -0.3 ? '🔴' : '🟡';
+                            return `${index + 1}. ${sentiment} ${item.title.substring(0, 55)}...
    📊 Impact: ${item.impactLevel} | Sentiment: ${item.sentimentScore.toFixed(2)}`;
-}).join('\n')}
+                        }).join('\n')}
 
 💡 Use /pnews ${symbol} for detailed news analysis`;
 
@@ -394,15 +395,15 @@ ${newsItems.map((item, index) => {
                 await ctx.reply(`💡 For news analysis, try: /pnews ${symbol}`);
             }
         } else {
-            await ctx.reply(`� NEWS ANALYSIS AVAILABLE:
-�💡 Setup Perplexity AI for advanced news sentiment analysis!
+            await ctx.reply(`📰 NEWS ANALYSIS AVAILABLE:
+💡 Setup Chutes AI for advanced news sentiment analysis!
 
 🔧 Available commands:
 • /pnews ${symbol} - Advanced AI news analysis
-• /impact ${symbol} - Quick impact assessment
-• /pstatus - Check Perplexity configuration
+• /impact ${symbol} - Quick impact check
+• /pstatus - Check Chutes configuration
 
-📖 Setup: Add PERPLEXITY_API_KEY to your .env file`);
+📖 Setup: Add CHUTES_API_KEY to your .env file`);
         }
 
         // Delete loading message
@@ -430,7 +431,7 @@ Please check the symbol and try again, or contact support if the issue persists.
 // Helper function to format comprehensive report
 async function formatComprehensiveReport(result: any) {
     const { symbol, currentPrice, rsi, macd, trend, strength, support, resistance, volumeStatus, volumeChange24h,
-            ema10, ema20, sma50, sma200, timeframes, recommendation } = result;
+        ema10, ema20, sma50, sma200, timeframes, recommendation } = result;
 
     // Main overview
     const main = `
@@ -460,13 +461,13 @@ ${recommendation.reasoning.map((reason: string, index: number) => `${index + 1}.
 • Support: $${support.toFixed(4)} (${((currentPrice - support) / currentPrice * 100).toFixed(2)}% away)
 • Resistance: $${resistance.toFixed(4)} (${((resistance - currentPrice) / currentPrice * 100).toFixed(2)}% away)
 
-� MOVING AVERAGES:
+ MOVING AVERAGES:
 • EMA10: $${ema10.toFixed(4)} ${currentPrice > ema10 ? '✅' : '❌'}
 • EMA20: $${ema20.toFixed(4)} ${currentPrice > ema20 ? '✅' : '❌'}
 • SMA50: $${sma50.toFixed(4)} ${currentPrice > sma50 ? '✅' : '❌'}
 • SMA200: $${sma200.toFixed(4)} ${currentPrice > sma200 ? '✅' : '❌'}
 
-� VOLUME ANALYSIS:
+ VOLUME ANALYSIS:
 • Status: ${volumeStatus.toUpperCase()}
 • 24h Change: ${volumeChange24h.toFixed(2)}%
 
@@ -734,8 +735,8 @@ Recovery Factor: ${(result.maxDrawdown > 0 ? result.totalProfit / result.maxDraw
 
 📆 RECENT TRADES:
 ${result.recentTrades.slice(0, 5).map(trade =>
-  `${trade.side.toUpperCase()} ${trade.pair}: ${(trade.profit || 0) >= 0 ? '✅' : '❌'} $${(trade.profit || 0).toFixed(2)}`
-).join('\n')}
+        `${trade.side.toUpperCase()} ${trade.pair}: ${(trade.profit || 0) >= 0 ? '✅' : '❌'} $${(trade.profit || 0).toFixed(2)}`
+    ).join('\n')}
     `;
 
     ctx.reply(message);
@@ -804,8 +805,8 @@ This may take several minutes. ⏳`);
 
 📊 BEST PARAMETERS:
 ${Object.entries(analysis.bestParams)
-    .map(([param, value]) => `${param}: ${value}`)
-    .join('\n')}
+                .map(([param, value]) => `${param}: ${value}`)
+                .join('\n')}
 
 💰 BEST PERFORMANCE:
 Total Profit: ${bestResult.backtestResult.totalProfitPct.toFixed(2)}%
@@ -816,10 +817,10 @@ Total Trades: ${bestResult.backtestResult.totalTrades}
 
 🔍 PARAMETER IMPORTANCE:
 ${Object.entries(analysis.parameterImportance)
-    .sort(([,a], [,b]) => b - a)
-    .slice(0, 3)
-    .map(([param, importance]) => `${param}: ${importance.toFixed(3)}`)
-    .join('\n')}
+                .sort(([, a], [, b]) => b - a)
+                .slice(0, 3)
+                .map(([param, importance]) => `${param}: ${importance.toFixed(3)}`)
+                .join('\n')}
 
 Tested ${results.length} parameter combinations.
         `;
@@ -975,6 +976,7 @@ bot.command('strategies', (ctx) => {
 });
 
 // NEWS & TWITTER ANALYSIS COMMANDS
+
 bot.command('news', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
 
@@ -995,208 +997,16 @@ bot.command('news', async (ctx) => {
     return;
 });
 
-bot.command('twitter', async (ctx) => {
-    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
-
-    if (!symbol) {
-        return ctx.reply(`Please provide a symbol. Example: /twitter BTCUSDT
-
-🐦 This command analyzes Twitter sentiment including:
-• Recent tweets about the cryptocurrency
-• Influencer opinions
-• Social media trends
-• Community sentiment analysis`);
-    }
-
-    try {
-        ctx.reply(`🔄 Analyzing Twitter sentiment for ${symbol}...
-
-⏳ This may take 10-15 seconds due to rate limiting protection.`);
-
-        const comprehensiveAnalysis = await newsAnalyzer.analyzeComprehensiveNews(symbol);
-
-        if (comprehensiveAnalysis.twitterAnalysis) {
-            const twitter = comprehensiveAnalysis.twitterAnalysis;
-
-            let message = `🐦 TWITTER ANALYSIS for ${symbol}\n\n`;
-            message += `📊 SENTIMENT: ${twitter.sentiment.label}\n`;
-            message += `Confidence: ${twitter.sentiment.confidence.toFixed(1)}%\n`;
-            message += `Posts Analyzed: ${twitter.posts.length}\n\n`;
-
-            if (twitter.influencers.length > 0) {
-                message += `🔥 TOP INFLUENCERS:\n`;
-                twitter.influencers.slice(0, 3).forEach(influencer => {
-                    message += `• @${influencer.username}: ${influencer.sentiment}\n`;
-                });
-                message += '\n';
-            }
-
-            if (twitter.trends.length > 0) {
-                message += `📈 TRENDING: ${twitter.trends.join(', ')}\n\n`;
-            }
-
-            if (twitter.posts.length > 0) {
-                message += `💬 RECENT TWEETS:\n`;
-                twitter.posts.slice(0, 3).forEach((post, index) => {
-                    const date = post.createdAt.toLocaleDateString();
-                    message += `${index + 1}. @${post.author.username} [${date}]\n`;
-                    message += `   ${post.text.substring(0, 100)}...\n`;
-                    message += `   💚 ${post.metrics.likes} 🔄 ${post.metrics.retweets}\n\n`;
-                });
-            }
-
-            message += `⏰ Analysis Time: ${comprehensiveAnalysis.timestamp.toLocaleString()}`;
-
-            ctx.reply(message);
-        } else {
-            ctx.reply(`❌ Twitter analysis not available for ${symbol}.
-
-This could be due to:
-• Twitter API not configured
-• Twitter API rate limit exceeded
-• No recent tweets found for this symbol
-
-💡 You can still use /news ${symbol} for traditional news analysis.`);
-        }
-    } catch (error: any) {
-        console.error('Twitter command error:', error);
-
-        if (error.message?.includes('rate limit')) {
-            ctx.reply(`⏸️ Twitter API rate limit exceeded for ${symbol}.
-
-The Twitter API has temporary usage limits. Please try again in a few minutes.
-
-💡 In the meantime, you can use:
-• /news ${symbol} - Traditional news analysis
-• /analyze ${symbol} - Complete technical analysis`);
-        } else {
-            ctx.reply(`❌ Error analyzing Twitter sentiment for ${symbol}: ${error.message}`);
-        }
-    }
-
-    return;
-});
-
-bot.command('influencers', async (ctx) => {
-    const defaultInfluencers = [
-        'elonmusk',
-        'michael_saylor',
-        'cz_binance',
-        'VitalikButerin',
-        'aantonop',
-        'BitcoinMagazine',
-        'coinbase',
-        'binance',
-        'kraken',
-        'starkness'
-    ];
-
-    try {
-        ctx.reply('🔄 Fetching latest tweets from crypto influencers...');
-
-        const influencerTweets = await newsAnalyzer.getInfluencerTweets(defaultInfluencers.slice(0, 5));
-
-        // Split message if too long
-        const maxLength = 4000;
-        if (influencerTweets.length > maxLength) {
-            const parts = [];
-            let currentPart = '';
-            const lines = influencerTweets.split('\n');
-
-            for (const line of lines) {
-                if (currentPart.length + line.length > maxLength) {
-                    parts.push(currentPart);
-                    currentPart = line + '\n';
-                } else {
-                    currentPart += line + '\n';
-                }
-            }
-
-            if (currentPart) {
-                parts.push(currentPart);
-            }
-
-            for (const part of parts) {
-                await ctx.reply(part);
-            }
-        } else {
-            ctx.reply(influencerTweets);
-        }
-    } catch (error) {
-        console.error('Influencer tweets error:', error);
-        ctx.reply('❌ Error fetching influencer tweets. Please try again later.');
-    }
-
-    return;
-});
-
-bot.command('cryptonews', async (ctx) => {
-    const args = ctx.message.text.split(' ');
-    const symbol = args[1]?.toUpperCase();
-    const keywords = args.slice(2);
-
-    if (!symbol) {
-        return ctx.reply(`Please provide a symbol and keywords.
-
-Example: /cryptonews BTCUSDT bull breakout adoption
-
-🔍 This searches Twitter for specific crypto-related keywords`);
-    }
-
-    const searchKeywords = keywords.length > 0 ? keywords : [
-        'bull', 'bear', 'breakout', 'support', 'resistance',
-        'analysis', 'prediction', 'moon', 'dip', 'rally'
-    ];
-
-    try {
-        ctx.reply(`🔄 Searching Twitter for ${symbol} news with keywords: ${searchKeywords.join(', ')}...`);
-
-        const searchResults = await newsAnalyzer.searchCryptoNews(searchKeywords, symbol);
-
-        // Split message if too long
-        const maxLength = 4000;
-        if (searchResults.length > maxLength) {
-            const parts = [];
-            let currentPart = '';
-            const lines = searchResults.split('\n');
-
-            for (const line of lines) {
-                if (currentPart.length + line.length > maxLength) {
-                    parts.push(currentPart);
-                    currentPart = line + '\n';
-                } else {
-                    currentPart += line + '\n';
-                }
-            }
-
-            if (currentPart) {
-                parts.push(currentPart);
-            }
-
-            for (const part of parts) {
-                await ctx.reply(part);
-            }
-        } else {
-            ctx.reply(searchResults);
-        }
-    } catch (error) {
-        console.error('Crypto news search error:', error);
-        ctx.reply('❌ Error searching crypto news. Please try again later.');
-    }
-
-    return;
-});
-
 // PERPLEXITY AI NEWS ANALYSIS COMMANDS
 
-// Perplexity News Analysis Command
+// Perplexity references removed, using Chutes
 bot.command('pnews', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
 
     if (!symbol) {
         return ctx.reply(`Please provide a symbol. Example: /pnews BTCUSDT
 
-🔍 This command uses Perplexity AI to:
+🔍 This command uses Chutes AI to:
 • Search for latest crypto news
 • Analyze market impact
 • Predict price movements
@@ -1322,17 +1132,17 @@ ${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n
             }
 
         } catch (error: any) {
-            console.error('Perplexity news error:', error);
+            console.error('Chutes news error:', error);
 
             if (error.message?.includes('API key')) {
-                await ctx.reply(`❌ Perplexity API authentication failed.
+                await ctx.reply(`❌ Chutes API authentication failed.
 
 Please check:
 • API key is valid
 • Account has sufficient credits
 • API key has proper permissions`);
             } else if (error.message?.includes('rate limit')) {
-                await ctx.reply(`⏸️ Perplexity API rate limit exceeded.
+                await ctx.reply(`⏸️ Chutes API rate limit exceeded.
 
 Please wait a few minutes before trying again.
 
@@ -1374,10 +1184,9 @@ bot.command('impact', async (ctx) => {
 
         const quickSummary = `⚡ QUICK IMPACT: ${symbol}
 
-📊 Sentiment: ${analysis.overallSentiment} ${
-    analysis.overallSentiment === 'BULLISH' ? '🟢' :
-    analysis.overallSentiment === 'BEARISH' ? '🔴' : '🟡'
-}
+📊 Sentiment: ${analysis.overallSentiment} ${analysis.overallSentiment === 'BULLISH' ? '🟢' :
+                analysis.overallSentiment === 'BEARISH' ? '🔴' : '🟡'
+            }
 
 🎯 24H Prediction: ${analysis.impactPrediction.shortTerm}
 
@@ -1387,8 +1196,8 @@ Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
 
 🔥 Top News Impact:
 ${newsItems.slice(0, 3).map((item, index) =>
-    `${index + 1}. ${item.impactLevel === 'HIGH' || item.impactLevel === 'CRITICAL' ? '🚨' : '📰'} ${item.title.substring(0, 60)}...`
-).join('\n')}
+                `${index + 1}. ${item.impactLevel === 'HIGH' || item.impactLevel === 'CRITICAL' ? '🚨' : '📰'} ${item.title.substring(0, 60)}...`
+            ).join('\n')}
 
 💡 Use /pnews ${symbol} for detailed analysis`;
 
@@ -1476,10 +1285,9 @@ Please wait 30-60 seconds...`);
 💰 CURRENT PRICE: $${technical.currentPrice.toFixed(2)}
 
 🎯 COMBINED RECOMMENDATION: ${combinedRecommendation.toUpperCase()}
-Confidence: ${combinedConfidence.toFixed(1)}% ${
-    combinedConfidence > 75 ? '🟢 HIGH' :
-    combinedConfidence > 50 ? '🟡 MEDIUM' : '🔴 LOW'
-}
+Confidence: ${combinedConfidence.toFixed(1)}% ${combinedConfidence > 75 ? '🟢 HIGH' :
+                combinedConfidence > 50 ? '🟡 MEDIUM' : '🔴 LOW'
+            }
 
 📊 TECHNICAL ANALYSIS:
 • Trend: ${technical.technical.trend.toUpperCase()} (${(technical.technical.strength * 100).toFixed(1)}%)
@@ -1491,16 +1299,15 @@ Confidence: ${combinedConfidence.toFixed(1)}% ${
         if (news) {
             newsSection = `
 📰 NEWS SENTIMENT ANALYSIS:
-• Overall Sentiment: ${news.overallSentiment} ${
-    news.overallSentiment === 'BULLISH' ? '🟢' :
-    news.overallSentiment === 'BEARISH' ? '🔴' : '🟡'
-}
+• Overall Sentiment: ${news.overallSentiment} ${news.overallSentiment === 'BULLISH' ? '🟢' :
+                    news.overallSentiment === 'BEARISH' ? '🔴' : '🟡'
+                }
 • News Impact: ${news.marketMovement.direction} (${(news.marketMovement.confidence * 100).toFixed(1)}% confidence)
 • 24H Prediction: ${news.impactPrediction.shortTerm.substring(0, 100)}...
 • Key Factors: ${news.keyFactors.slice(0, 2).join(', ')}`;
         } else {
             newsSection = `
-📰 NEWS ANALYSIS: Not available (Perplexity not configured)`;
+📰 NEWS ANALYSIS: Not available (Chutes AI not configured)`;
         }
 
         const tradingSection = `
@@ -1521,7 +1328,7 @@ ${technical.recommendation.reasoning.slice(0, 2).join('\n• ')}${news ? `\n• 
 📰 RECENT NEWS IMPACTING ${symbol}:
 ${news.newsItems.slice(0, 3).map((item, index) => {
                 const sentiment = item.sentimentScore > 0.3 ? '🟢' :
-                                 item.sentimentScore < -0.3 ? '🔴' : '🟡';
+                    item.sentimentScore < -0.3 ? '🔴' : '🟡';
                 return `${index + 1}. ${sentiment} ${item.title.substring(0, 70)}...
    Impact: ${item.impactLevel} | Source: ${item.source}`;
             }).join('\n\n')}
@@ -1587,20 +1394,6 @@ To enable advanced news analysis:
     return;
 });
 
-// Twitter API Status command
-bot.command('twitterstatus', async (ctx) => {
-    try {
-        ctx.reply('🐦 Twitter API Status: Checking service availability...');
-        // Simplified status check
-        ctx.reply('✅ Twitter service is configured and running.');
-    } catch (error) {
-        console.error('Twitter status error:', error);
-        ctx.reply('❌ Error checking Twitter status. Please try again later.');
-    }
-
-    return;
-});
-
 // Volume analysis command
 bot.command('volume', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
@@ -1644,16 +1437,37 @@ bot.command('sr', async (ctx) => {
 
 // Chart command
 bot.command('chart', async (ctx) => {
-    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
+    const args = ctx.message.text.split(' ');
+    const symbol = args[1]?.toUpperCase();
+    const timeframe = args[2]?.toLowerCase() || '1h'; // Default to 1h
 
     if (!symbol) {
-        return ctx.reply('Please provide a symbol. Example: /chart BTCUSDT');
+        return ctx.reply('Please provide a symbol. Example: /chart BTCUSDT 4h');
     }
 
     try {
-        ctx.reply('🔄 Generating chart...');
-        const chartUrl = `https://www.tradingview.com/chart/?symbol=${symbol}`;
-        ctx.reply(`📈 Chart for ${symbol}:\n${chartUrl}\n\n💡 Use /analyze ${symbol} for detailed technical analysis with indicators.`);
+        ctx.reply(`🔄 Generating ${timeframe} chart for ${symbol}...`);
+
+        // Get data
+        const data = await dataManager.getRecentData(symbol, timeframe, 100);
+
+        if (!data || data.length === 0) {
+            return ctx.reply(`❌ No data found for ${symbol}`);
+        }
+
+        // Convert data needed for chart service
+        const chartData = data.map(d => ({
+            t: d.timestamp,
+            o: d.open,
+            h: d.high,
+            l: d.low,
+            c: d.close,
+            v: d.volume
+        }));
+
+        const imageBuffer = await imageChartService.generateCandlestickChart(symbol, timeframe, chartData);
+        await ctx.replyWithPhoto({ source: imageBuffer }, { caption: `📈 ${symbol} ${timeframe} Chart` });
+
     } catch (error) {
         console.error('Chart generation error:', error);
         ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
