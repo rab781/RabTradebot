@@ -1,4 +1,5 @@
-import axios from 'axios';
+import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
+import { ChartConfiguration } from 'chart.js';
 
 export interface ImageChartConfig {
     width?: number;
@@ -7,7 +8,7 @@ export interface ImageChartConfig {
 }
 
 export class ImageChartService {
-    private baseUrl = 'https://quickchart.io/chart';
+    private chartJSNodeCanvas: ChartJSNodeCanvas;
     private config: ImageChartConfig;
 
     constructor(config: ImageChartConfig = {}) {
@@ -17,6 +18,13 @@ export class ImageChartService {
             backgroundColor: 'white',
             ...config
         };
+
+        // Initialize local chart renderer
+        this.chartJSNodeCanvas = new ChartJSNodeCanvas({
+            width: this.config.width!,
+            height: this.config.height!,
+            backgroundColour: this.config.backgroundColor // Note: specific property name for canvas
+        });
     }
 
     async generateCandlestickChart(
@@ -31,82 +39,67 @@ export class ImageChartService {
             v?: number; // volume
         }>
     ): Promise<Buffer> {
-        // Format data for QuickChart/Chart.js
+        // Format data for Chart.js
         // We limit to last 60 candles to keep chart readable
         const limitedData = data.slice(-60);
 
-        // Proven robust config: Labels (ISO Strings) + Data (Numbers)
-        // This avoids object-parsing issues in QuickChart's Chart.js v2 env
-
-        const chartConfig = {
+        // Explicitly using Line Chart (Close Price) for robustness and stability
+        // as confirmed by testing.
+        const configuration: ChartConfiguration = {
             type: 'line',
             data: {
-                labels: limitedData.map(d => new Date(d.t).toISOString()),
+                labels: limitedData.map(d => new Date(d.t).toISOString().split('T')[0]), // Simple date labels
                 datasets: [{
-                    label: `${symbol} ${timeframe} Close`,
-                    data: limitedData.map(d => d.c), // Direct numbers
+                    label: `${symbol} - ${timeframe} Close`,
+                    data: limitedData.map(d => d.c),
                     borderColor: '#0ecb81',
                     backgroundColor: 'rgba(14, 203, 129, 0.1)',
                     borderWidth: 2,
                     fill: true,
-                    pointRadius: 0
+                    pointRadius: 0,
+                    tension: 0.1
                 }]
             },
             options: {
-                title: {
-                    display: true,
-                    text: `${symbol} - ${timeframe} Chart`
-                },
-                legend: {
-                    display: false
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `${symbol} - ${timeframe} Chart`,
+                        font: {
+                            size: 20
+                        }
+                    },
+                    legend: {
+                        display: false
+                    }
                 },
                 scales: {
-                    xAxes: [{
-                        type: 'time',
-                        time: {
-                            unit: 'auto'
-                        },
-                        gridLines: {
+                    x: {
+                        display: true,
+                        grid: {
                             display: false
                         }
-                    }],
-                    yAxes: [{
-                        scaleLabel: {
+                    },
+                    y: {
+                        display: true,
+                        title: {
                             display: true,
-                            labelString: 'Price (USDT)'
+                            text: 'Price (USDT)'
                         },
-                        gridLines: {
+                        grid: {
                             color: 'rgba(0,0,0,0.05)'
                         }
-                    }]
+                    }
                 }
             }
         };
 
         try {
-            // DEBUG: Log the chart config payload
-            console.log('Sending Chart Config:', JSON.stringify(chartConfig).substring(0, 500) + '...');
-
-            const response = await axios.post(
-                this.baseUrl,
-                {
-                    chart: chartConfig,
-                    width: this.config.width,
-                    height: this.config.height,
-                    backgroundColor: this.config.backgroundColor,
-                    format: 'png'
-                },
-                {
-                    responseType: 'arraybuffer'
-                }
-            );
-
-            return Buffer.from(response.data, 'binary');
+            console.log(`Generating local chart for ${symbol}...`);
+            const imageBuffer = await this.chartJSNodeCanvas.renderToBuffer(configuration);
+            return imageBuffer;
         } catch (error: any) {
-            if (error.response) {
-                console.error('QuickChart Error Data:', JSON.stringify(error.response.data));
-            }
-            console.error('Error generating chart image:', error.message);
+            console.error('Error generating local chart image:', error.message);
             throw new Error('Failed to generate chart image');
         }
     }

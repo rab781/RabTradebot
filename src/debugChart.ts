@@ -1,74 +1,40 @@
 
-import axios from 'axios';
+import { ImageChartService } from './services/imageChartService';
 import * as fs from 'fs';
 import * as path from 'path';
 
 async function testChart() {
-    console.log('Testing QuickChart Payload (Robust Line Chart)...');
+    console.log('Testing Local ImageChartService (chartjs-node-canvas)...');
 
-    // Robust Config: Labels array + Data array (no objects in data)
-    const chartConfig = {
-        type: 'line',
-        data: {
-            labels: [
-                '2021-04-01T00:00:00Z',
-                '2021-04-02T00:00:00Z',
-                '2021-04-03T00:00:00Z'
-            ],
-            datasets: [{
-                label: 'BTCUSDT Test',
-                data: [50000, 51000, 50500], // Simple numbers
-                borderColor: 'rgb(75, 192, 192)',
-                fill: false
-            }]
-        },
-        options: {
-            scales: {
-                xAxes: [{
-                    type: 'time',
-                    time: {
-                        unit: 'day'
-                    }
-                }]
-            }
-        }
-    };
+    // Create instance
+    const service = new ImageChartService();
+
+    // Mock data
+    const mockData = Array.from({ length: 30 }, (_, i) => {
+        const t = new Date();
+        t.setDate(t.getDate() - (30 - i));
+        return {
+            t: t.getTime(),
+            o: 50000 + Math.random() * 1000,
+            h: 51000 + Math.random() * 1000,
+            l: 49000 + Math.random() * 1000,
+            c: 50000 + Math.random() * 1000,
+            v: 100
+        };
+    });
 
     try {
-        console.log('Sending config...');
+        console.log('Generating chart...');
+        const imageBuffer = await service.generateCandlestickChart('BTCUSDT', '1d', mockData);
 
-        const response = await axios.post(
-            'https://quickchart.io/chart',
-            {
-                chart: chartConfig,
-                width: 500,
-                height: 300,
-                format: 'png',
-                backgroundColor: 'white'
-            },
-            { responseType: 'arraybuffer' }
-        );
-
-        const outputPath = path.join(__dirname, '..', 'chart_test_robust.png');
-        fs.writeFileSync(outputPath, response.data);
-        console.log(`✅ Robust Line Chart generated successfully! Saved to ${outputPath}`);
-        console.log('Size:', response.data.length, 'bytes');
-
+        const outputPath = path.join(__dirname, '..', 'chart_local_test.png');
+        fs.writeFileSync(outputPath, imageBuffer);
+        console.log(`✅ Local Chart generated successfully! Saved to ${outputPath}`);
+        console.log('Size:', imageBuffer.length, 'bytes');
     } catch (error: any) {
         console.error('❌ Chart generation failed!');
-        if (error.response) {
-            console.error('Status:', error.response.status);
-            if (Buffer.isBuffer(error.response.data)) {
-                console.log('Error Body: [Image Buffer - likely error message image]');
-                // Save it to see the text
-                fs.writeFileSync(path.join(__dirname, '..', 'chart_error_debug.png'), error.response.data);
-                console.log('Saved error image to chart_error_debug.png');
-            } else {
-                console.log('Error Body:', error.response.data);
-            }
-        } else {
-            console.log('Error:', error.message);
-        }
+        console.error('Error:', error.message);
+        if (error.stack) console.error(error.stack);
     }
 }
 
