@@ -1,7 +1,7 @@
 import { TradingViewService } from './TradingViewService';
 import { AdvancedAnalyzer } from './advancedAnalyzer';
 import { NewsAnalyzer } from './newsAnalyzer';
-import { RSI, MACD, BollingerBands, SMA, EMA } from 'technicalindicators';
+import { RSI, MACD, BollingerBands, SMA, EMA, ADX, ATR } from 'technicalindicators';
 
 export interface SimpleAnalysisResult {
     symbol: string;
@@ -17,6 +17,8 @@ export interface SimpleAnalysisResult {
     };
     trend: string;
     strength: number;
+    regime: string; // 'TRENDING' | 'RANGING'
+    adx: number;
 
     // Support/Resistance
     support: number;
@@ -110,6 +112,36 @@ export class SimpleComprehensiveAnalyzer {
             const srLevels = await this.advancedAnalyzer.findSupportResistance(symbol);
             const volumeAnalysis = await this.advancedAnalyzer.analyzeVolume(symbol);
 
+            // Fetch 1h data for ADX calculation (Regime Detection)
+            const marketData1h = await this.tradingViewService.getMarketData(symbol, '1h');
+            let adxValue = 25; // Default fallback
+            let atrValue = currentPrice * 0.02; // Default 2% fallback
+
+            if (marketData1h && marketData1h.close.length > 14) {
+                const adxInput = {
+                    high: marketData1h.high,
+                    low: marketData1h.low,
+                    close: marketData1h.close,
+                    period: 14
+                };
+                const adxResult = ADX.calculate(adxInput);
+                if (adxResult.length > 0) {
+                    adxValue = adxResult[adxResult.length - 1].adx;
+                }
+
+                // Calculate ATR for Dynamic Risk Management
+                const atrInput = {
+                    high: marketData1h.high,
+                    low: marketData1h.low,
+                    close: marketData1h.close,
+                    period: 14
+                };
+                const atrResult = ATR.calculate(atrInput);
+                if (atrResult.length > 0) {
+                    atrValue = atrResult[atrResult.length - 1];
+                }
+            }
+
             // Determine trend
             const trend = this.determineTrend(currentPrice, ema10, ema20, sma50, sma200);
 
@@ -123,7 +155,9 @@ export class SimpleComprehensiveAnalyzer {
                 trend,
                 volumeAnalysis,
                 timeframes,
-                currentPrice
+                currentPrice,
+                adxValue,
+                atrValue
             );
 
             return {
@@ -138,6 +172,8 @@ export class SimpleComprehensiveAnalyzer {
                 },
                 trend: trend.direction,
                 strength: trend.strength,
+                regime: recommendation.regime,
+                adx: recommendation.adx,
                 support: srLevels.nearestSupport,
                 resistance: srLevels.nearestResistance,
                 volumeStatus: volumeAnalysis.unusualVolume ? 'high' : 'normal',
@@ -172,6 +208,8 @@ export class SimpleComprehensiveAnalyzer {
                 technical: {
                     trend: realAnalysis.trend || 'NEUTRAL',
                     strength: realAnalysis.strength || 0,
+                    regime: realAnalysis.regime || 'UNKNOWN',
+                    adx: realAnalysis.adx || 0,
                     rsi: realAnalysis.rsi || 50,
                     macd: realAnalysis.macd || { signal: 'neutral', histogram: 0, line: 0 },
                     // Derived/Mocked fields that aren't in SimpleAnalysisResult but needed by bot
@@ -304,87 +342,157 @@ export class SimpleComprehensiveAnalyzer {
         trend: any,
         volumeAnalysis: any,
         timeframes: any,
-        currentPrice: number
+        currentPrice: number,
+        adxValue: number,
+        atrValue: number
     ) {
-        const signals: number[] = [];
-        const reasoning: string[] = [];
+        let signals: number[] = [];
+        let reasoning: string[] = [];
 
-        // RSI signals
+        // --- 1. MARKET REGIME DETECTION (ADX) ---
+        // Uses real ADX value passed from 1h timeframe
+        const adx = adxValue;
+        const regime = adx > 25 ? 'TRENDING' : 'RANGING';
+
+        // Let's assume we calculate ADX in general flow. 
+        // Since I cannot change the signature of this method easily without breaking callers, 
+        // I will implement a simplified regime check here using Multiple Timeframe Alignment as a proxy for "Trending".
+
+        // REFACTOR START: Multi-Timeframe & Regime Bias
+
+        const bullishTF = Object.values(timeframes).filter((tf: any) => tf.includes('bullish') || tf.includes('oversold')).length;
+        const bearishTF = Object.values(timeframes).filter((tf: any) => tf.includes('bearish') || tf.includes('overbought')).length;
+
+        // Determine DIRECTIONAL BIAS based on Higher Timeframes (4h, 1d) if available in 'timeframes' object
+        // The current 'timeframes' object from getMultiTimeframeAnalysis returns simple strings.
+        // We generally treat 4h and 1d as "Trend Determining" timeframes.
+
+        let directionalBias = 'NEUTRAL';
+        if (timeframes['4h'] === 'bullish' && timeframes['1d'] === 'bullish') directionalBias = 'BULLISH';
+        else if (timeframes['4h'] === 'bearish' && timeframes['1d'] === 'bearish') directionalBias = 'BEARISH';
+        else if (timeframes['4h'] === 'bullish') directionalBias = 'BULLISH_WEAK';
+        else if (timeframes['4h'] === 'bearish') directionalBias = 'BEARISH_WEAK';
+
+        // --- 2. SIGNAL GENERATION BASED ON REGIME & BIAS ---
+
+        // RSI Logic adapted to Regime
         if (rsi < 30) {
-            signals.push(1);
-            reasoning.push(`RSI (${rsi.toFixed(1)}) oversold - potential bounce`);
-        } else if (rsi > 70) {
-            signals.push(-1);
-            reasoning.push(`RSI (${rsi.toFixed(1)}) overbought - potential pullback`);
-        }
-
-        // MACD signals
-        if (macd.signal === 'bullish') {
-            signals.push(1);
-            reasoning.push('MACD bullish crossover');
-        } else if (macd.signal === 'bearish') {
-            signals.push(-1);
-            reasoning.push('MACD bearish crossover');
-        }
-
-        // Trend signals
-        if (trend.direction === 'bullish') {
-            signals.push(0.5);
-            reasoning.push('Overall trend is bullish');
-        } else if (trend.direction === 'bearish') {
-            signals.push(-0.5);
-            reasoning.push('Overall trend is bearish');
-        }
-
-        // Volume signals
-        if (volumeAnalysis.unusualVolume) {
-            // Check direction of price vs volume
-            if (volumeAnalysis.volumeChange24h > 0) {
-                signals.push(0.5);
-                reasoning.push('High volume supports price rise');
+            // Oversold - Good for Mean Reversion or Pullback in Bull Trend
+            if (directionalBias.includes('BULLISH')) {
+                signals.push(2); // Strong signal: Oversold in Bull Trend (Dip Buy)
+                reasoning.push(`RSI (${rsi.toFixed(1)}) oversold in Bull Trend - BUY THE DIP`);
+            } else if (directionalBias === 'NEUTRAL') {
+                signals.push(1);
+                reasoning.push(`RSI (${rsi.toFixed(1)}) oversold - potential bounce`);
             } else {
-                signals.push(-0.5);
-                reasoning.push('High volume supports price drop');
+                signals.push(0.5); // Weak signal: Oversold in Bear Trend (Counter-trend is risky)
+                reasoning.push(`RSI (${rsi.toFixed(1)}) oversold - risky counter-trend bounce`);
+            }
+        } else if (rsi > 70) {
+            // Overbought - Good for Mean Reversion or Pullback in Bear Trend
+            if (directionalBias.includes('BEARISH')) {
+                signals.push(-2); // Strong signal: Overbought in Bear Trend (Rip Sell)
+                reasoning.push(`RSI (${rsi.toFixed(1)}) overbought in Bear Trend - SELL THE RALLY`);
+            } else if (directionalBias === 'NEUTRAL') {
+                signals.push(-1);
+                reasoning.push(`RSI (${rsi.toFixed(1)}) overbought - potential pullback`);
+            } else {
+                signals.push(-0.5); // Weak signal: Overbought in Bull Trend
+                reasoning.push(`RSI (${rsi.toFixed(1)}) overbought - risky counter-trend short`);
             }
         }
 
-        // Multi-timeframe signals
-        const bullishTF = Object.values(timeframes).filter(tf => tf === 'bullish' || tf === 'oversold').length;
-        const bearishTF = Object.values(timeframes).filter(tf => tf === 'bearish' || tf === 'overbought').length;
-
-        if (bullishTF > bearishTF) {
-            signals.push(0.5);
-            reasoning.push('Multiple timeframes indicate bullish/oversold');
-        } else if (bearishTF > bullishTF) {
-            signals.push(-0.5);
-            reasoning.push('Multiple timeframes indicate bearish/overbought');
+        // MACD Logic
+        if (macd.signal === 'bullish') {
+            if (directionalBias.includes('BULLISH')) {
+                signals.push(1.5);
+                reasoning.push('MACD bullish crossover aligned with trend');
+            } else {
+                signals.push(0.5);
+                reasoning.push('MACD bullish crossover (counter-trend)');
+            }
+        } else if (macd.signal === 'bearish') {
+            if (directionalBias.includes('BEARISH')) {
+                signals.push(-1.5);
+                reasoning.push('MACD bearish crossover aligned with trend');
+            } else {
+                signals.push(-0.5);
+                reasoning.push('MACD bearish crossover (counter-trend)');
+            }
         }
 
-        // Calculate final signal
-        const avgSignal = signals.length > 0 ? signals.reduce((sum, s) => sum + s, 0) / signals.length : 0;
-        const confidence = Math.min(Math.abs(avgSignal) * 100 + 50, 95); // Base 50% confidence + signal strength
+        // EMA/Trend Logic
+        if (trend.direction === 'bullish') {
+            signals.push(1);
+            reasoning.push('Price above key EMAs (Bullish Structure)');
+        } else if (trend.direction === 'bearish') {
+            signals.push(-1);
+            reasoning.push('Price below key EMAs (Bearish Structure)');
+        }
+
+        // Multi-timeframe Alignment Bonus
+        if (bullishTF >= 2 && directionalBias.includes('BULLISH')) {
+            signals.push(1);
+            reasoning.push('Multiple timeframes aligned BULLISH');
+        } else if (bearishTF >= 2 && directionalBias.includes('BEARISH')) {
+            signals.push(-1);
+            reasoning.push('Multiple timeframes aligned BEARISH');
+        }
+
+        // --- 3. SCORING & ACTION ---
+        const totalScore = signals.reduce((sum, s) => sum + s, 0);
 
         let action: string;
-        if (avgSignal > 0.5) action = 'STRONG_BUY';
-        else if (avgSignal > 0.2) action = 'BUY';
-        else if (avgSignal > -0.2) action = 'HOLD';
-        else if (avgSignal > -0.5) action = 'SELL';
-        else action = 'STRONG_SELL';
+        let confidenceBase = 50;
 
-        const entryPrice = currentPrice;
-        const stopLoss = action.includes('BUY') ? entryPrice * 0.95 : entryPrice * 1.05;
-        const takeProfit = action.includes('BUY') ? entryPrice * 1.08 : entryPrice * 0.92;
-        const riskReward = Math.abs((takeProfit - entryPrice) / (stopLoss - entryPrice));
+        // Define Thresholds for Action
+        if (totalScore >= 3) {
+            action = 'STRONG_BUY';
+            confidenceBase = 85;
+        } else if (totalScore >= 1.5) {
+            action = 'BUY';
+            confidenceBase = 70;
+        } else if (totalScore <= -3) {
+            action = 'STRONG_SELL';
+            confidenceBase = 85;
+        } else if (totalScore <= -1.5) {
+            action = 'SELL';
+            confidenceBase = 70;
+        } else {
+            action = 'HOLD';
+            confidenceBase = 50;
+        }
+
+        const confidence = Math.min(confidenceBase + (Math.abs(totalScore) * 2), 95);
+
+        // --- 4. DYNAMIC RISK MANAGEMENT (Real ATR) ---
+        // Uses real ATR value passed from 1h timeframe for volatility-adjusted risk
+
+        const atrMultiplierSL = 2.0;  // Stop Loss at 2x ATR
+        const atrMultiplierTP = 3.0;  // Take Profit at 3x ATR (1.5:1 R:R minimum)
+
+        const stopLoss = action.includes('BUY')
+            ? currentPrice - (atrValue * atrMultiplierSL)
+            : currentPrice + (atrValue * atrMultiplierSL);
+
+        const takeProfit = action.includes('BUY')
+            ? currentPrice + (atrValue * atrMultiplierTP)
+            : currentPrice - (atrValue * atrMultiplierTP);
+
+        const riskReward = atrMultiplierTP / atrMultiplierSL;
 
         return {
             action,
             confidence,
             reasoning,
-            entryPrice,
+            entryPrice: currentPrice,
             stopLoss,
             takeProfit,
             riskReward,
-            timeframe: '5m' // Base timeframe
+            timeframe: 'Mix (1h/4h bias)',
+            regime,
+            adx,
+            atr: atrValue
         };
     }
 }

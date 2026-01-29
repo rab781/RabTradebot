@@ -434,6 +434,18 @@ async function formatComprehensiveReport(result: any) {
     const { symbol, currentPrice, rsi, macd, trend, strength, support, resistance, volumeStatus, volumeChange24h,
         ema10, ema20, sma50, sma200, timeframes, recommendation } = result;
 
+    // Extract new strategy fields
+    const regime = recommendation.regime || 'UNKNOWN';
+    const adx = recommendation.adx || 0;
+    const atr = recommendation.atr || 0;
+
+    // Determine directional bias from timeframes
+    let bias = 'NEUTRAL';
+    if (timeframes['4h'] === 'bullish' && timeframes['1d'] === 'bullish') bias = 'BULLISH 🟢';
+    else if (timeframes['4h'] === 'bearish' && timeframes['1d'] === 'bearish') bias = 'BEARISH 🔴';
+    else if (timeframes['4h'] === 'bullish') bias = 'BULLISH (Weak) 🟡';
+    else if (timeframes['4h'] === 'bearish') bias = 'BEARISH (Weak) 🟡';
+
     // Main overview
     const main = `
 🎯 COMPREHENSIVE ANALYSIS: ${symbol}
@@ -442,11 +454,20 @@ async function formatComprehensiveReport(result: any) {
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
+🧠 MARKET CONTEXT:
+• Regime: ${regime} ${regime === 'TRENDING' ? '📈' : '↔️'}
+• ADX: ${adx.toFixed(1)} ${adx > 25 ? '(Strong Trend)' : '(Weak/Range)'}
+• Directional Bias: ${bias}
+• ATR (1H): $${atr.toFixed(4)} (Volatility Measure)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
 🔮 OVERALL RECOMMENDATION: ${recommendation.action}
 📊 Confidence: ${recommendation.confidence.toFixed(1)}%
 🎯 Entry Price: $${recommendation.entryPrice.toFixed(4)}
-🛑 Stop Loss: $${recommendation.stopLoss.toFixed(4)}
-🎯 Take Profit: $${recommendation.takeProfit.toFixed(4)}
+🛑 Stop Loss: $${recommendation.stopLoss.toFixed(4)} (2x ATR)
+🎯 Take Profit: $${recommendation.takeProfit.toFixed(4)} (3x ATR)
+⚖️ Risk/Reward: 1:${recommendation.riskReward.toFixed(1)}
 
 💡 Key Reasons:
 ${recommendation.reasoning.map((reason: string, index: number) => `${index + 1}. ${reason}`).join('\n')}
@@ -462,19 +483,23 @@ ${recommendation.reasoning.map((reason: string, index: number) => `${index + 1}.
 • Support: $${support.toFixed(4)} (${((currentPrice - support) / currentPrice * 100).toFixed(2)}% away)
 • Resistance: $${resistance.toFixed(4)} (${((resistance - currentPrice) / currentPrice * 100).toFixed(2)}% away)
 
- MOVING AVERAGES:
+📈 MOVING AVERAGES:
 • EMA10: $${ema10.toFixed(4)} ${currentPrice > ema10 ? '✅' : '❌'}
 • EMA20: $${ema20.toFixed(4)} ${currentPrice > ema20 ? '✅' : '❌'}
 • SMA50: $${sma50.toFixed(4)} ${currentPrice > sma50 ? '✅' : '❌'}
 • SMA200: $${sma200.toFixed(4)} ${currentPrice > sma200 ? '✅' : '❌'}
 
- VOLUME ANALYSIS:
+📊 VOLUME ANALYSIS:
 • Status: ${volumeStatus.toUpperCase()}
 • 24h Change: ${volumeChange24h.toFixed(2)}%
 
 ⏰ MULTI-TIMEFRAME ANALYSIS:
-• 1H: ${timeframes['1h'].toUpperCase()}
-• 4H: ${timeframes['4h'].toUpperCase()}
+• 1m: ${timeframes['1m']?.toUpperCase() || 'N/A'}
+• 5m: ${timeframes['5m']?.toUpperCase() || 'N/A'}
+• 15m: ${timeframes['15m']?.toUpperCase() || 'N/A'}
+• 1H: ${timeframes['1h']?.toUpperCase() || 'N/A'}
+• 4H: ${timeframes['4h']?.toUpperCase() || 'N/A'} ← HIGHER TF
+• 1D: ${timeframes['1d']?.toUpperCase() || 'N/A'} ← HIGHER TF
 `;
     return main;
 }
