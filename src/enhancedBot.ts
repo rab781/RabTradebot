@@ -331,8 +331,11 @@ ${backtestSection}`);
                         v: d.volume
                     }));
 
-                    const imageBuffer = await imageChartService.generateCandlestickChart(symbol, tf, chartData);
-                    await ctx.replyWithPhoto({ source: imageBuffer }, { caption: `${symbol} ${tf} Chart` });
+                    const chartResult = await imageChartService.generateCandlestickChart(symbol, tf, chartData);
+                    const patternInfo = chartResult.patterns.length > 0
+                        ? `\n📊 Patterns: ${chartResult.patterns.map(p => `${p.name} (${p.confidence}%)`).join(', ')}`
+                        : '';
+                    await ctx.replyWithPhoto({ source: chartResult.buffer }, { caption: `${symbol} ${tf} Chart${patternInfo}` });
                 }
             }
         } catch (chartError) {
@@ -1463,8 +1466,11 @@ bot.command('chart', async (ctx) => {
             v: d.volume
         }));
 
-        const imageBuffer = await imageChartService.generateCandlestickChart(symbol, timeframe, chartData);
-        await ctx.replyWithPhoto({ source: imageBuffer }, { caption: `📈 ${symbol} ${timeframe} Chart` });
+        const chartResult = await imageChartService.generateCandlestickChart(symbol, timeframe, chartData);
+        const patternInfo = chartResult.patterns.length > 0
+            ? `\n📊 Patterns: ${chartResult.patterns.map(p => `${p.name} (${p.confidence}%)`).join(', ')}`
+            : '';
+        await ctx.replyWithPhoto({ source: chartResult.buffer }, { caption: `📈 ${symbol} ${timeframe} Chart${patternInfo}` });
 
     } catch (error) {
         console.error('Chart generation error:', error);
