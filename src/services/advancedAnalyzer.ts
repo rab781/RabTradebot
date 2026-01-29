@@ -1,18 +1,15 @@
 const BinanceFactory = require('node-binance-api');
-import { ChartGenerator } from './chartGenerator';
 import { VolumeAnalysis, SupportResistance, Candle, TimeFrame } from '../types/trading';
 import { PublicCryptoService } from './publicCryptoService';
 
 export class AdvancedAnalyzer {
     private binance: any;
-    private chartGenerator: ChartGenerator;
     private publicService: PublicCryptoService;
     private usePublicOnly: boolean = false;
 
     constructor() {
         // Initialize public service first
         this.publicService = new PublicCryptoService();
-        this.chartGenerator = new ChartGenerator();
 
         // Try to initialize private API, but don't fail if it doesn't work
         try {

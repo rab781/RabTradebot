@@ -5,7 +5,6 @@ import { NewsAnalyzer } from './services/newsAnalyzer';
 import { SignalGenerator } from './services/signalGenerator';
 import { PriceAlertManager } from './services/priceAlertManager';
 import { AdvancedAnalyzer } from './services/advancedAnalyzer';
-import { ChartGenerator } from './services/chartGenerator';
 import { TradingViewService } from './services/TradingViewService';
 
 // New freqtrade-inspired services
@@ -35,7 +34,6 @@ const newsAnalyzer = new NewsAnalyzer();
 const signalGenerator = new SignalGenerator(technicalAnalyzer, newsAnalyzer);
 const priceAlertManager = new PriceAlertManager();
 const advancedAnalyzer = new AdvancedAnalyzer();
-const chartGenerator = new ChartGenerator();
 
 // Initialize TradingView service
 const tradingViewService = new TradingViewService({
