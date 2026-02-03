@@ -39,11 +39,13 @@
   "homepage": "https://github.com/yourusername/crypto-signal-bot#readme",
   "type": "commonjs",
   "dependencies": {
+    "@tensorflow/tfjs": "^4.22.0",
     "@types/cheerio": "^0.22.35",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/uuid": "^10.0.0",
     "axios": "^1.10.0",
+    "better-sqlite3": "^12.6.2",
     "canvas": "^3.2.1",
     "chart.js": "^4.5.1",
     "chartjs-node-canvas": "^5.0.0",
@@ -53,6 +55,7 @@
     "date-fns": "^4.1.0",
     "dotenv": "^16.5.0",
     "express": "^5.2.1",
+    "mathjs": "^15.1.0",
     "node-binance-api": "^1.0.9",
     "socket.io": "^4.8.3",
     "technicalindicators": "^3.1.0",
@@ -61,6 +64,7 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.15.18",
     "@typescript-eslint/eslint-plugin": "^7.7.0",
