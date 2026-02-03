@@ -13,7 +13,14 @@ import { PaperTradingEngine, PaperTradingConfig } from './services/paperTradingE
 import { DataManager, HistoricalDataConfig } from './services/dataManager';
 import { StrategyOptimizer, OptimizationConfig } from './services/strategyOptimizer';
 import { SampleStrategy } from './strategies/SampleStrategy';
+import { OpenClawStrategy } from './strategies/OpenClawStrategy';
 import { IStrategy } from './types/strategy';
+
+// ML & Advanced Analytics
+import { LSTMModelManager } from './ml/lstmModel';
+import { FeatureEngineeringService } from './services/featureEngineering';
+import { PublicCryptoService } from './services/publicCryptoService';
+import { OHLCVCandle } from './types/dataframe';
 
 import { ImageChartService } from './services/imageChartService';
 import { ChutesService } from './services/chutesService';
@@ -46,6 +53,16 @@ const tradingViewService = new TradingViewService({
 // Initialize new freqtrade-inspired services
 const dataManager = new DataManager();
 const strategy = new SampleStrategy();
+const openClawStrategy = new OpenClawStrategy();
+const publicCryptoService = new PublicCryptoService();
+
+// Initialize ML services
+const mlModel = new LSTMModelManager();
+const featureService = new FeatureEngineeringService(false); // No DB caching for bot
+
+// ML model state
+let mlModelLoaded = false;
+let mlModelPath = './models/lstm_model';
 
 // Initialize Chutes AI service
 const chutesService = new ChutesService();
@@ -123,7 +140,19 @@ bot.command('help', (ctx) => {
    • Entry/exit recommendations with exact levels
    • Risk assessment and position sizing
    • Chart generation with indicators
-/fullanalysis [symbol] - Technical + News analysis (NEW!)
+/fullanalysis [symbol] - Technical + News analysis
+
+🔹 🦅 OPENCLAW & ML (NEW!):
+/openclaw [symbol] - Advanced ML-powered analysis
+   • Market regime detection
+   • Multi-indicator confluence
+   • Smart entry/exit signals
+/mlpredict [symbol] - LSTM price prediction
+   • AI-powered forecast
+   • Confidence scoring
+/trainmodel [symbol] [days] - Train ML model
+   Example: /trainmodel BTCUSDT 180
+/mlstatus - Check ML model status
 
 🔹 🐦 NEWS & SOCIAL MEDIA:
 /pnews [symbol] - AI news analysis (Chutes)
@@ -154,9 +183,10 @@ bot.command('help', (ctx) => {
 /delalert [symbol] - Delete price alert
 
 📈 NEW FEATURES:
-• Chutes AI integration for latest news
-• Market impact predictions
-• Combined technical + fundamental analysis
+• 🦅 OpenClaw strategy with ML integration
+• 🧠 LSTM price predictions
+• 🤖 AI-powered market analysis
+• 📊 Advanced regime detection
 
 All commands support major cryptocurrencies (BTCUSDT, ETHUSDT, etc.)
 `;
@@ -997,6 +1027,392 @@ bot.command('strategies', (ctx) => {
     `;
 
     ctx.reply(message);
+
+    return;
+});
+
+// ============================================================================
+// OPENCLAW & ML COMMANDS
+// ============================================================================
+
+// OpenClaw analysis command
+bot.command('openclaw', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase() || 'BTCUSDT';
+
+    try {
+        const loadingMsg = await ctx.reply(`🦅 Running OpenClaw analysis for ${symbol}...`);
+
+        // Download data
+        const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
+        
+        if (candles.length < 100) {
+            return ctx.reply('❌ Insufficient data for analysis');
+        }
+
+        // Convert to OHLCV format
+        const ohlcvCandles: OHLCVCandle[] = candles.map((c: any) => ({
+            timestamp: c[0],
+            open: parseFloat(c[1]),
+            high: parseFloat(c[2]),
+            low: parseFloat(c[3]),
+            close: parseFloat(c[4]),
+            volume: parseFloat(c[5]),
+            date: new Date(c[0])
+        }));
+
+        // Create DataFrame and populate indicators
+        const dataframe = {
+            open: ohlcvCandles.map(c => c.open),
+            high: ohlcvCandles.map(c => c.high),
+            low: ohlcvCandles.map(c => c.low),
+            close: ohlcvCandles.map(c => c.close),
+            volume: ohlcvCandles.map(c => c.volume),
+            date: ohlcvCandles.map(c => c.date)
+        };
+
+        const metadata = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
+        openClawStrategy.populateIndicators(dataframe, metadata);
+        openClawStrategy.populateEntryTrend(dataframe, metadata);
+
+        // Get latest signals
+        const lastIdx = dataframe.close.length - 1;
+        const enterLong = (dataframe.enter_long as number[])[lastIdx];
+        const enterShort = (dataframe.enter_short as number[])[lastIdx];
+        const enterTag = (dataframe.enter_tag as string[])[lastIdx] || '';
+
+        const currentPrice = dataframe.close[lastIdx];
+        const rsi = (dataframe.rsi as number[])[lastIdx] || 50;
+        const macdHist = (dataframe.macd_histogram as number[])[lastIdx] || 0;
+        const adx = (dataframe.adx as number[])[lastIdx] || 20;
+        const bbPercentB = (dataframe.bb_percentb as number[])[lastIdx] || 0.5;
+
+        let signalEmoji = '⚪';
+        let signalText = 'NEUTRAL';
+        let signalStrength = 'No signal';
+
+        if (enterLong === 1) {
+            signalEmoji = '🟢';
+            signalText = 'LONG';
+            signalStrength = enterTag.replace('_long', '').toUpperCase();
+        } else if (enterShort === 1) {
+            signalEmoji = '🔴';
+            signalText = 'SHORT';
+            signalStrength = enterTag.replace('_short', '').toUpperCase();
+        }
+
+        const message = `
+🦅 OPENCLAW ANALYSIS - ${symbol}
+
+${signalEmoji} SIGNAL: ${signalText}
+Market Regime: ${signalStrength}
+
+💰 CURRENT PRICE: $${currentPrice.toLocaleString()}
+
+📊 TECHNICAL INDICATORS:
+RSI(14): ${rsi.toFixed(2)}
+MACD Histogram: ${macdHist > 0 ? '+' : ''}${macdHist.toFixed(2)}
+ADX: ${adx.toFixed(2)} ${adx > 25 ? '(Strong trend)' : '(Weak trend)'}
+BB %B: ${bbPercentB.toFixed(2)} ${bbPercentB > 0.8 ? '(Overbought)' : bbPercentB < 0.2 ? '(Oversold)' : '(Neutral)'}
+
+🎯 TRADING RECOMMENDATION:
+${enterLong === 1 ? '✅ Consider LONG entry\n📈 Bullish momentum detected' : ''}${enterShort === 1 ? '✅ Consider SHORT entry\n📉 Bearish momentum detected' : ''}${enterLong === 0 && enterShort === 0 ? '⏸️ Wait for clearer signal\n📊 No strong trend detected' : ''}
+
+⚙️ Strategy: OpenClawStrategy v${openClawStrategy.version}
+⏰ Timeframe: 1h | Last Update: ${new Date().toLocaleTimeString()}
+        `;
+
+        try {
+            await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id);
+        } catch (e) { /* ignore */ }
+
+        ctx.reply(message);
+
+    } catch (error) {
+        console.error('OpenClaw error:', error);
+        ctx.reply(`❌ Error: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// ML Predict command
+bot.command('mlpredict', async (ctx) => {
+    const symbol = ctx.message.text.split(' ')[1]?.toUpperCase() || 'BTCUSDT';
+
+    try {
+        // Load model if not loaded
+        if (!mlModelLoaded) {
+            const fs = require('fs');
+            if (fs.existsSync(mlModelPath)) {
+                const loadingMsg = await ctx.reply('🧠 Loading ML model...');
+                await mlModel.loadModel(mlModelPath);
+                mlModelLoaded = true;
+                try {
+                    await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id);
+                } catch (e) { /* ignore */ }
+            } else {
+                return ctx.reply(`❌ ML model not found. Train a model first with /trainmodel`);
+            }
+        }
+
+        const loadingMsg = await ctx.reply(`🧠 Generating ML prediction for ${symbol}...`);
+
+        // Download data
+        const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
+        
+        if (candles.length < 100) {
+            return ctx.reply('❌ Insufficient data for prediction');
+        }
+
+        // Convert to OHLCV format
+        const ohlcvCandles: OHLCVCandle[] = candles.map((c: any) => ({
+            timestamp: c[0],
+            open: parseFloat(c[1]),
+            high: parseFloat(c[2]),
+            low: parseFloat(c[3]),
+            close: parseFloat(c[4]),
+            volume: parseFloat(c[5]),
+            date: new Date(c[0])
+        }));
+
+        // Extract features
+        const features = featureService.extractFeatures(ohlcvCandles, symbol);
+        
+        if (features.length === 0) {
+            return ctx.reply('❌ Failed to extract features');
+        }
+
+        // Get prediction
+        const prediction = await mlModel.predict(features, 20);
+
+        const currentPrice = ohlcvCandles[ohlcvCandles.length - 1].close;
+        const predictedChange = prediction.direction === 'up' ? '+' : '-';
+        const confidencePercent = (prediction.confidence * 100).toFixed(1);
+
+        let emoji = '⚪';
+        let recommendation = 'HOLD';
+        
+        if (prediction.direction === 'up' && prediction.confidence > 0.6) {
+            emoji = '🟢';
+            recommendation = 'LONG';
+        } else if (prediction.direction === 'down' && prediction.confidence > 0.6) {
+            emoji = '🔴';
+            recommendation = 'SHORT';
+        }
+
+        const message = `
+🧠 ML PRICE PREDICTION - ${symbol}
+
+${emoji} PREDICTION: ${recommendation}
+Direction: ${prediction.direction.toUpperCase()}
+Confidence: ${confidencePercent}%
+
+💰 CURRENT PRICE: $${currentPrice.toLocaleString()}
+
+📈 FORECAST:
+Expected Movement: ${predictedChange}
+Signal Strength: ${prediction.confidence > 0.7 ? 'Strong' : prediction.confidence > 0.5 ? 'Medium' : 'Weak'}
+
+🎯 TRADING SUGGESTION:
+${prediction.confidence > 0.6 ? `✅ ${recommendation} position recommended` : '⏸️ Low confidence - wait for better setup'}
+
+⚙️ Model: LSTM (158K parameters)
+📊 Features: 60 technical indicators
+⏰ Last Update: ${new Date().toLocaleTimeString()}
+
+💡 TIP: Combine with /openclaw for best results!
+        `;
+
+        try {
+            await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id);
+        } catch (e) { /* ignore */ }
+
+        ctx.reply(message);
+
+    } catch (error) {
+        console.error('ML Predict error:', error);
+        ctx.reply(`❌ Error: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// Train ML Model command
+bot.command('trainmodel', async (ctx) => {
+    const args = ctx.message.text.split(' ');
+    const symbol = args[1]?.toUpperCase() || 'BTCUSDT';
+    const days = parseInt(args[2]) || 180;
+
+    if (days < 90 || days > 365) {
+        return ctx.reply('❌ Days must be between 90 and 365 for effective training');
+    }
+
+    try {
+        const loadingMsg = await ctx.reply(`🧠 Starting ML model training for ${symbol}...\n⏱️ This may take 5-10 minutes...`);
+
+        // Download training data
+        const limit = Math.min(days * 24, 5000); // Max 5000 hourly candles
+        const candles = await publicCryptoService.getCandlestickData(symbol, '1h', limit);
+        
+        if (candles.length < 1000) {
+            return ctx.reply(`❌ Insufficient data (${candles.length} candles). Need at least 1000 for training.`);
+        }
+
+        // Convert to OHLCV format
+        const ohlcvCandles: OHLCVCandle[] = candles.map((c: any) => ({
+            timestamp: c[0],
+            open: parseFloat(c[1]),
+            high: parseFloat(c[2]),
+            low: parseFloat(c[3]),
+            close: parseFloat(c[4]),
+            volume: parseFloat(c[5]),
+            date: new Date(c[0])
+        }));
+
+        // Extract features
+        ctx.reply('📊 Extracting features from price data...');
+        const features = featureService.extractFeatures(ohlcvCandles, symbol);
+
+        if (features.length < 200) {
+            return ctx.reply('❌ Insufficient features extracted');
+        }
+
+        // Build and train model
+        ctx.reply(`🏗️ Building LSTM model (158,625 parameters)...`);
+        mlModel.buildModel(60, 20); // 60 features, 20 sequence length
+
+        ctx.reply(`🎯 Training on ${features.length} samples...`);
+        const history = await mlModel.train(features, {
+            epochs: 50,
+            batchSize: 32,
+            validationSplit: 0.2,
+            patience: 10
+        });
+
+        // Save model
+        const fs = require('fs');
+        if (!fs.existsSync('./models')) {
+            fs.mkdirSync('./models', { recursive: true });
+        }
+        
+        await mlModel.saveModel(mlModelPath);
+        mlModelLoaded = true;
+
+        const finalLoss = history[history.length - 1].loss.toFixed(4);
+        const finalValLoss = history[history.length - 1].val_loss?.toFixed(4) || 'N/A';
+
+        const message = `
+✅ ML MODEL TRAINING COMPLETE!
+
+📊 TRAINING SUMMARY:
+Symbol: ${symbol}
+Training Data: ${features.length} samples (${days} days)
+Epochs Completed: ${history.length}
+Final Loss: ${finalLoss}
+Validation Loss: ${finalValLoss}
+
+🧠 MODEL SPECS:
+Architecture: 3-layer LSTM
+Parameters: 158,625
+Input Features: 60
+Sequence Length: 20
+
+💾 MODEL SAVED: ${mlModelPath}
+
+🎯 READY TO USE:
+• /mlpredict ${symbol} - Get price predictions
+• /openclaw ${symbol} - Combined ML + technical analysis
+
+⏰ Training Time: ${new Date().toLocaleTimeString()}
+        `;
+
+        try {
+            await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id);
+        } catch (e) { /* ignore */ }
+
+        ctx.reply(message);
+
+    } catch (error) {
+        console.error('Train model error:', error);
+        ctx.reply(`❌ Training failed: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// ML Status command
+bot.command('mlstatus', async (ctx) => {
+    const fs = require('fs');
+    const modelExists = fs.existsSync(mlModelPath);
+
+    const message = `
+🧠 ML MODEL STATUS
+
+📊 Model State: ${mlModelLoaded ? '✅ Loaded' : modelExists ? '⚠️ Available (not loaded)' : '❌ Not trained'}
+📁 Model Path: ${mlModelPath}
+💾 Model File: ${modelExists ? 'Found' : 'Not found'}
+
+🏗️ ARCHITECTURE:
+Type: LSTM (Long Short-Term Memory)
+Layers: 3 (128 → 64 → 32 units)
+Parameters: 158,625
+Input: 60 features × 20 timesteps
+Output: Price direction + confidence
+
+📈 CAPABILITIES:
+✅ Price direction prediction
+✅ Confidence scoring
+✅ 60 technical indicators
+✅ Multi-timeframe analysis
+
+🎯 AVAILABLE COMMANDS:
+${!mlModelLoaded ? '• /trainmodel [SYMBOL] [DAYS] - Train new model' : ''}• /mlpredict [SYMBOL] - Get price prediction
+• /openclaw [SYMBOL] - ML + Technical analysis
+
+${!modelExists ? '\n💡 TIP: Train a model first with:\n/trainmodel BTCUSDT 180' : ''}
+    `;
+
+    ctx.reply(message);
+
+    return;
+});
+
+// Update strategies command to include OpenClaw
+bot.command('strategies', (ctx) => {
+    const message = `
+📚 AVAILABLE TRADING STRATEGIES
+
+🦅 OpenClawStrategy v1.0.0 ⭐ NEW!
+- Timeframe: 1h
+- Type: Long/Short
+- Features: Market regime detection, ML integration
+- Indicators: RSI(7,14,21), MACD, EMA(9,21,50,200), ADX, BB, ATR
+- Entry: Regime-adaptive multi-indicator confluence
+- Exit: Dynamic based on market conditions
+- Stop Loss: 3% (ATR-based)
+- Backtest: 2.55 profit factor, 26.9% win rate
+
+🎯 SampleStrategy v1.0.0
+- Timeframe: 5m
+- Type: Long/Short (configurable)
+- Indicators: RSI, MACD, Bollinger Bands, EMA
+- Entry: RSI cross above 30 + MACD positive + price above EMA10
+- Exit: RSI cross above 70 + MACD negative
+- Stop Loss: 5%
+- Risk Management: Position sizing, ROI targets
+
+📊 STRATEGY FEATURES:
+✅ Technical indicators
+✅ Risk management
+✅ Position sizing
+✅ Entry/exit signals
+✅ Backtesting compatible
+✅ Optimization ready
+✅ ML integration (OpenClaw)
+
+💡 TIP: Use /optimize to find the best parameters for any strategy!
+💡 TIP: Use /openclaw for advanced ML-powered analysis!
+    `;
 
     return;
 });

@@ -146,15 +146,13 @@ export class LSTMModelManager {
             shuffle: true,
             callbacks: {
                 onEpochEnd: (epoch, logs) => {
-                    if (epoch % 10 === 0 || epoch === this.config.epochs - 1) {
-                        console.log(
-                            `   Epoch ${epoch + 1}/${this.config.epochs} - ` +
-                            `loss: ${logs?.loss.toFixed(6)} - ` +
-                            `mae: ${logs?.mae.toFixed(6)} - ` +
-                            `val_loss: ${logs?.val_loss?.toFixed(6)} - ` +
-                            `val_mae: ${logs?.val_mae?.toFixed(6)}`
-                        );
-                    }
+                    console.log(
+                        `   Epoch ${epoch + 1}/${this.config.epochs} - ` +
+                        `loss: ${logs?.loss.toFixed(4)} - ` +
+                        `mae: ${logs?.mae.toFixed(4)} - ` +
+                        `val_loss: ${logs?.val_loss.toFixed(4)} - ` +
+                        `val_mae: ${logs?.val_mae.toFixed(4)}`
+                    );
                 }
             }
         });
@@ -250,14 +248,14 @@ export class LSTMModelManager {
     }
 
     /**
-     * Convert feature sets to numerical array
+     * Convert feature sets to numerical array with normalization
      */
     private featuresToArray(features: FeatureSet[]): number[][] {
         return features.map(f => {
             // Extract all numeric features (exclude timestamp and symbol)
-            return [
+            const rawFeatures = [
                 f.returns, f.logReturns, f.priceChange, f.priceChangePercent,
-                f.highLowRange, f.openCloseRange, f.upperShadow, f.lowerShadow, f.bodyToRangeRatio,
+                f.highLowRange, f.highLowRange, f.upperShadow, f.lowerShadow, f.bodyToRangeRatio,
                 f.rsi_7, f.rsi_14, f.rsi_21, f.roc_10, f.roc_20,
                 f.stoch_k, f.stoch_d, f.williams_r, f.cci, f.mfi,
                 f.macd, f.macdSignal, f.macdHistogram, f.macdCrossover,
@@ -269,33 +267,21 @@ export class LSTMModelManager {
                 f.autocorrelation_1, f.autocorrelation_5, f.returns_mean_20, f.returns_std_20,
                 f.spreadApprox, f.volumeImbalance, f.priceEfficiency, f.marketDepthProxy, f.liquidityScore
             ];
+            
+            // Replace NaN/Infinity with 0
+            return rawFeatures.map(val => {
+                if (!isFinite(val) || isNaN(val)) return 0;
+                // Clip extreme values to prevent gradient explosion
+                return Math.max(-10, Math.min(10, val));
+            });
         });
     }
 
     /**
-     * Save model to disk
+     * Save model to disk (requires @tensorflow/tfjs-node)
      */
     async saveModel(dirPath: string = './models'): Promise<string> {
-        if (!this.model) {
-            throw new Error('No model to save');
-        }
-
-        const modelPath = path.join(dirPath, `${this.modelName}_${this.version}`);
-        
-        // Create directory if it doesn't exist
-        if (!fs.existsSync(dirPath)) {
-            fs.mkdirSync(dirPath, { recursive: true });
-        }
-
-        // Save model
-        await this.model.save(`file://${modelPath}`);
-        
-        // Save config
-        const configPath = path.join(modelPath, 'config.json');
-        fs.writeFileSync(configPath, JSON.stringify(this.config, null, 2));
-
-        console.log(`✅ Model saved to ${modelPath}`);
-        return modelPath;
+        throw new Error('Model saving requires @tensorflow/tfjs-node which needs Visual Studio Build Tools. Model is trained and can be used in-memory.');
     }
 
     /**
