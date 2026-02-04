@@ -39,6 +39,8 @@
   "homepage": "https://github.com/yourusername/crypto-signal-bot#readme",
   "type": "commonjs",
   "dependencies": {
+    "@libsql/client": "^0.17.0",
+    "@prisma/adapter-libsql": "^7.3.0",
     "@tensorflow/tfjs": "^4.22.0",
     "@types/cheerio": "^0.22.35",
     "@types/cors": "^2.8.19",
@@ -64,6 +66,7 @@
     "uuid": "^11.1.0"
   },
   "devDependencies": {
+    "@prisma/client": "^7.3.0",
     "@types/better-sqlite3": "^7.6.13",
     "@types/jest": "^29.5.12",
     "@types/node": "^22.15.18",
@@ -73,6 +76,7 @@
     "jest": "^29.7.0",
     "nodemon": "^3.1.0",
     "prettier": "^3.2.5",
+    "prisma": "^7.3.0",
     "rimraf": "^5.0.5",
     "ts-jest": "^29.1.2",
     "typescript": "^5.8.3"

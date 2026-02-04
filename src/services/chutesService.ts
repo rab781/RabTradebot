@@ -144,7 +144,7 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
             const response = await axios.post(
                 `${this.baseUrl}/chat/completions`,
                 {
-                    model: "Qwen/Qwen3-32B",
+                    model: "moonshotai/Kimi-K2.5-TEE",
                     messages: [
                         {
                             role: "system",
@@ -155,9 +155,9 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
                             content: prompt
                         }
                     ],
-                    max_tokens: 2000,
+                    max_tokens: 10000,
                     temperature: 0.3,
-                    stream: false
+                    stream: true
                 },
                 {
                     headers: {
