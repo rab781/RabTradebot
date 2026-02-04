@@ -16,7 +16,7 @@ async function testPredictionLogic() {
         console.log('1️⃣ Fetching BTCUSDT data...');
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 300);
-        
+
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
@@ -26,7 +26,7 @@ async function testPredictionLogic() {
             volume: parseFloat(c[5]),
             date: new Date(c[0])
         }));
-        
+
         console.log(`   ✓ Fetched ${candles.length} candles`);
         console.log(`   ✓ Latest price: $${candles[candles.length - 1].close.toFixed(2)}\n`);
 
@@ -41,14 +41,14 @@ async function testPredictionLogic() {
         console.log('3️⃣ Testing feature preparation...');
         const mlModel = new LSTMModelManager();
         mlModel.buildModel();
-        
+
         if (features.length < 20) {
             throw new Error('Not enough features for sequence');
         }
-        
+
         const testSequence = features.slice(-20);
         console.log(`   ✓ Prepared sequence of ${testSequence.length} steps`);
-        
+
         // Check for NaN values in features
         let hasNaN = false;
         let nanCount = 0;
@@ -62,7 +62,7 @@ async function testPredictionLogic() {
                 }
             }
         }
-        
+
         if (hasNaN) {
             console.log(`   ⚠️  Warning: Found ${nanCount} NaN/Infinite values in features`);
         } else {
@@ -72,7 +72,7 @@ async function testPredictionLogic() {
         // 4. Test prediction (with untrained model)
         console.log('4️⃣ Testing prediction method...');
         const prediction = await mlModel.predict(testSequence);
-        
+
         console.log(`\n📊 PREDICTION OUTPUT (Untrained Model):`);
         console.log(`   Direction Value: ${prediction.direction.toFixed(4)}`);
         console.log(`   Confidence: ${(prediction.confidence * 100).toFixed(2)}%`);
@@ -85,17 +85,17 @@ async function testPredictionLogic() {
         for (let i = 0; i < 5; i++) {
             const idx = features.length - 25 - i * 5;
             if (idx < 20) break;
-            
+
             const seq = features.slice(idx - 20, idx);
             const pred = await mlModel.predict(seq);
             predictions.push(pred);
         }
-        
+
         console.log(`   ✓ Generated ${predictions.length} predictions`);
-        
+
         const bullishCount = predictions.filter(p => p.direction > 0).length;
         const avgConfidence = predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length;
-        
+
         console.log(`   Bullish signals: ${bullishCount}/${predictions.length}`);
         console.log(`   Average confidence: ${(avgConfidence * 100).toFixed(2)}%\n`);
 
@@ -103,7 +103,7 @@ async function testPredictionLogic() {
         console.log('6️⃣ Simulating bot command...');
         const latestCandle = candles[candles.length - 1];
         const latestPrediction = await mlModel.predict(testSequence);
-        
+
         const botMessage = `
 🤖 ML PREDICTION - BTCUSDT
 
@@ -120,7 +120,7 @@ ${latestPrediction.confidence > 0.7 ? '🟢 STRONG' : latestPrediction.confidenc
 ⚠️ Note: Model is untrained - for demo only
 ⏰ ${new Date().toLocaleTimeString()}
         `;
-        
+
         console.log(botMessage);
 
         console.log('✅ ALL PREDICTION TESTS PASSED!\n');

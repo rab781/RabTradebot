@@ -90,7 +90,7 @@ try {
     // Cleanup
     closeDatabase();
     console.log('\n✅ All database tests passed!');
-    
+
 } catch (error) {
     console.error('❌ Database test failed:', error);
     process.exit(1);

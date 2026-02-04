@@ -21,12 +21,12 @@ async function testMLPredictions() {
         const cryptoService = new PublicCryptoService();
         const featureService = new FeatureEngineeringService();
         const mlModel = new LSTMModelManager();
-        
+
         // 2. Fetch recent data
         console.log(`2️⃣ Fetching ${lookback} days of data for ${symbol}...`);
         const dataManager = new DataManager();
         const rawCandles = await cryptoService.getCandlestickData(symbol, '1h', lookback * 24);
-        
+
         // Convert to OHLCVCandle format
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
@@ -37,7 +37,7 @@ async function testMLPredictions() {
             volume: parseFloat(c[5]),
             date: new Date(c[0])
         }));
-        
+
         console.log(`   ✓ Fetched ${candles.length} candles`);
 
         if (candles.length < 100) {
@@ -62,7 +62,7 @@ async function testMLPredictions() {
         const splitIndex = Math.floor(features.length * 0.8);
         const trainFeatures = features.slice(0, splitIndex);
         const testFeatures = features.slice(splitIndex);
-        
+
         // Calculate price changes as targets
         const trainTargets = trainFeatures.map((_: any, i: number) => {
             const candleIndex = i + 200; // Features start from index 200
@@ -86,7 +86,7 @@ async function testMLPredictions() {
         // 7. Test predictions
         console.log('\n7️⃣ Testing Predictions...');
         console.log('═══════════════════════════════════════════════════════════');
-        
+
         const predictions: any[] = [];
         let correctPredictions = 0;
         let totalPredictions = 0;
@@ -96,23 +96,23 @@ async function testMLPredictions() {
         for (let i = 0; i < testCount; i++) {
             const idx = splitIndex + i;
             const sequenceEnd = idx + 20;
-            
+
             if (sequenceEnd >= features.length) break;
-            
+
             const sequence = features.slice(idx, sequenceEnd);
             const prediction = await mlModel.predict(sequence);
-            
+
             // Get actual price change
             const actualCandle = candles[sequenceEnd];
             const futureCandle = candles[sequenceEnd + 1];
-            
+
             if (!futureCandle) continue;
-            
+
             const actualChange = ((futureCandle.close - actualCandle.close) / actualCandle.close) * 100;
             const predictedDirection = prediction.direction > 0 ? 'UP' : 'DOWN';
             const actualDirection = actualChange > 0 ? 'UP' : 'DOWN';
             const correct = predictedDirection === actualDirection;
-            
+
             if (correct) correctPredictions++;
             totalPredictions++;
 
@@ -139,10 +139,10 @@ async function testMLPredictions() {
         // 8. Calculate metrics
         console.log('\n8️⃣ Performance Metrics:');
         console.log('═══════════════════════════════════════════════════════════');
-        
+
         const accuracy = (correctPredictions / totalPredictions) * 100;
         const avgConfidence = predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length;
-        
+
         // Calculate MAE for price changes
         const mae = predictions.reduce((sum, p) => {
             return sum + Math.abs(p.predictedChange - p.actual);
@@ -157,11 +157,11 @@ async function testMLPredictions() {
         // 9. Test latest prediction
         console.log('\n9️⃣ Latest Live Prediction:');
         console.log('═══════════════════════════════════════════════════════════');
-        
+
         const latestSequence = features.slice(-20);
         const latestPrediction = await mlModel.predict(latestSequence);
         const latestCandle = candles[candles.length - 1];
-        
+
         console.log(`Symbol: ${symbol}`);
         console.log(`Current Price: $${latestCandle.close.toFixed(2)}`);
         console.log(`Prediction: ${latestPrediction.direction > 0 ? '📈 BULLISH' : '📉 BEARISH'}`);

@@ -8,7 +8,7 @@ console.log('🧪 Testing LSTM Model Build...\n');
 
 try {
     const model = new LSTMModelManager('Test_LSTM', '0.1.0');
-    
+
     console.log('📊 Model Configuration:');
     const info = model.getModelInfo();
     console.log(`   Name: ${info.name}`);
@@ -21,7 +21,7 @@ try {
 
     console.log('\n🏗️  Building model...');
     model.buildModel();
-    
+
     console.log('\n✅ Model built successfully!');
     console.log(`   Is Loaded: ${model.getModelInfo().isLoaded}`);
 

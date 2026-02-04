@@ -14,7 +14,7 @@ async function optimizedTraining() {
 
     const symbol = process.argv[2] || 'BTCUSDT';
     const days = parseInt(process.argv[3]) || 30;
-    
+
     console.log(`Symbol: ${symbol}`);
     console.log(`History: ${days} days`);
     console.log('');
@@ -24,7 +24,7 @@ async function optimizedTraining() {
         console.log('1️⃣ Fetching market data...');
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData(symbol, '1h', days * 24);
-        
+
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
@@ -34,7 +34,7 @@ async function optimizedTraining() {
             volume: parseFloat(c[5]),
             date: new Date(c[0])
         }));
-        
+
         console.log(`   ✓ Fetched ${candles.length} candles\n`);
 
         // 2. Extract features (disable database for speed)
@@ -56,24 +56,24 @@ async function optimizedTraining() {
             dropout: 0.2,
             learningRate: 0.001
         });
-        
+
         mlModel.buildModel();
         console.log('   ✓ Model built\n');
 
         // 4. Prepare training data
         console.log('4️⃣ Preparing training data...');
-        
+
         // Use recent data only (last 200 features)
         const recentFeatures = features.slice(-200);
-        
+
         const targets = recentFeatures.map((_, i) => {
             const candleIdx = candles.length - recentFeatures.length + i;
             if (candleIdx >= candles.length - 1) return 0;
-            
+
             const currentPrice = candles[candleIdx].close;
             const futurePrice = candles[candleIdx + 1].close;
             const priceChange = ((futurePrice - currentPrice) / currentPrice) * 100;
-            
+
             // Normalize to [-1, 1]
             return Math.max(-1, Math.min(1, priceChange * 50));
         });
@@ -83,11 +83,11 @@ async function optimizedTraining() {
         // 5. Train model (fast mode)
         console.log('5️⃣ Training (10 epochs, no validation for speed)...');
         console.log('-'.repeat(60));
-        
+
         const startTime = Date.now();
-        
+
         await mlModel.train(recentFeatures, targets, 0); // 0 = no validation split
-        
+
         const trainingTime = ((Date.now() - startTime) / 1000).toFixed(1);
         console.log('-'.repeat(60));
         console.log(`   ✓ Training completed in ${trainingTime}s\n`);
@@ -95,23 +95,23 @@ async function optimizedTraining() {
         // 6. Test predictions
         console.log('6️⃣ Testing predictions...');
         console.log('='.repeat(60));
-        
+
         // Test on last 3 sequences
         for (let i = 0; i < 3; i++) {
             const idx = features.length - 25 - i * 10;
             if (idx < 20) break;
-            
+
             const sequence = features.slice(idx - 20, idx);
             const prediction = await mlModel.predict(sequence);
-            
+
             const candle = candles[idx];
             const futureCandle = candles[idx + 1];
-            
+
             if (futureCandle) {
                 const actualChange = ((futureCandle.close - candle.close) / candle.close) * 100;
-                const predMatch = (prediction.direction > 0 && actualChange > 0) || 
+                const predMatch = (prediction.direction > 0 && actualChange > 0) ||
                                  (prediction.direction < 0 && actualChange < 0);
-                
+
                 console.log(`\nTest ${i + 1}:`);
                 console.log(`  Time: ${new Date(candle.timestamp).toLocaleString()}`);
                 console.log(`  Price: $${candle.close.toFixed(2)}`);
@@ -125,10 +125,10 @@ async function optimizedTraining() {
         console.log('\n' + '='.repeat(60));
         console.log('🔮 LATEST PREDICTION:');
         console.log('='.repeat(60));
-        
+
         const latestPrediction = await mlModel.predict(features);
         const latestCandle = candles[candles.length - 1];
-        
+
         console.log(`\nSymbol: ${symbol}`);
         console.log(`Current Price: $${latestCandle.close.toLocaleString()}`);
         console.log(`\nPrediction: ${latestPrediction.direction > 0 ? '📈 BULLISH' : '📉 BEARISH'}`);

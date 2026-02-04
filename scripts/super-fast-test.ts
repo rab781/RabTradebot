@@ -16,7 +16,7 @@ async function superFastTest() {
         console.log('1. Fetching data...');
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 300);
-        
+
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
@@ -26,7 +26,7 @@ async function superFastTest() {
             volume: parseFloat(c[5]),
             date: new Date(c[0])
         }));
-        
+
         console.log(`   ✓ ${candles.length} candles\n`);
 
         // Extract features
@@ -59,13 +59,13 @@ async function superFastTest() {
         console.log('6. Testing prediction...');
         const prediction = await model.predict(features);
         const latestPrice = candles[candles.length - 1].close;
-        
+
         console.log('\n📊 RESULT:');
         console.log(`   Price: $${latestPrice.toFixed(2)}`);
         console.log(`   Direction: ${prediction.direction > 0 ? '📈 UP' : '📉 DOWN'}`);
         console.log(`   Change: ${prediction.priceChange.toFixed(2)}%`);
         console.log(`   Confidence: ${(prediction.confidence * 100).toFixed(1)}%`);
-        
+
         console.log('\n✅ SUPER FAST TEST COMPLETE!');
 
     } catch (error) {

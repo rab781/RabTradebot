@@ -53,22 +53,22 @@ export class SimpleGRUModel {
     }
 
     /**
-     * Quick train with minimal epochs
+     * Quick train with configurable epochs
      */
-    async quickTrain(features: FeatureSet[], targets: number[]): Promise<void> {
+    async quickTrain(features: FeatureSet[], targets: number[], epochs: number = 5): Promise<void> {
         if (!this.model) this.buildModel();
 
         const { X, y } = this.prepareSequences(features, targets);
 
-        console.log(`\n🏃 Quick training (5 epochs)...`);
+        console.log(`\n🏃 Training (${epochs} epochs)...`);
         console.log(`   Samples: ${X.shape[0]}`);
 
         const startTime = Date.now();
 
         await this.model!.fit(X, y, {
-            epochs: 5,
+            epochs: epochs,
             batchSize: 4, // Very small
-            verbose: 1,
+            verbose: 0, // Silent mode for cleaner output
             shuffle: true
         });
 
@@ -76,7 +76,7 @@ export class SimpleGRUModel {
         y.dispose();
 
         const time = ((Date.now() - startTime) / 1000).toFixed(1);
-        console.log(`✅ Training done in ${time}s`);
+        console.log(`✅ Training completed in ${time}s`);
     }
 
     /**
@@ -141,24 +141,44 @@ export class SimpleGRUModel {
     private featuresToArray(sequence: FeatureSet[]): number[][] {
         return sequence.map(feat => {
             const values: number[] = [];
-            
+
             for (const [key, value] of Object.entries(feat)) {
                 if (key !== 'timestamp' && key !== 'symbol') {
                     let val = value as number;
-                    
+
                     // Handle NaN/Infinity
                     if (!isFinite(val) || isNaN(val)) {
                         val = 0;
                     }
-                    
+
                     // Clip extreme values
                     val = Math.max(-10, Math.min(10, val));
-                    
+
                     values.push(val);
                 }
             }
-            
+
             return values;
         });
+    }
+
+    /**
+     * Save model to disk
+     */
+    async saveModel(path: string): Promise<void> {
+        if (!this.model) {
+            throw new Error('No model to save. Build and train the model first.');
+        }
+
+        await this.model.save(path);
+        console.log(`✅ Model saved to ${path}`);
+    }
+
+    /**
+     * Load model from disk
+     */
+    async loadModel(path: string): Promise<void> {
+        this.model = await tf.loadLayersModel(path + '/model.json');
+        console.log(`✅ Model loaded from ${path}`);
     }
 }

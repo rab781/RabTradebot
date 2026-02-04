@@ -104,7 +104,7 @@ async function testOpenClawStrategy() {
 
         // Performance evaluation
         console.log('\n📊 Strategy Evaluation:');
-        
+
         if (result.sharpeRatio > 2.0) {
             console.log('   ✅ EXCELLENT - Sharpe ratio > 2.0');
         } else if (result.sharpeRatio > 1.0) {
@@ -139,7 +139,7 @@ async function testOpenClawStrategy() {
         if (result.trades.length > 0) {
             console.log('\n📝 Sample Trades (Last 5):');
             const sampleTrades = result.trades.slice(-5);
-            
+
             sampleTrades.forEach((trade: any, idx: number) => {
                 const profit = trade.profitPct || 0;
                 const icon = profit > 0 ? '✅' : '❌';

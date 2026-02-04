@@ -4,12 +4,12 @@
  */
 
 import { OHLCVCandle } from '../types/dataframe';
-import { 
-    RSI, 
-    MACD, 
-    BollingerBands, 
-    EMA, 
-    SMA, 
+import {
+    RSI,
+    MACD,
+    BollingerBands,
+    EMA,
+    SMA,
     ATR,
     ADX,
     Stochastic,
@@ -130,7 +130,7 @@ export class FeatureEngineeringService {
         // Extract features for each candle (starting from index 200 to have enough history)
         for (let i = 200; i < data.length; i++) {
             const timestamp = data[i].timestamp;
-            
+
             // Check cache first
             const cacheKey = `${symbol}_${timestamp}`;
             if (this.cache.has(cacheKey)) {
@@ -176,7 +176,7 @@ export class FeatureEngineeringService {
 
             // Cache the features
             this.cache.set(cacheKey, featureSet);
-            
+
             // Save to database if enabled
             if (this.useDatabase) {
                 try {
@@ -210,10 +210,10 @@ export class FeatureEngineeringService {
             rsi_7: RSI.calculate({ period: 7, values: closes }),
             rsi_14: RSI.calculate({ period: 14, values: closes }),
             rsi_21: RSI.calculate({ period: 21, values: closes }),
-            macd: MACD.calculate({ 
-                values: closes, 
-                fastPeriod: 12, 
-                slowPeriod: 26, 
+            macd: MACD.calculate({
+                values: closes,
+                fastPeriod: 12,
+                slowPeriod: 26,
                 signalPeriod: 9,
                 SimpleMAOscillator: false,
                 SimpleMASignal: false
@@ -240,7 +240,7 @@ export class FeatureEngineeringService {
     private extractPriceFeatures(data: OHLCVCandle[], index: number) {
         const current = data[index];
         const previous = data[index - 1];
-        
+
         const close = current.close;
         const open = current.open;
         const high = current.high;
@@ -272,10 +272,10 @@ export class FeatureEngineeringService {
 
     private extractMomentumIndicators(indicators: any, index: number) {
         const arrayIndex = index - 200;
-        
+
         const macdValue = indicators.macd[arrayIndex] || { MACD: 0, signal: 0, histogram: 0 };
         const stochValue = indicators.stoch[arrayIndex] || { k: 50, d: 50 };
-        
+
         return {
             rsi_7: indicators.rsi_7[arrayIndex] || 50,
             rsi_14: indicators.rsi_14[arrayIndex] || 50,
@@ -296,7 +296,7 @@ export class FeatureEngineeringService {
 
     private extractTrendIndicators(indicators: any, index: number, currentPrice: number) {
         const arrayIndex = index - 200;
-        
+
         const ema9 = indicators.ema_9[arrayIndex] || currentPrice;
         const ema21 = indicators.ema_21[arrayIndex] || currentPrice;
         const sma50 = indicators.sma_50[arrayIndex] || currentPrice;
@@ -338,7 +338,7 @@ export class FeatureEngineeringService {
         const volumes = data.slice(Math.max(0, index - 20), index + 1).map(d => d.volume);
         const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
         const currentVolume = data[index].volume;
-        
+
         const arrayIndex = index - 200;
         const obv = indicators.obv[arrayIndex] || 0;
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
@@ -414,7 +414,7 @@ export class FeatureEngineeringService {
         if (index < 1) return 0;
         const current = macdArray[index];
         const previous = macdArray[index - 1];
-        
+
         if (!current || !previous) return 0;
 
         // Bullish crossover
@@ -446,7 +446,7 @@ export class FeatureEngineeringService {
         const n = values.length;
         const mean = values.reduce((a, b) => a + b, 0) / n;
         const stdDev = this.calculateStdDev(values);
-        
+
         if (stdDev === 0) return 0;
 
         const sum = values.reduce((acc, val) => acc + Math.pow((val - mean) / stdDev, 3), 0);
@@ -457,7 +457,7 @@ export class FeatureEngineeringService {
         const n = values.length;
         const mean = values.reduce((a, b) => a + b, 0) / n;
         const stdDev = this.calculateStdDev(values);
-        
+
         if (stdDev === 0) return 0;
 
         const sum = values.reduce((acc, val) => acc + Math.pow((val - mean) / stdDev, 4), 0);
@@ -511,9 +511,9 @@ export class FeatureEngineeringService {
         const recentData = data.slice(index - 10, index + 1);
         const startPrice = recentData[0].close;
         const endPrice = recentData[recentData.length - 1].close;
-        
+
         const directDistance = Math.abs(endPrice - startPrice);
-        
+
         let totalDistance = 0;
         for (let i = 1; i < recentData.length; i++) {
             totalDistance += Math.abs(recentData[i].close - recentData[i - 1].close);

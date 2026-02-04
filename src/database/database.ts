@@ -77,7 +77,7 @@ export class TradingDatabase {
 
     constructor(dbPath: string = './data/trading.db') {
         this.dbPath = dbPath;
-        
+
         // Create data directory if it doesn't exist
         const dir = path.dirname(dbPath);
         if (!fs.existsSync(dir)) {
@@ -231,9 +231,9 @@ export class TradingDatabase {
     insertBacktestResult(result: BacktestResult): number {
         const stmt = this.db.prepare(`
             INSERT INTO backtest_results (
-                strategy, symbol, startDate, endDate, initialBalance, finalBalance, 
-                totalProfit, totalProfitPct, totalTrades, winningTrades, losingTrades, 
-                winRate, maxDrawdown, maxDrawdownPct, sharpeRatio, sortinoRatio, 
+                strategy, symbol, startDate, endDate, initialBalance, finalBalance,
+                totalProfit, totalProfitPct, totalTrades, winningTrades, losingTrades,
+                winRate, maxDrawdown, maxDrawdownPct, sharpeRatio, sortinoRatio,
                 calmarRatio, profitFactor, parameters
             ) VALUES (
                 @strategy, @symbol, @startDate, @endDate, @initialBalance, @finalBalance,
@@ -268,9 +268,9 @@ export class TradingDatabase {
 
     getBestBacktestResult(strategy: string, symbol: string, metric: 'sharpeRatio' | 'totalProfitPct' | 'winRate' = 'sharpeRatio'): BacktestResult | undefined {
         const stmt = this.db.prepare(`
-            SELECT * FROM backtest_results 
-            WHERE strategy = ? AND symbol = ? 
-            ORDER BY ${metric} DESC 
+            SELECT * FROM backtest_results
+            WHERE strategy = ? AND symbol = ?
+            ORDER BY ${metric} DESC
             LIMIT 1
         `);
         return stmt.get(strategy, symbol) as BacktestResult | undefined;
@@ -281,7 +281,7 @@ export class TradingDatabase {
     insertModelVersion(model: ModelVersion): number {
         const stmt = this.db.prepare(`
             INSERT OR REPLACE INTO model_versions (
-                modelName, version, architecture, accuracy, mae, rmse, 
+                modelName, version, architecture, accuracy, mae, rmse,
                 directionalAccuracy, trainedOn, trainingPeriod, filePath, metadata
             ) VALUES (
                 @modelName, @version, @architecture, @accuracy, @mae, @rmse,
@@ -294,9 +294,9 @@ export class TradingDatabase {
 
     getLatestModelVersion(modelName: string): ModelVersion | undefined {
         const stmt = this.db.prepare(`
-            SELECT * FROM model_versions 
-            WHERE modelName = ? 
-            ORDER BY createdAt DESC 
+            SELECT * FROM model_versions
+            WHERE modelName = ?
+            ORDER BY createdAt DESC
             LIMIT 1
         `);
         return stmt.get(modelName) as ModelVersion | undefined;
@@ -347,7 +347,7 @@ export class TradingDatabase {
         const backtests = this.db.prepare('SELECT COUNT(*) as count FROM backtest_results').get() as any;
         const models = this.db.prepare('SELECT COUNT(*) as count FROM model_versions').get() as any;
         const features = this.db.prepare('SELECT COUNT(*) as count FROM feature_cache').get() as any;
-        
+
         const dbSize = fs.existsSync(this.dbPath) ? fs.statSync(this.dbPath).size : 0;
 
         return {

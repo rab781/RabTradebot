@@ -16,7 +16,7 @@ async function quickTest() {
         console.log('1. Fetching BTCUSDT data...');
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 500);
-        
+
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
@@ -26,7 +26,7 @@ async function quickTest() {
             volume: parseFloat(c[5]),
             date: new Date(c[0])
         }));
-        
+
         console.log(`✓ Fetched ${candles.length} candles\n`);
 
         // 2. Extract features
@@ -44,7 +44,7 @@ async function quickTest() {
             dropout: 0.2,
             learningRate: 0.001
         });
-        
+
         mlModel.buildModel();
         console.log('✓ Model built\n');
 
@@ -52,14 +52,14 @@ async function quickTest() {
         console.log('4. Preparing training data...');
         const trainSize = Math.min(100, Math.floor(features.length * 0.7));
         const trainFeatures = features.slice(0, trainSize);
-        
+
         const trainTargets = trainFeatures.map((_, i) => {
             const candleIdx = i + 200;
             if (candleIdx >= candles.length - 1) return 0;
             const change = ((candles[candleIdx + 1].close - candles[candleIdx].close) / candles[candleIdx].close) * 100;
             return Math.max(-1, Math.min(1, change * 50));
         });
-        
+
         console.log(`✓ Training samples: ${trainSize}\n`);
 
         // 5. Quick training
@@ -71,7 +71,7 @@ async function quickTest() {
         console.log('6. Testing prediction...');
         const testSequence = features.slice(-20);
         const prediction = await mlModel.predict(testSequence);
-        
+
         const latestPrice = candles[candles.length - 1].close;
         console.log(`\n📊 PREDICTION RESULT:`);
         console.log(`Current Price: $${latestPrice.toFixed(2)}`);

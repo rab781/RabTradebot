@@ -1,6 +1,6 @@
 /**
  * OpenClaw-Inspired Advanced Trading Strategy
- * 
+ *
  * Features:
  * - Market regime detection (trending/ranging/volatile)
  * - Multi-timeframe confluence
@@ -25,20 +25,20 @@ export interface OpenClawConfig {
     useMachineLearning: boolean;
     modelPath?: string;
     mlConfidenceThreshold: number;
-    
+
     // Signal Thresholds
     minSignalStrength: number;
     minConfidence: number;
-    
+
     // Market Regime
     regimeAdaptive: boolean;
     volatilityThreshold: number;
-    
+
     // Kelly Criterion
     kellyFraction: number;
     maxPositionSize: number;
     minPositionSize: number;
-    
+
     // Multi-Timeframe
     useMultiTimeframe: boolean;
     timeframes: string[];
@@ -50,7 +50,7 @@ export class OpenClawStrategy implements IStrategy {
     version = '1.0.0';
     timeframe = '1h';
     canShort = true;
-    
+
     // Risk management
     stoploss = -0.03; // 3% dynamic stop loss
     minimalRoi = {
@@ -59,11 +59,11 @@ export class OpenClawStrategy implements IStrategy {
     trailingStop = true;
     trailingStopPositive = 0.01;
     trailingStopPositiveOffset = 0.02;
-    
+
     // Position sizing
     stakeAmount: number | 'unlimited' = 'unlimited'; // Will be calculated dynamically
     maxOpenTrades = 3;
-    
+
     // Strategy configuration
     startupCandleCount = 200; // Need enough data for features
     processOnlyNewCandles = true;
@@ -128,14 +128,14 @@ export class OpenClawStrategy implements IStrategy {
         const length = closes.length;
 
         // === MOMENTUM INDICATORS ===
-        
+
         // RSI with multiple periods
         const rsi14 = RSI.calculate({ period: 14, values: closes });
         dataframe.rsi = new Array(length - rsi14.length).fill(50).concat(rsi14);
-        
+
         const rsi7 = RSI.calculate({ period: 7, values: closes });
         dataframe.rsi_7 = new Array(length - rsi7.length).fill(50).concat(rsi7);
-        
+
         const rsi21 = RSI.calculate({ period: 21, values: closes });
         dataframe.rsi_21 = new Array(length - rsi21.length).fill(50).concat(rsi21);
 
@@ -156,24 +156,24 @@ export class OpenClawStrategy implements IStrategy {
         dataframe.macd_histogram = new Array(macdPad).fill(0).concat(macdResult.map(m => m?.histogram || 0));
 
         // === TREND INDICATORS ===
-        
+
         // EMAs
         const ema9 = EMA.calculate({ period: 9, values: closes });
         dataframe.ema_9 = new Array(length - ema9.length).fill(closes[0]).concat(ema9);
-        
+
         const ema21 = EMA.calculate({ period: 21, values: closes });
         dataframe.ema_21 = new Array(length - ema21.length).fill(closes[0]).concat(ema21);
-        
+
         const ema50 = EMA.calculate({ period: 50, values: closes });
         dataframe.ema_50 = new Array(length - ema50.length).fill(closes[0]).concat(ema50);
-        
+
         const ema200 = EMA.calculate({ period: 200, values: closes });
         dataframe.ema_200 = new Array(length - ema200.length).fill(closes[0]).concat(ema200);
 
         // SMAs
         const sma20 = SMA.calculate({ period: 20, values: closes });
         dataframe.sma_20 = new Array(length - sma20.length).fill(closes[0]).concat(sma20);
-        
+
         const sma50 = SMA.calculate({ period: 50, values: closes });
         dataframe.sma_50 = new Array(length - sma50.length).fill(closes[0]).concat(sma50);
 
@@ -189,7 +189,7 @@ export class OpenClawStrategy implements IStrategy {
         dataframe.adx = new Array(adxPad).fill(20).concat(adxResult.map(a => a?.adx || 20));
 
         // === VOLATILITY INDICATORS ===
-        
+
         // Bollinger Bands
         const bbResult = BollingerBands.calculate({
             period: 20,
@@ -239,7 +239,7 @@ export class OpenClawStrategy implements IStrategy {
         dataframe.atr = new Array(atrPad).fill(0).concat(atrResult);
 
         // === VOLUME INDICATORS ===
-        
+
         // Volume MA
         const volMa = SMA.calculate({ period: 20, values: volumes });
         dataframe.volume_ma = new Array(length - volMa.length).fill(volumes[0]).concat(volMa);
@@ -253,7 +253,7 @@ export class OpenClawStrategy implements IStrategy {
         dataframe.volume_ratio = volumeRatio;
 
         // === CUSTOM INDICATORS ===
-        
+
         // Price vs EMAs (% difference)
         const priceVsEma9: number[] = [];
         const priceVsEma21: number[] = [];
@@ -433,7 +433,7 @@ export class OpenClawStrategy implements IStrategy {
             try {
                 mlPrediction = await this.mlModel.predict(features.slice(-20));
                 totalScore += mlPrediction.direction * mlPrediction.confidence * weights.ml;
-                
+
                 if (mlPrediction.confidence > 0.7) {
                     reasons.push(`ml_${mlPrediction.direction > 0 ? 'bullish' : 'bearish'}`);
                 }

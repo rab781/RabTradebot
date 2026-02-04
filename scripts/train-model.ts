@@ -35,27 +35,27 @@ async function trainModel() {
         // Step 3: Prepare targets (future price changes)
         console.log('\n🎯 Step 3/5: Preparing training targets...');
         const targets: number[] = [];
-        
+
         for (let i = 0; i < features.length - 1; i++) {
             // Target: Normalized price change for next candle
             const currentPrice = data[i + 200].close;
             const nextPrice = data[i + 201].close;
             const priceChange = (nextPrice - currentPrice) / currentPrice;
-            
+
             // Normalize to [-1, 1] range (assuming max 2% change)
             const normalizedChange = Math.max(-1, Math.min(1, priceChange * 50));
             targets.push(normalizedChange);
         }
-        
+
         // Add last target (use same as previous)
         targets.push(targets[targets.length - 1]);
-        
+
         console.log(`   ✅ Prepared ${targets.length} targets`);
         console.log(`   📊 Target stats:`);
         console.log(`      Mean: ${(targets.reduce((a, b) => a + b, 0) / targets.length).toFixed(6)}`);
         console.log(`      Min: ${Math.min(...targets).toFixed(6)}`);
         console.log(`      Max: ${Math.max(...targets).toFixed(6)}`);
-        
+
         // Check for NaN in targets
         const nanCount = targets.filter(t => !isFinite(t) || isNaN(t)).length;
         if (nanCount > 0) {
@@ -83,15 +83,15 @@ async function trainModel() {
 
         // Step 5: Save model
         console.log('\n💾 Step 5/5: Saving model...');
-        
+
         try {
             const modelPath = await model.saveModel('./models');
-            
+
             // Save metadata to database
             const startDate = new Date(data[0].timestamp);
             const endDate = new Date(data[data.length - 1].timestamp);
             const trainingPeriod = `${startDate.toISOString().split('T')[0]} to ${endDate.toISOString().split('T')[0]}`;
-            
+
             await model.saveMetadataToDatabase(trainingResult, symbol, trainingPeriod);
 
             console.log('='.repeat(60));
@@ -111,7 +111,7 @@ async function trainModel() {
         console.log('\n🧪 Testing prediction on latest data...');
         const testFeatures = features.slice(-20);
         const prediction = await model.predict(testFeatures);
-        
+
         console.log(`   Direction: ${prediction.direction > 0 ? '📈 Bullish' : '📉 Bearish'}`);
         console.log(`   Confidence: ${(prediction.confidence * 100).toFixed(2)}%`);
         console.log(`   Predicted Change: ${prediction.priceChange.toFixed(2)}%`);

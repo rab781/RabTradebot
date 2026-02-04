@@ -45,7 +45,7 @@ export class LSTMModelManager {
     ) {
         this.modelName = modelName;
         this.version = version;
-        
+
         // Default configuration - optimized for pure TensorFlow.js
         this.config = {
             inputShape: 60, // Number of features
@@ -64,9 +64,9 @@ export class LSTMModelManager {
      */
     buildModel(): void {
         console.log('🔨 Building optimized LSTM model...');
-        
-        const input = tf.input({ 
-            shape: [this.config.sequenceLength, this.config.inputShape] 
+
+        const input = tf.input({
+            shape: [this.config.sequenceLength, this.config.inputShape]
         });
 
         // Use glorotUniform instead of orthogonal for faster initialization
@@ -146,13 +146,13 @@ export class LSTMModelManager {
                     const mae = logs?.mae || 0;
                     const valLoss = logs?.val_loss;
                     const valMae = logs?.val_mae;
-                    
+
                     let logMsg = `   Epoch ${epoch + 1}/${this.config.epochs} - loss: ${loss.toFixed(4)} - mae: ${mae.toFixed(4)}`;
-                    
+
                     if (valLoss !== undefined && valMae !== undefined) {
                         logMsg += ` - val_loss: ${valLoss.toFixed(4)} - val_mae: ${valMae.toFixed(4)}`;
                     }
-                    
+
                     console.log(logMsg);
                 }
             }
@@ -268,7 +268,7 @@ export class LSTMModelManager {
                 f.autocorrelation_1, f.autocorrelation_5, f.returns_mean_20, f.returns_std_20,
                 f.spreadApprox, f.volumeImbalance, f.priceEfficiency, f.marketDepthProxy, f.liquidityScore
             ];
-            
+
             // Replace NaN/Infinity with 0
             return rawFeatures.map(val => {
                 if (!isFinite(val) || isNaN(val)) return 0;
@@ -291,7 +291,7 @@ export class LSTMModelManager {
     async loadModel(modelPath: string): Promise<void> {
         try {
             this.model = await tf.loadLayersModel(`file://${modelPath}/model.json`);
-            
+
             // Load config
             const configPath = path.join(modelPath, 'config.json');
             if (fs.existsSync(configPath)) {
@@ -314,9 +314,9 @@ export class LSTMModelManager {
         trainingPeriod: string
     ): Promise<void> {
         const db = getDatabase();
-        
+
         const modelPath = path.join('./models', `${this.modelName}_${this.version}`);
-        
+
         await db.insertModelVersion({
             modelName: this.modelName,
             version: this.version,

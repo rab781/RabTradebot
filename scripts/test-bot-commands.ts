@@ -25,10 +25,10 @@ async function testBotCommands() {
         // ========== TEST 1: /mlpredict command ==========
         console.log('TEST 1: /mlpredict Command Simulation');
         console.log('-'.repeat(60));
-        
+
         console.log(`Fetching data for ${symbol}...`);
         const rawCandles = await cryptoService.getCandlestickData(symbol, '1h', 400);
-        
+
         const ohlcvCandles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
@@ -38,7 +38,7 @@ async function testBotCommands() {
             volume: parseFloat(c[5]),
             date: new Date(c[0])
         }));
-        
+
         console.log(`✓ Fetched ${ohlcvCandles.length} candles\n`);
 
         console.log('Extracting features...');
@@ -51,7 +51,7 @@ async function testBotCommands() {
 
         console.log('Generating prediction...');
         const prediction = await mlModel.predict(features);
-        
+
         const currentPrice = ohlcvCandles[ohlcvCandles.length - 1].close;
         const direction = prediction.direction > 0 ? 'UP' : 'DOWN';
         const changePrefix = prediction.priceChange > 0 ? '+' : '';
@@ -59,7 +59,7 @@ async function testBotCommands() {
 
         let emoji = '⚪';
         let recommendation = 'HOLD';
-        
+
         if (prediction.direction > 0 && prediction.confidence > 0.6) {
             emoji = '🟢';
             recommendation = 'LONG';
@@ -98,9 +98,9 @@ ${prediction.confidence > 0.6 ? `✅ ${recommendation} position recommended` : '
         // ========== TEST 2: /openclaw command ==========
         console.log('TEST 2: /openclaw Command Simulation');
         console.log('-'.repeat(60));
-        
+
         console.log('Generating OpenClaw analysis...');
-        
+
         // Prepare dataframe for OpenClaw
         const dfData: any = {
             open: ohlcvCandles.map(c => c.open),
@@ -120,7 +120,7 @@ ${prediction.confidence > 0.6 ? `✅ ${recommendation} position recommended` : '
         // Analyze with OpenClaw
         openClawStrategy.populateIndicators(dfData, metadata);
         openClawStrategy.populateEntryTrend(dfData, metadata);
-        
+
         const lastIdx = dfData.enter_long.length - 1;
         const lastCandle = ohlcvCandles[ohlcvCandles.length - 1];
         const lastFeature = features[features.length - 1];
@@ -177,15 +177,15 @@ ${enterLong === 1 ? '✅ Consider LONG entry\n📈 Bullish momentum detected' : 
         // ========== TEST 3: Combined Analysis ==========
         console.log('TEST 3: Combined ML + OpenClaw Analysis');
         console.log('-'.repeat(60));
-        
+
         const mlBullish = prediction.direction > 0;
         const openClawBullish = enterLong === 1;
         const mlBearish = prediction.direction < 0;
         const openClawBearish = enterShort === 1;
-        
+
         let combinedSignal = '⚪ NEUTRAL';
         let combinedRecommendation = 'Hold position - signals conflict or weak';
-        
+
         if (mlBullish && openClawBullish && prediction.confidence > 0.5) {
             combinedSignal = '🟢 STRONG LONG';
             combinedRecommendation = 'Both ML and OpenClaw agree - strong bullish signal';
