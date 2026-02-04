@@ -25,6 +25,9 @@ import { OHLCVCandle } from './types/dataframe';
 import { ImageChartService } from './services/imageChartService';
 import { ChutesService } from './services/chutesService';
 
+// Database Service
+import { db } from './services/databaseService';
+
 // Web Dashboard
 import { startWebServer, stateManager } from './webServer';
 import BotStateManager from './services/botStateManager';
@@ -87,8 +90,24 @@ function getUserSession(userId: number) {
     return userSessions.get(userId)!;
 }
 
+// Helper function to ensure user exists in database
+async function ensureUser(ctx: any) {
+    const telegramId = ctx.message.from.id;
+    const userData = {
+        username: ctx.message.from.username,
+        firstName: ctx.message.from.first_name,
+        lastName: ctx.message.from.last_name
+    };
+    
+    const user = await db.getOrCreateUser(telegramId, userData);
+    return user;
+}
+
 // Start command
-bot.command('start', (ctx) => {
+bot.command('start', async (ctx) => {
+    // Ensure user exists in database
+    await ensureUser(ctx);
+    
     const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
     const userId = ctx.message.from.id;
     console.log(`[${new Date().toISOString()}] New user started bot: ${username} (${userId})`);
@@ -592,6 +611,38 @@ bot.command('backtest', async (ctx) => {
         const session = getUserSession(ctx.message.from.id);
         session.lastBacktest = result;
 
+        // Save backtest result to database
+        try {
+            await db.saveBacktestResult({
+                strategyName: strategy.name,
+                symbol,
+                timeframe: '1h',
+                startDate: result.startDate,
+                endDate: result.endDate,
+                initialBalance: backtestConfig.startingBalance,
+                finalBalance: result.finalBalance,
+                totalProfit: result.totalProfit,
+                totalProfitPct: result.totalProfitPct,
+                totalTrades: result.totalTrades,
+                winRate: result.winRate,
+                profitFactor: result.profitFactor,
+                sharpeRatio: result.sharpeRatio,
+                maxDrawdown: result.maxDrawdownPct,
+                maxDrawdownPct: result.maxDrawdownPct,
+                trades: result.trades || [],
+                equityCurve: []
+            });
+        } catch (dbError) {
+            console.error('Error saving backtest to database:', dbError);
+            await db.logError({
+                level: 'ERROR',
+                source: 'backtest_command',
+                message: `Failed to save backtest result: ${(dbError as Error).message}`,
+                stackTrace: (dbError as Error).stack,
+                symbol
+            });
+        }
+
         // Format results
         const resultMessage = `
 📊 BACKTEST RESULTS for ${symbol}
@@ -627,6 +678,13 @@ Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
 
     } catch (error) {
         console.error('Backtest error:', error);
+        await db.logError({
+            level: 'ERROR',
+            source: 'backtest_command',
+            message: `Backtest failed: ${(error as Error).message}`,
+            stackTrace: (error as Error).stack,
+            symbol
+        });
         ctx.reply(`❌ Error running backtest: ${(error as Error).message}`);
     }
 
@@ -651,6 +709,12 @@ bot.command('papertrade', async (ctx) => {
     try {
         ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
 
+        // Ensure user exists in database
+        const user = await ensureUser(ctx);
+        if (!user) {
+            return ctx.reply('❌ Failed to create user session.');
+        }
+
         const paperConfig: PaperTradingConfig = {
             initialBalance: 1000,
             maxOpenTrades: 3,
@@ -660,7 +724,8 @@ bot.command('papertrade', async (ctx) => {
             updateInterval: 5000 // 5 seconds
         };
 
-        const paperEngine = new PaperTradingEngine(strategy, paperConfig);
+        // Pass user ID to paper trading engine for database integration
+        const paperEngine = new PaperTradingEngine(strategy, paperConfig, user.id.toString());
         session.paperTrading = paperEngine;
 
         // Start paper trading
@@ -677,6 +742,13 @@ Use /stoptrading to stop trading`);
 
     } catch (error) {
         console.error('Paper trading error:', error);
+        await db.logError({
+            level: 'ERROR',
+            source: 'papertrade_command',
+            message: `Failed to start paper trading: ${(error as Error).message}`,
+            stackTrace: (error as Error).stack,
+            symbol
+        });
         ctx.reply(`❌ Error starting paper trading: ${(error as Error).message}`);
     }
 
@@ -1958,10 +2030,20 @@ Parameters:
     }
 
     try {
-        const userId = ctx.message.from.id;
+        const user = await ensureUser(ctx);
         const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
 
-        await priceAlertManager.addAlert(userId, symbol, price, direction as 'above' | 'below');
+        // Save to both old manager (for checking) and database
+        await priceAlertManager.addAlert(ctx.message.from.id, symbol, price, direction as 'above' | 'below');
+        
+        // Save to database
+        await db.createAlert({
+            userId: user!.id,
+            symbol,
+            alertType: direction === 'above' ? 'PRICE_ABOVE' : 'PRICE_BELOW',
+            targetPrice: price,
+            message: `${symbol} ${direction} $${price}`
+        });
 
         ctx.reply(`✅ Price alert set successfully!
 
@@ -1974,6 +2056,15 @@ You'll be notified when ${symbol} reaches $${price} or ${direction}.`);
     } catch (error) {
         console.error('Alert creation error:', error);
         ctx.reply(`❌ Error creating alert: ${(error as Error).message}`);
+        
+        // Log error to database
+        await db.logError({
+            level: 'ERROR',
+            source: 'alert_command',
+            message: (error as Error).message,
+            stackTrace: (error as Error).stack,
+            symbol
+        });
     }
 
     return;
@@ -1981,18 +2072,20 @@ You'll be notified when ${symbol} reaches $${price} or ${direction}.`);
 
 bot.command('alerts', async (ctx) => {
     try {
-        const userId = ctx.message.from.id;
-        const alerts = priceAlertManager.getAlerts(userId);
+        const user = await ensureUser(ctx);
+        
+        // Get alerts from database
+        const dbAlerts = await db.getActiveAlerts(user!.id);
 
-        if (alerts.length === 0) {
+        if (dbAlerts.length === 0) {
             return ctx.reply('❌ No active alerts found. Create one with /alert [symbol] [price] [above/below]');
         }
 
-        let message = `🔔 YOUR ACTIVE ALERTS (${alerts.length}):\n\n`;
-        alerts.forEach((alert, index) => {
+        let message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n`;
+        dbAlerts.forEach((alert, index) => {
             message += `${index + 1}. ${alert.symbol}\n`;
-            message += `   💰 $${alert.targetPrice} (${alert.type})\n`;
-            message += `   📅 Created: ${new Date().toLocaleDateString()}\n\n`;
+            message += `   💰 $${alert.targetPrice} (${alert.alertType})\n`;
+            message += `   📅 Created: ${new Date(alert.createdAt).toLocaleDateString()}\n\n`;
         });
 
         message += `💡 Use /delalert [symbol] to remove an alert`;

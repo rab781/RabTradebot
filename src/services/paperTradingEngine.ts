@@ -1,6 +1,7 @@
 import { IStrategy, Position, Trade, StrategyMetadata } from '../types/strategy';
 import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
 import { DataManager } from './dataManager';
+import { db } from './databaseService';
 import { v4 as uuidv4 } from 'uuid';
 
 export interface PaperTradingConfig {
@@ -39,6 +40,7 @@ export class PaperTradingEngine {
     private strategy: IStrategy;
     private config: PaperTradingConfig;
     private dataManager: DataManager;
+    private userId?: string; // Track user for database integration
     
     // Trading state
     private balance: number;
@@ -58,12 +60,13 @@ export class PaperTradingEngine {
     private historicalData: OHLCVCandle[] = [];
     private lastUpdateTime = 0;
 
-    constructor(strategy: IStrategy, config: PaperTradingConfig) {
+    constructor(strategy: IStrategy, config: PaperTradingConfig, userId?: string) {
         this.strategy = strategy;
         this.config = config;
         this.dataManager = new DataManager();
         this.balance = config.initialBalance;
         this.maxBalance = config.initialBalance;
+        this.userId = userId;
     }
 
     async start(symbol: string, timeframe: string = '5m', dataPoints: number = 1000): Promise<void> {
@@ -322,6 +325,30 @@ export class PaperTradingEngine {
 
         console.log(`📈 Opened ${side} trade for ${metadata.pair} at ${entryPrice} (${enterTag})`);
         console.log(`💰 Remaining balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
+
+        // Save to database if userId is set
+        if (this.userId) {
+            try {
+                await db.saveTrade({
+                    userId: parseInt(this.userId),
+                    symbol: trade.pair,
+                    side: side === 'long' ? 'BUY' : 'SELL',
+                    entryPrice: trade.openRate,
+                    quantity: trade.amount,
+                    stopLoss: trade.stoplossRate,
+                    fees: trade.fee
+                });
+            } catch (error) {
+                console.error('Failed to save trade to database:', error);
+                await db.logError({
+                    level: 'ERROR',
+                    source: 'paper_trading_engine',
+                    message: `Failed to save paper trade: ${(error as Error).message}`,
+                    userId: parseInt(this.userId),
+                    symbol: trade.pair
+                });
+            }
+        }
     }
 
     private async closeTrade(trade: Trade, candle: OHLCVCandle, exitReason: string): Promise<void> {
@@ -360,6 +387,25 @@ export class PaperTradingEngine {
         console.log(`${profitEmoji} Closed ${trade.side} trade for ${trade.pair} at ${exitPrice}`);
         console.log(`   Profit: ${netProfit.toFixed(2)} (${trade.profitPct?.toFixed(2)}%) | Reason: ${exitReason}`);
         console.log(`💰 Current balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
+
+        // Update database if userId is set
+        if (this.userId) {
+            try {
+                const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate);
+                if (dbTrade) {
+                    await db.closeTrade(dbTrade.id, exitPrice, trade.profitPct || 0);
+                }
+            } catch (error) {
+                console.error('Failed to update trade in database:', error);
+                await db.logError({
+                    level: 'ERROR',
+                    source: 'paper_trading_engine',
+                    message: `Failed to close trade in database: ${(error as Error).message}`,
+                    userId: parseInt(this.userId),
+                    symbol: trade.pair
+                });
+            }
+        }
     }
 
     private calculateTradeProfit(trade: Trade, currentPrice: number): number {

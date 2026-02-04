@@ -96,18 +96,20 @@ export class DatabaseService {
         side: string;
         entryPrice: number;
         quantity: number;
-        strategyName: string;
+        strategyName?: string;
         strategyVersion?: string;
         signalStrength?: number;
         mlConfidence?: number;
         stopLoss?: number;
         takeProfit?: number;
+        fees?: number;
         leverage?: number;
         notes?: string;
     }) {
         return await this.prisma.trade.create({
             data: {
                 ...trade,
+                strategyName: trade.strategyName || 'Manual',
                 entryTime: new Date(),
                 status: 'OPEN'
             }
@@ -117,7 +119,7 @@ export class DatabaseService {
     /**
      * Close a trade
      */
-    async closeTrade(tradeId: string, exitPrice: number, exitTime?: Date) {
+    async closeTrade(tradeId: string, exitPrice: number, profitPct?: number) {
         const trade = await this.prisma.trade.findUnique({
             where: { id: tradeId }
         });
@@ -128,18 +130,41 @@ export class DatabaseService {
             ? (exitPrice - trade.entryPrice) * trade.quantity
             : (trade.entryPrice - exitPrice) * trade.quantity;
 
-        const profitPct = ((exitPrice - trade.entryPrice) / trade.entryPrice) * 100;
+        const calculatedProfitPct = profitPct !== undefined 
+            ? profitPct 
+            : ((exitPrice - trade.entryPrice) / trade.entryPrice) * 100;
 
         return await this.prisma.trade.update({
             where: { id: tradeId },
             data: {
                 exitPrice,
-                exitTime: exitTime || new Date(),
+                exitTime: new Date(),
                 status: 'CLOSED',
                 profit,
-                profitPct
+                profitPct: calculatedProfitPct
             }
         });
+    }
+
+    /**
+     * Find open trade by criteria
+     */
+    async findOpenTrade(userId: string, symbol: string, entryPrice: number) {
+        const trades = await this.prisma.trade.findMany({
+            where: {
+                userId: parseInt(userId),
+                symbol,
+                status: 'OPEN',
+                entryPrice: {
+                    gte: entryPrice * 0.999, // Allow small price variance
+                    lte: entryPrice * 1.001
+                }
+            },
+            orderBy: { entryTime: 'desc' },
+            take: 1
+        });
+
+        return trades.length > 0 ? trades[0] : null;
     }
 
     /**
