@@ -46,56 +46,52 @@ export class LSTMModelManager {
         this.modelName = modelName;
         this.version = version;
         
-        // Default configuration
+        // Default configuration - optimized for pure TensorFlow.js
         this.config = {
             inputShape: 60, // Number of features
             sequenceLength: 20, // Look back 20 candles
-            lstmUnits: [128, 64, 32], // 3-layer LSTM
-            dropout: 0.2,
-            learningRate: 0.001,
-            epochs: 50,
-            batchSize: 32,
+            lstmUnits: [64, 32, 16], // Reduced for performance
+            dropout: 0.3, // Higher dropout for regularization
+            learningRate: 0.0005, // Lower learning rate for stability
+            epochs: 30, // Reduced epochs
+            batchSize: 16, // Smaller batches for stability
             ...config
         };
     }
 
     /**
-     * Build the LSTM model architecture
+     * Build the LSTM model architecture (Optimized for TensorFlow.js)
      */
     buildModel(): void {
+        console.log('🔨 Building optimized LSTM model...');
+        
         const input = tf.input({ 
             shape: [this.config.sequenceLength, this.config.inputShape] 
         });
 
+        // Use glorotUniform instead of orthogonal for faster initialization
         // First LSTM layer
         let x = tf.layers.lstm({
             units: this.config.lstmUnits[0],
-            returnSequences: true,
+            returnSequences: this.config.lstmUnits.length > 1,
             kernelInitializer: 'glorotUniform',
-            recurrentInitializer: 'orthogonal'
+            recurrentInitializer: 'glorotUniform', // Faster than orthogonal
+            dropout: this.config.dropout,
+            recurrentDropout: 0.0 // Disable for performance
         }).apply(input) as tf.SymbolicTensor;
 
-        x = tf.layers.dropout({ rate: this.config.dropout }).apply(x) as tf.SymbolicTensor;
-
-        // Second LSTM layer
-        x = tf.layers.lstm({
-            units: this.config.lstmUnits[1],
-            returnSequences: true,
-            kernelInitializer: 'glorotUniform',
-            recurrentInitializer: 'orthogonal'
-        }).apply(x) as tf.SymbolicTensor;
-
-        x = tf.layers.dropout({ rate: this.config.dropout }).apply(x) as tf.SymbolicTensor;
-
-        // Third LSTM layer
-        x = tf.layers.lstm({
-            units: this.config.lstmUnits[2],
-            returnSequences: false,
-            kernelInitializer: 'glorotUniform',
-            recurrentInitializer: 'orthogonal'
-        }).apply(x) as tf.SymbolicTensor;
-
-        x = tf.layers.dropout({ rate: this.config.dropout }).apply(x) as tf.SymbolicTensor;
+        // Additional LSTM layers
+        for (let i = 1; i < this.config.lstmUnits.length; i++) {
+            const isLast = i === this.config.lstmUnits.length - 1;
+            x = tf.layers.lstm({
+                units: this.config.lstmUnits[i],
+                returnSequences: !isLast,
+                kernelInitializer: 'glorotUniform',
+                recurrentInitializer: 'glorotUniform',
+                dropout: this.config.dropout,
+                recurrentDropout: 0.0
+            }).apply(x) as tf.SymbolicTensor;
+        }
 
         // Dense layer for regression (predict price change)
         const output = tf.layers.dense({
@@ -106,7 +102,7 @@ export class LSTMModelManager {
 
         this.model = tf.model({ inputs: input, outputs: output });
 
-        // Compile model
+        // Compile model with optimized settings
         this.model.compile({
             optimizer: tf.train.adam(this.config.learningRate),
             loss: 'meanSquaredError',
@@ -146,13 +142,18 @@ export class LSTMModelManager {
             shuffle: true,
             callbacks: {
                 onEpochEnd: (epoch, logs) => {
-                    console.log(
-                        `   Epoch ${epoch + 1}/${this.config.epochs} - ` +
-                        `loss: ${logs?.loss.toFixed(4)} - ` +
-                        `mae: ${logs?.mae.toFixed(4)} - ` +
-                        `val_loss: ${logs?.val_loss.toFixed(4)} - ` +
-                        `val_mae: ${logs?.val_mae.toFixed(4)}`
-                    );
+                    const loss = logs?.loss || 0;
+                    const mae = logs?.mae || 0;
+                    const valLoss = logs?.val_loss;
+                    const valMae = logs?.val_mae;
+                    
+                    let logMsg = `   Epoch ${epoch + 1}/${this.config.epochs} - loss: ${loss.toFixed(4)} - mae: ${mae.toFixed(4)}`;
+                    
+                    if (valLoss !== undefined && valMae !== undefined) {
+                        logMsg += ` - val_loss: ${valLoss.toFixed(4)} - val_mae: ${valMae.toFixed(4)}`;
+                    }
+                    
+                    console.log(logMsg);
                 }
             }
         });

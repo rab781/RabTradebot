@@ -1178,24 +1178,25 @@ bot.command('mlpredict', async (ctx) => {
         // Extract features
         const features = featureService.extractFeatures(ohlcvCandles, symbol);
         
-        if (features.length === 0) {
-            return ctx.reply('❌ Failed to extract features');
+        if (features.length < 20) {
+            return ctx.reply('❌ Insufficient features for prediction (need at least 20)');
         }
 
-        // Get prediction
-        const prediction = await mlModel.predict(features, 20);
+        // Get prediction using last 20 feature sets
+        const prediction = await mlModel.predict(features);
 
         const currentPrice = ohlcvCandles[ohlcvCandles.length - 1].close;
-        const predictedChange = prediction.direction === 'up' ? '+' : '-';
+        const direction = prediction.direction > 0 ? 'UP' : 'DOWN';
+        const changePrefix = prediction.priceChange > 0 ? '+' : '';
         const confidencePercent = (prediction.confidence * 100).toFixed(1);
 
         let emoji = '⚪';
         let recommendation = 'HOLD';
         
-        if (prediction.direction === 'up' && prediction.confidence > 0.6) {
+        if (prediction.direction > 0 && prediction.confidence > 0.6) {
             emoji = '🟢';
             recommendation = 'LONG';
-        } else if (prediction.direction === 'down' && prediction.confidence > 0.6) {
+        } else if (prediction.direction < 0 && prediction.confidence > 0.6) {
             emoji = '🔴';
             recommendation = 'SHORT';
         }
@@ -1204,13 +1205,13 @@ bot.command('mlpredict', async (ctx) => {
 🧠 ML PRICE PREDICTION - ${symbol}
 
 ${emoji} PREDICTION: ${recommendation}
-Direction: ${prediction.direction.toUpperCase()}
+Direction: ${direction}
 Confidence: ${confidencePercent}%
 
 💰 CURRENT PRICE: $${currentPrice.toLocaleString()}
 
 📈 FORECAST:
-Expected Movement: ${predictedChange}
+Expected Movement: ${changePrefix}${prediction.priceChange.toFixed(2)}%
 Signal Strength: ${prediction.confidence > 0.7 ? 'Strong' : prediction.confidence > 0.5 ? 'Medium' : 'Weak'}
 
 🎯 TRADING SUGGESTION:
