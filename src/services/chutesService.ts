@@ -157,7 +157,7 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
                     ],
                     max_tokens: 10000,
                     temperature: 0.3,
-                    stream: true
+                    stream: false  // Disable streaming to get complete response
                 },
                 {
                     headers: {
@@ -167,6 +167,12 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
                     timeout: 300000  // 5 minutes for quality results
                 }
             );
+
+            // Check if response has valid structure
+            if (!response.data?.choices?.[0]?.message?.content) {
+                console.error('Invalid Chutes API response structure:', JSON.stringify(response.data, null, 2));
+                throw new Error('Invalid API response structure');
+            }
 
             const content = this.cleanModelResponse(response.data.choices[0].message.content);
             console.log('📰 Chutes API Response received for', symbol);

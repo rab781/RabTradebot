@@ -3,8 +3,8 @@ import { config } from 'dotenv';
 import { TechnicalAnalyzer } from './services/technicalAnalyzer';
 import { NewsAnalyzer } from './services/newsAnalyzer';
 import { SignalGenerator } from './services/signalGenerator';
-import { PriceAlertManager } from './services/priceAlertManager';
 import { AdvancedAnalyzer } from './services/advancedAnalyzer';
+import { PriceAlertManager } from './services/priceAlertManager';
 import { TradingViewService } from './services/TradingViewService';
 
 // New freqtrade-inspired services
@@ -43,8 +43,7 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!, {
     handlerTimeout: 600000 // 10 minutes timeout for long-running operations
 });
 const technicalAnalyzer = new TechnicalAnalyzer();
-const newsAnalyzer = new NewsAnalyzer();
-const signalGenerator = new SignalGenerator(technicalAnalyzer, newsAnalyzer);
+const newsAnalyzer = new NewsAnalyzer(); // Keep for backwards compatibility
 const priceAlertManager = new PriceAlertManager();
 const advancedAnalyzer = new AdvancedAnalyzer();
 
@@ -70,9 +69,12 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 let mlModelLoaded = false;
 let mlModelPath = './models/GRU_Production';
 
-// Initialize Chutes AI service
+// Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
 const imageChartService = new ImageChartService();
+
+// Initialize SignalGenerator with Chutes
+const signalGenerator = new SignalGenerator(technicalAnalyzer, chutesService);
 
 // Import comprehensive analyzer
 import { SimpleComprehensiveAnalyzer } from './services/simpleComprehensiveAnalyzer';
@@ -177,9 +179,9 @@ bot.command('help', (ctx) => {
 /mlstatus - Check ML model status
 
 🔹 🐦 NEWS & SOCIAL MEDIA:
-/pnews [symbol] - AI news analysis (Chutes)
-/impact [symbol] - Quick news impact overview
-/news [symbol] - Comprehensive news analysis
+/pnews [symbol] - AI news analysis (Chutes - Real-time)
+/impact [symbol] - Quick news impact overview (Chutes)
+/news [symbol] - Comprehensive news analysis (Chutes - Real-time)
 
 🔹 ADVANCED TRADING COMMANDS:
 /backtest [symbol] [days] - Run strategy backtest
@@ -1177,17 +1179,23 @@ bot.command('openclaw', async (ctx) => {
         openClawStrategy.populateIndicators(dataframe, metadata);
         openClawStrategy.populateEntryTrend(dataframe, metadata);
 
+        // Helper to safely access dynamic dataframe columns
+        const getColumn = (df: any, columnName: string, index: number, defaultValue: any = 0): any => {
+            const column = df[columnName];
+            return Array.isArray(column) ? (column[index] ?? defaultValue) : defaultValue;
+        };
+
         // Get latest signals
         const lastIdx = dataframe.close.length - 1;
-        const enterLong = (dataframe.enter_long as number[])[lastIdx];
-        const enterShort = (dataframe.enter_short as number[])[lastIdx];
-        const enterTag = (dataframe.enter_tag as string[])[lastIdx] || '';
+        const enterLong = getColumn(dataframe, 'enter_long', lastIdx, 0);
+        const enterShort = getColumn(dataframe, 'enter_short', lastIdx, 0);
+        const enterTag = getColumn(dataframe, 'enter_tag', lastIdx, '');
 
         const currentPrice = dataframe.close[lastIdx];
-        const rsi = (dataframe.rsi as number[])[lastIdx] || 50;
-        const macdHist = (dataframe.macd_histogram as number[])[lastIdx] || 0;
-        const adx = (dataframe.adx as number[])[lastIdx] || 20;
-        const bbPercentB = (dataframe.bb_percentb as number[])[lastIdx] || 0.5;
+        const rsi = getColumn(dataframe, 'rsi', lastIdx, 50);
+        const macdHist = getColumn(dataframe, 'macd_histogram', lastIdx, 0);
+        const adx = getColumn(dataframe, 'adx', lastIdx, 20);
+        const bbPercentB = getColumn(dataframe, 'bb_percentb', lastIdx, 0.5);
 
         let signalEmoji = '⚪';
         let signalText = 'NEUTRAL';
@@ -1583,11 +1591,66 @@ bot.command('news', async (ctx) => {
         return ctx.reply('Please provide a symbol. Example: /news BTCUSDT');
     }
 
-    try {
-        ctx.reply(`🔄 Analyzing news and social sentiment for ${symbol}...`);
+    // Check if Chutes is configured
+    if (!chutesService.isConfigured()) {
+        return ctx.reply('❌ Chutes API is not configured. Please set CHUTES_API_KEY in your environment variables.');
+    }
 
-        const analysis = await newsAnalyzer.analyzeNews(symbol);
-        ctx.reply(analysis);
+    try {
+        const loadingMsg = await ctx.reply(`🔄 Analyzing real-time news for ${symbol}...`);
+
+        // Get real-time news from Chutes
+        const newsItems = await chutesService.searchCryptoNews(symbol, 10);
+
+        if (newsItems.length === 0) {
+            await ctx.deleteMessage(loadingMsg.message_id).catch(() => {});
+            return ctx.reply(`📰 No recent news found for ${symbol}`);
+        }
+
+        // Analyze news impact
+        const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
+
+        // Format response
+        const newsSection = `📰 LATEST NEWS for ${symbol}
+━━━━━━━━━━━━━━━━━━━━━━━━━
+
+${newsItems.slice(0, 5).map((item, idx) => `
+${idx + 1}. ${item.title}
+   🕒 ${new Date(item.publishedAt).toLocaleString()}
+   📝 ${item.content.substring(0, 150)}${item.content.length > 150 ? '...' : ''}
+   🔗 ${item.url}
+`).join('\n')}`;
+
+        const analysisSection = `
+━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 NEWS SENTIMENT ANALYSIS
+
+📊 Overall Sentiment: ${analysis.overallSentiment} ${analysis.overallSentiment === 'BULLISH' ? '🟢📈' :
+                analysis.overallSentiment === 'BEARISH' ? '🔴📉' : '🟡➡️'
+            }
+
+🎯 Price Impact Prediction:
+Direction: ${analysis.marketMovement.direction} ${analysis.marketMovement.direction === 'UP' ? '📈' :
+                analysis.marketMovement.direction === 'DOWN' ? '📉' : '➡️'
+            }
+Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
+Expected Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${analysis.marketMovement.expectedRange.high.toFixed(1)}%
+
+⏰ TIMEFRAME PREDICTIONS:
+• 24H: ${analysis.impactPrediction.shortTerm}
+• 7D: ${analysis.impactPrediction.mediumTerm}
+• 30D: ${analysis.impactPrediction.longTerm}`;
+
+        const factorsSection = analysis.keyFactors.length > 0 ? `
+🔑 KEY FACTORS:
+${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}` : '';
+
+        // Send analysis
+        await ctx.reply(newsSection);
+        await ctx.reply(analysisSection + factorsSection);
+
+        // Delete loading message
+        await ctx.deleteMessage(loadingMsg.message_id).catch(() => {});
     } catch (error) {
         console.error('News analysis error:', error);
         ctx.reply(`❌ Error analyzing news for ${symbol}. Please try again later.`);

@@ -1,11 +1,11 @@
 export interface DataFrame {
-    [column: string]: number[] | string[] | Date[];
     open: number[];
     high: number[];
     low: number[];
     close: number[];
     volume: number[];
     date: Date[];
+    [column: string]: number[] | string[] | Date[];
 }
 
 export interface OHLCVCandle {
