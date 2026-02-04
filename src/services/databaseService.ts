@@ -275,6 +275,60 @@ export class DatabaseService {
         });
     }
 
+    /**
+     * Save strategy metrics from backtest result
+     */
+    async saveStrategyMetricsFromBacktest(backtest: {
+        strategyName: string;
+        symbol: string;
+        timeframe: string;
+        startDate: Date;
+        endDate: Date;
+        totalTrades: number;
+        profitableTrades: number;
+        lossTrades: number;
+        winRate: number;
+        totalProfit: number;
+        totalLoss?: number;
+        profitFactor: number;
+        sharpeRatio: number;
+        maxDrawdownPct: number;
+        calmarRatio: number;
+        avgTradeDuration?: number;
+        bestTrade?: number;
+        worstTrade?: number;
+    }) {
+        const avgProfit = backtest.profitableTrades > 0 
+            ? backtest.totalProfit / backtest.profitableTrades 
+            : 0;
+        const avgLoss = backtest.lossTrades > 0 
+            ? (backtest.totalLoss || 0) / backtest.lossTrades 
+            : 0;
+
+        return await this.saveStrategyMetrics({
+            strategyName: backtest.strategyName,
+            symbol: backtest.symbol,
+            timeframe: backtest.timeframe,
+            totalTrades: backtest.totalTrades,
+            winningTrades: backtest.profitableTrades,
+            losingTrades: backtest.lossTrades,
+            winRate: backtest.winRate,
+            avgProfit,
+            avgLoss,
+            profitFactor: backtest.profitFactor,
+            sharpeRatio: backtest.sharpeRatio,
+            maxDrawdown: backtest.maxDrawdownPct,
+            maxDrawdownPct: backtest.maxDrawdownPct,
+            calmarRatio: backtest.calmarRatio,
+            sortinoRatio: backtest.sharpeRatio * 1.2, // Approximate
+            avgTradeDuration: backtest.avgTradeDuration || 0,
+            bestTrade: backtest.bestTrade || 0,
+            worstTrade: backtest.worstTrade || 0,
+            startDate: backtest.startDate,
+            endDate: backtest.endDate
+        });
+    }
+
     // ============================================================================
     // ML MODEL METRICS
     // ============================================================================
@@ -318,6 +372,105 @@ export class DatabaseService {
             orderBy: { endDate: 'desc' },
             take: 10
         });
+    }
+
+    // ============================================================================
+    // PREDICTIONS TRACKING
+    // ============================================================================
+
+    /**
+     * Save ML prediction for accuracy tracking
+     */
+    async savePrediction(prediction: {
+        userId: number;
+        symbol: string;
+        modelName: string;
+        modelVersion: string;
+        predictedDirection: string;
+        confidence: number;
+        predictedChange: number;
+        currentPrice: number;
+    }) {
+        return await this.prisma.prediction.create({
+            data: prediction
+        });
+    }
+
+    /**
+     * Update prediction with actual outcome
+     */
+    async verifyPrediction(predictionId: string, actual: {
+        actualDirection: string;
+        actualChange: number;
+        actualPrice: number;
+    }) {
+        const prediction = await this.prisma.prediction.findUnique({
+            where: { id: predictionId }
+        });
+
+        if (!prediction) throw new Error('Prediction not found');
+
+        const wasCorrect = prediction.predictedDirection === actual.actualDirection;
+
+        return await this.prisma.prediction.update({
+            where: { id: predictionId },
+            data: {
+                ...actual,
+                wasCorrect,
+                verificationTime: new Date()
+            }
+        });
+    }
+
+    /**
+     * Get unverified predictions (older than 1 hour)
+     */
+    async getUnverifiedPredictions(minAge: number = 3600000) { // 1 hour in ms
+        const cutoffTime = new Date(Date.now() - minAge);
+        
+        return await this.prisma.prediction.findMany({
+            where: {
+                verificationTime: null,
+                predictionTime: {
+                    lt: cutoffTime
+                }
+            },
+            take: 100
+        });
+    }
+
+    /**
+     * Get prediction accuracy stats
+     */
+    async getPredictionStats(modelName?: string, symbol?: string, userId?: number) {
+        const where: any = {
+            wasCorrect: { not: null }
+        };
+        
+        if (modelName) where.modelName = modelName;
+        if (symbol) where.symbol = symbol;
+        if (userId) where.userId = userId;
+
+        const predictions = await this.prisma.prediction.findMany({ where });
+        
+        if (predictions.length === 0) {
+            return {
+                total: 0,
+                correct: 0,
+                accuracy: 0,
+                avgConfidence: 0
+            };
+        }
+
+        const correct = predictions.filter(p => p.wasCorrect).length;
+        const avgConfidence = predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length;
+
+        return {
+            total: predictions.length,
+            correct,
+            accuracy: (correct / predictions.length) * 100,
+            avgConfidence
+        };
     }
 
     // ============================================================================

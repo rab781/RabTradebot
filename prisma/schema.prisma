@@ -192,6 +192,40 @@ model MLModelMetric {
   @@index([modelName])
 }
 
+// Individual ML Predictions for accuracy tracking
+model Prediction {
+  id                String   @id @default(uuid())
+  userId            Int
+  symbol            String
+  
+  // Prediction details
+  modelName         String
+  modelVersion      String
+  predictedDirection String  // UP, DOWN, NEUTRAL
+  confidence        Float
+  predictedChange   Float    // % change predicted
+  currentPrice      Float
+  
+  // Actual outcome (filled after time passes)
+  actualDirection   String?
+  actualChange      Float?
+  actualPrice       Float?
+  wasCorrect        Boolean?
+  
+  // Timing
+  predictionTime    DateTime @default(now())
+  verificationTime  DateTime?
+  
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+  
+  @@index([userId])
+  @@index([symbol])
+  @@index([modelName])
+  @@index([predictionTime])
+  @@index([wasCorrect])
+}
+
 // Price alerts
 model Alert {
   id            String   @id @default(uuid())

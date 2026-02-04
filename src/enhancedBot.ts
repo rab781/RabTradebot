@@ -28,6 +28,9 @@ import { ChutesService } from './services/chutesService';
 // Database Service
 import { db } from './services/databaseService';
 
+// Prediction Verifier
+import { predictionVerifier } from './services/predictionVerifier';
+
 // Web Dashboard
 import { startWebServer, stateManager } from './webServer';
 import BotStateManager from './services/botStateManager';
@@ -201,11 +204,18 @@ bot.command('help', (ctx) => {
 /alerts - List your active price alerts
 /delalert [symbol] - Delete price alert
 
+� 📊 ANALYTICS & PERFORMANCE:
+/stats - Your trading statistics & ML performance
+/mlstats [symbol] - ML prediction accuracy stats
+/strategystats [symbol] - Compare strategy performance
+/leaderboard - Top symbols & strategies leaderboard
+
 📈 NEW FEATURES:
 • 🦅 OpenClaw strategy with ML integration
-• 🧠 LSTM price predictions
+• 🧠 GRU price predictions with tracking
 • 🤖 AI-powered market analysis
-• 📊 Advanced regime detection
+• 📊 Performance analytics & statistics
+• 💾 Automatic data caching
 
 All commands support major cryptocurrencies (BTCUSDT, ETHUSDT, etc.)
 `;
@@ -631,6 +641,27 @@ bot.command('backtest', async (ctx) => {
                 maxDrawdownPct: result.maxDrawdownPct,
                 trades: result.trades || [],
                 equityCurve: []
+            });
+
+            // Auto-save strategy metrics
+            await db.saveStrategyMetricsFromBacktest({
+                strategyName: strategy.name,
+                symbol,
+                timeframe: '1h',
+                startDate: result.startDate,
+                endDate: result.endDate,
+                totalTrades: result.totalTrades,
+                profitableTrades: result.profitableTrades,
+                lossTrades: result.lossTrades,
+                winRate: result.winRate,
+                totalProfit: result.totalProfit,
+                profitFactor: result.profitFactor,
+                sharpeRatio: result.sharpeRatio,
+                maxDrawdownPct: result.maxDrawdownPct,
+                calmarRatio: result.calmarRatio,
+                avgTradeDuration: result.avgTradeDuration,
+                bestTrade: result.bestTrade?.profit,
+                worstTrade: result.worstTrade?.profit
             });
         } catch (dbError) {
             console.error('Error saving backtest to database:', dbError);
@@ -1229,8 +1260,25 @@ bot.command('mlpredict', async (ctx) => {
 
         const loadingMsg = await ctx.reply(`🧠 Generating ML prediction for ${symbol}...`);
 
-        // Download data
+        // Download data (with caching)
         const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
+
+        // Cache data to database
+        try {
+            const cacheData = candles.map((c: any) => ({
+                symbol,
+                timeframe: '1h',
+                timestamp: c[0],
+                open: parseFloat(c[1]),
+                high: parseFloat(c[2]),
+                low: parseFloat(c[3]),
+                close: parseFloat(c[4]),
+                volume: parseFloat(c[5])
+            }));
+            await db.cacheHistoricalData(cacheData.slice(-100)); // Cache last 100 candles
+        } catch (cacheError) {
+            console.error('Failed to cache data:', cacheError);
+        }
 
         if (candles.length < 100) {
             return ctx.reply('❌ Insufficient data for prediction');
@@ -1261,6 +1309,25 @@ bot.command('mlpredict', async (ctx) => {
         const direction = prediction.direction > 0 ? 'UP' : 'DOWN';
         const changePrefix = prediction.priceChange > 0 ? '+' : '';
         const confidencePercent = (prediction.confidence * 100).toFixed(1);
+
+        // Save prediction to database for accuracy tracking
+        try {
+            const user = await ensureUser(ctx);
+            if (user) {
+                await db.savePrediction({
+                    userId: user.id,
+                    symbol,
+                    predictedDirection: direction,
+                    confidence: prediction.confidence,
+                    predictedChange: prediction.priceChange,
+                    currentPrice,
+                    modelName: 'GRU',
+                    modelVersion: '1.0.0'
+                });
+            }
+        } catch (dbError) {
+            console.error('Failed to save prediction:', dbError);
+        }
 
         let emoji = '⚪';
         let recommendation = 'HOLD';
@@ -2118,6 +2185,251 @@ bot.command('delalert', async (ctx) => {
     return;
 });
 
+// ============================================================================
+// PERFORMANCE DASHBOARD COMMANDS
+// ============================================================================
+
+// Stats command - User trading statistics
+bot.command('stats', async (ctx) => {
+    try {
+        const user = await ensureUser(ctx);
+        if (!user) {
+            return ctx.reply('❌ Failed to load user data.');
+        }
+
+        const loadingMsg = await ctx.reply('📊 Loading statistics...');
+
+        // Get trade stats
+        const tradeStats = await db.getUserTradeStats(user.id);
+        
+        // Get prediction stats  
+        const predictionStats = await db.getPredictionStats(undefined, undefined, user.id);
+
+        // Get active alerts count
+        const alerts = await db.getActiveAlerts(user.id);
+
+        const statsMessage = `
+📊 YOUR TRADING STATISTICS
+
+👤 User: ${user.username || user.firstName || 'Anonymous'}
+📅 Member since: ${user.createdAt.toLocaleDateString()}
+
+💰 TRADING PERFORMANCE:
+Total Trades: ${tradeStats.totalTrades}
+Profitable: ${tradeStats.winningTrades || 0} (${tradeStats.winRate.toFixed(1)}%)
+Total Profit: $${tradeStats.totalProfit.toFixed(2)}
+Best Trade: $${tradeStats.bestTrade?.toFixed(2) || '0.00'}
+Worst Trade: $${tradeStats.worstTrade?.toFixed(2) || '0.00'}
+
+🤖 ML PREDICTIONS:
+Total Predictions: ${predictionStats.total}
+Correct: ${predictionStats.correct}
+Accuracy: ${predictionStats.accuracy.toFixed(1)}%
+Avg Confidence: ${(predictionStats.avgConfidence * 100).toFixed(1)}%
+
+🔔 ALERTS:
+Active Alerts: ${alerts.length}
+
+Use /mlstats for detailed ML performance
+Use /strategystats to compare strategies
+        `;
+
+        await ctx.reply(statsMessage);
+        
+        try {
+            await ctx.deleteMessage(loadingMsg.message_id);
+        } catch (e) { /* ignore */ }
+
+    } catch (error) {
+        console.error('Stats error:', error);
+        await db.logError({
+            level: 'ERROR',
+            source: 'stats_command',
+            message: `Failed to load stats: ${(error as Error).message}`,
+            stackTrace: (error as Error).stack
+        });
+        ctx.reply(`❌ Error loading statistics: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// ML Stats command - Detailed ML performance
+bot.command('mlstats', async (ctx) => {
+    const args = ctx.message.text.split(' ');
+    const symbol = args[1]?.toUpperCase();
+
+    try {
+        const loadingMsg = await ctx.reply('🤖 Loading ML statistics...');
+
+        // Get overall prediction stats
+        const overallStats = await db.getPredictionStats();
+        
+        // Get symbol-specific stats if provided
+        const symbolStats = symbol ? await db.getPredictionStats(undefined, symbol) : null;
+
+        // Get GRU model stats
+        const gruStats = await db.getPredictionStats('GRU');
+
+        let statsMessage = `
+🤖 ML MODEL PERFORMANCE
+
+📊 OVERALL STATS:
+Total Predictions: ${overallStats.total}
+Correct: ${overallStats.correct}
+Accuracy: ${overallStats.accuracy.toFixed(1)}%
+Avg Confidence: ${(overallStats.avgConfidence * 100).toFixed(1)}%
+
+🔬 GRU MODEL:
+Predictions: ${gruStats.total}
+Accuracy: ${gruStats.accuracy.toFixed(1)}%
+Confidence: ${(gruStats.avgConfidence * 100).toFixed(1)}%
+        `;
+
+        if (symbolStats && symbol) {
+            statsMessage += `
+📈 ${symbol} STATS:
+Predictions: ${symbolStats.total}
+Accuracy: ${symbolStats.accuracy.toFixed(1)}%
+Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
+            `;
+        }
+
+        statsMessage += `
+\n💡 Use /mlstats [SYMBOL] for symbol-specific stats
+💡 Use /mlpredict to make new predictions
+        `;
+
+        await ctx.reply(statsMessage);
+        
+        try {
+            await ctx.deleteMessage(loadingMsg.message_id);
+        } catch (e) { /* ignore */ }
+
+    } catch (error) {
+        console.error('ML stats error:', error);
+        await db.logError({
+            level: 'ERROR',
+            source: 'mlstats_command',
+            message: `Failed to load ML stats: ${(error as Error).message}`,
+            stackTrace: (error as Error).stack,
+            symbol
+        });
+        ctx.reply(`❌ Error loading ML statistics: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// Strategy Stats command - Compare strategy performance
+bot.command('strategystats', async (ctx) => {
+    const args = ctx.message.text.split(' ');
+    const symbol = args[1]?.toUpperCase();
+
+    try {
+        const loadingMsg = await ctx.reply('📊 Loading strategy statistics...');
+
+        // Get all strategy metrics
+        const sampleMetrics = await db.getStrategyMetrics('SampleStrategy', symbol);
+        const openclawMetrics = await db.getStrategyMetrics('OpenClawStrategy', symbol);
+
+        if (sampleMetrics.length === 0 && openclawMetrics.length === 0) {
+            await ctx.reply('❌ No strategy data found. Run some backtests first with /backtest');
+            try {
+                await ctx.deleteMessage(loadingMsg.message_id);
+            } catch (e) { /* ignore */ }
+            return;
+        }
+
+        let statsMessage = `
+📊 STRATEGY PERFORMANCE COMPARISON
+${symbol ? `Symbol: ${symbol}` : 'All Symbols'}
+
+`;
+
+        if (sampleMetrics.length > 0) {
+            const latest = sampleMetrics[0];
+            statsMessage += `
+🎯 SAMPLE STRATEGY:
+Win Rate: ${latest.winRate.toFixed(1)}%
+Total Trades: ${latest.totalTrades}
+Profit Factor: ${latest.profitFactor.toFixed(2)}
+Sharpe Ratio: ${latest.sharpeRatio.toFixed(2)}
+Max Drawdown: ${latest.maxDrawdownPct.toFixed(2)}%
+Best Trade: $${latest.bestTrade.toFixed(2)}
+            `;
+        }
+
+        if (openclawMetrics.length > 0) {
+            const latest = openclawMetrics[0];
+            statsMessage += `
+🦅 OPENCLAW STRATEGY:
+Win Rate: ${latest.winRate.toFixed(1)}%
+Total Trades: ${latest.totalTrades}
+Profit Factor: ${latest.profitFactor.toFixed(2)}
+Sharpe Ratio: ${latest.sharpeRatio.toFixed(2)}
+Max Drawdown: ${latest.maxDrawdownPct.toFixed(2)}%
+Best Trade: $${latest.bestTrade.toFixed(2)}
+            `;
+        }
+
+        statsMessage += `
+\n💡 Use /strategystats [SYMBOL] for symbol-specific comparison
+💡 Use /backtest to run new backtests
+        `;
+
+        await ctx.reply(statsMessage);
+        
+        try {
+            await ctx.deleteMessage(loadingMsg.message_id);
+        } catch (e) { /* ignore */ }
+
+    } catch (error) {
+        console.error('Strategy stats error:', error);
+        await db.logError({
+            level: 'ERROR',
+            source: 'strategystats_command',
+            message: `Failed to load strategy stats: ${(error as Error).message}`,
+            stackTrace: (error as Error).stack,
+            symbol
+        });
+        ctx.reply(`❌ Error loading strategy statistics: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
+// Leaderboard command - Best performing symbols
+bot.command('leaderboard', async (ctx) => {
+    try {
+        const loadingMsg = await ctx.reply('🏆 Loading leaderboard...');
+
+        // This would require aggregation queries - simplified version
+        await ctx.reply(`
+🏆 PERFORMANCE LEADERBOARD
+
+📊 COMING SOON:
+• Top performing symbols
+• Best strategies per symbol
+• Most accurate ML predictions
+• Top traders (if multi-user)
+
+💡 Use /stats to see your personal performance
+💡 Use /strategystats to compare strategies
+        `);
+        
+        try {
+            await ctx.deleteMessage(loadingMsg.message_id);
+        } catch (e) { /* ignore */ }
+
+    } catch (error) {
+        console.error('Leaderboard error:', error);
+        ctx.reply(`❌ Error loading leaderboard: ${(error as Error).message}`);
+    }
+
+    return;
+});
+
 // Error handling
 bot.catch((err, ctx) => {
     console.error('Bot error:', err);
@@ -2131,10 +2443,14 @@ console.log('🔄 Bot initialization complete. Waiting for messages...');
 // Start web server first
 startWebServer();
 
+// Start prediction verification service
+predictionVerifier.start();
+
 bot.launch().then(() => {
     console.log('✅ Bot started successfully!');
     console.log('🎯 Ready to receive commands...');
     console.log('💡 Send /start to see available commands');
+    console.log('🔍 Prediction verification service active');
 }).catch((error) => {
     console.error('❌ Failed to start bot:', error);
     process.exit(1);
@@ -2143,12 +2459,16 @@ bot.launch().then(() => {
 // Enable graceful stop
 process.once('SIGINT', () => {
     console.log('🛑 Received SIGINT, stopping bot...');
+    predictionVerifier.stop();
     bot.stop('SIGINT');
+    db.disconnect();
     process.exit(0);
 });
 
 process.once('SIGTERM', () => {
     console.log('🛑 Received SIGTERM, stopping bot...');
+    predictionVerifier.stop();
     bot.stop('SIGTERM');
+    db.disconnect();
     process.exit(0);
 });
