@@ -24,6 +24,7 @@ import { OHLCVCandle } from './types/dataframe';
 
 import { ImageChartService } from './services/imageChartService';
 import { ChutesService } from './services/chutesService';
+import * as fs from 'fs';
 
 // Database Service
 import { db } from './services/databaseService';
@@ -67,7 +68,7 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 
 // ML model state
 let mlModelLoaded = false;
-let mlModelPath = './models/GRU_Production';
+const mlModelPath = './models/GRU_Production';
 
 // Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
@@ -1253,7 +1254,6 @@ bot.command('mlpredict', async (ctx) => {
     try {
         // Load model if not loaded
         if (!mlModelLoaded) {
-            const fs = require('fs');
             if (fs.existsSync(mlModelPath)) {
                 const loadingMsg = await ctx.reply('🧠 Loading ML model...');
                 await mlModel.loadModel(mlModelPath);
@@ -2211,14 +2211,16 @@ bot.command('alerts', async (ctx) => {
             return ctx.reply('❌ No active alerts found. Create one with /alert [symbol] [price] [above/below]');
         }
 
-        let message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n`;
-        dbAlerts.forEach((alert: any, index: number) => {
-            message += `${index + 1}. ${alert.symbol}\n`;
-            message += `   💰 $${alert.targetPrice} (${alert.alertType})\n`;
-            message += `   📅 Created: ${new Date(alert.createdAt).toLocaleDateString()}\n\n`;
+        const alertLines = dbAlerts.map((alert: any, index: number) => {
+            let line = `${index + 1}. ${alert.symbol}\n`;
+            line += `   💰 $${alert.targetPrice} (${alert.alertType})\n`;
+            line += `   📅 Created: ${new Date(alert.createdAt).toLocaleDateString()}\n`;
+            return line;
         });
 
-        message += `💡 Use /delalert [symbol] to remove an alert`;
+        const message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n` +
+            alertLines.join('\n') +
+            `\n💡 Use /delalert [symbol] to remove an alert`;
 
         ctx.reply(message);
     } catch (error) {
