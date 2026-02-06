@@ -1,5 +1,6 @@
 import { Telegraf } from 'telegraf';
 import { config } from 'dotenv';
+import * as fs from 'fs';
 import { TechnicalAnalyzer } from './services/technicalAnalyzer';
 import { NewsAnalyzer } from './services/newsAnalyzer';
 import { SignalGenerator } from './services/signalGenerator';
@@ -67,7 +68,7 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 
 // ML model state
 let mlModelLoaded = false;
-let mlModelPath = './models/GRU_Production';
+const mlModelPath = './models/GRU_Production';
 
 // Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
@@ -875,7 +876,7 @@ bot.command('performance', (ctx) => {
 
     const result = session.paperTrading.getCurrentResult();
 
-    let message = `
+    const message = `
 📈 DETAILED PERFORMANCE ANALYSIS
 
 💰 FINANCIAL METRICS:
@@ -1253,7 +1254,6 @@ bot.command('mlpredict', async (ctx) => {
     try {
         // Load model if not loaded
         if (!mlModelLoaded) {
-            const fs = require('fs');
             if (fs.existsSync(mlModelPath)) {
                 const loadingMsg = await ctx.reply('🧠 Loading ML model...');
                 await mlModel.loadModel(mlModelPath);

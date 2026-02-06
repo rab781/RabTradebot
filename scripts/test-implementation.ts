@@ -1,5 +1,6 @@
 import { config } from 'dotenv';
 import { PerplexityService } from '../src/services/perplexityService';
+import axios from 'axios';
 
 config();
 
@@ -41,7 +42,6 @@ async function testImplementation() {
         };
 
         console.log('   Making simple test API call...');
-        const axios = require('axios');
         const response = await axios.post(
             'https://api.perplexity.ai/chat/completions',
             testRequest,
