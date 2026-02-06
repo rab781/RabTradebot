@@ -876,7 +876,7 @@ bot.command('performance', (ctx) => {
 
     const result = session.paperTrading.getCurrentResult();
 
-    let message = `
+    const message = `
 📈 DETAILED PERFORMANCE ANALYSIS
 
 💰 FINANCIAL METRICS:

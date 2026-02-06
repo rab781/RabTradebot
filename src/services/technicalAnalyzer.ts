@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-var-requires */
 const BinanceFactory = require('node-binance-api');
 import { RSI, MACD } from 'technicalindicators';
 import 'dotenv/config';
