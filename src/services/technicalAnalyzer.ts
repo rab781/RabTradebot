@@ -1,5 +1,6 @@
-const BinanceFactory = require('node-binance-api');
 import { RSI, MACD } from 'technicalindicators';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const BinanceFactory = require('node-binance-api');
 import 'dotenv/config';
 import { TimeFrame } from '../types/trading';
 import { PublicCryptoService } from './publicCryptoService';

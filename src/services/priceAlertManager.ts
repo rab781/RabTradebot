@@ -1,5 +1,6 @@
-const BinanceFactory = require('node-binance-api');
 import { PublicCryptoService } from './publicCryptoService';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const BinanceFactory = require('node-binance-api');
 
 interface PriceAlert {
     symbol: string;

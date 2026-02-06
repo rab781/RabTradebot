@@ -67,7 +67,7 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 
 // ML model state
 let mlModelLoaded = false;
-let mlModelPath = './models/GRU_Production';
+const mlModelPath = './models/GRU_Production';
 
 // Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
@@ -875,7 +875,7 @@ bot.command('performance', (ctx) => {
 
     const result = session.paperTrading.getCurrentResult();
 
-    let message = `
+    const message = `
 📈 DETAILED PERFORMANCE ANALYSIS
 
 💰 FINANCIAL METRICS:
@@ -1253,6 +1253,7 @@ bot.command('mlpredict', async (ctx) => {
     try {
         // Load model if not loaded
         if (!mlModelLoaded) {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
             const fs = require('fs');
             if (fs.existsSync(mlModelPath)) {
                 const loadingMsg = await ctx.reply('🧠 Loading ML model...');
@@ -2031,21 +2032,18 @@ To enable advanced news analysis:
 💡 Alternative: Use /news for basic analysis.`);
         }
 
-        let message = `🤖 CHUTES AI STATUS\n\n`;
-        message += `🟢 STATUS: Configured & Ready\n\n`;
-
-        message += `📊 FEATURES:\n`;
-        message += `• Latest crypto news search\n`;
-        message += `• AI-powered impact analysis\n`;
-        message += `• Price movement predictions\n`;
-        message += `• Sentiment analysis\n`;
-
-        message += `\n💡 Commands:\n`;
-        message += `• /pnews [symbol] - Full news analysis\n`;
-        message += `• /impact [symbol] - Quick impact check\n`;
-        message += `• /fullanalysis [symbol] - Combined analysis\n`;
-
-        message += `\n⚡ Powered by Chutes AI`;
+        const message = `🤖 CHUTES AI STATUS\n\n` +
+        `🟢 STATUS: Configured & Ready\n\n` +
+        `📊 FEATURES:\n` +
+        `• Latest crypto news search\n` +
+        `• AI-powered impact analysis\n` +
+        `• Price movement predictions\n` +
+        `• Sentiment analysis\n` +
+        `\n💡 Commands:\n` +
+        `• /pnews [symbol] - Full news analysis\n` +
+        `• /impact [symbol] - Quick impact check\n` +
+        `• /fullanalysis [symbol] - Combined analysis\n` +
+        `\n⚡ Powered by Chutes AI`;
 
         ctx.reply(message);
     } catch (error) {

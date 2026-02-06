@@ -1,6 +1,7 @@
-const BinanceFactory = require('node-binance-api');
 import { VolumeAnalysis, SupportResistance, Candle, TimeFrame } from '../types/trading';
 import { PublicCryptoService } from './publicCryptoService';
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const BinanceFactory = require('node-binance-api');
 
 export class AdvancedAnalyzer {
     private binance: any;
