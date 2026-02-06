@@ -118,14 +118,53 @@ export class FeatureEngineeringService {
         }
 
         const features: FeatureSet[] = [];
-        const closes = data.map(d => d.close);
-        const highs = data.map(d => d.high);
-        const lows = data.map(d => d.low);
-        const opens = data.map(d => d.open);
-        const volumes = data.map(d => d.volume);
 
-        // Pre-calculate indicators for all data points
-        const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
+        // Optimization: Check if we have all features in cache before calculating indicators
+        let missingAny = false;
+
+        for (let i = 200; i < data.length; i++) {
+            const timestamp = data[i].timestamp;
+            const cacheKey = `${symbol}_${timestamp}`;
+
+            if (this.cache.has(cacheKey)) {
+                continue;
+            }
+
+            if (this.useDatabase) {
+                try {
+                    const db = getDatabase();
+                    const cached = db.getFeatureCache(symbol, timestamp);
+                    if (cached) {
+                        const featureSet = JSON.parse(cached.features) as FeatureSet;
+                        this.cache.set(cacheKey, featureSet);
+                        continue;
+                    }
+                } catch (e) {
+                    // DB error or not found, assume missing
+                }
+            }
+
+            missingAny = true;
+            break;
+        }
+
+        let closes: number[] = [];
+        let highs: number[] = [];
+        let lows: number[] = [];
+        let opens: number[] = [];
+        let volumes: number[] = [];
+        let indicators: any = null;
+
+        if (missingAny) {
+            closes = data.map(d => d.close);
+            highs = data.map(d => d.high);
+            lows = data.map(d => d.low);
+            opens = data.map(d => d.open);
+            volumes = data.map(d => d.volume);
+
+            // Pre-calculate indicators for all data points
+            indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
+        }
 
         // Extract features for each candle (starting from index 200 to have enough history)
         for (let i = 200; i < data.length; i++) {
@@ -148,6 +187,19 @@ export class FeatureEngineeringService {
                     features.push(featureSet);
                     continue;
                 }
+            }
+
+            // Fallback safety: If we reached here but indicators weren't calculated (because we thought we had full cache),
+            // we must calculate them now.
+            if (!indicators) {
+                if (closes.length === 0) {
+                    closes = data.map(d => d.close);
+                    highs = data.map(d => d.high);
+                    lows = data.map(d => d.low);
+                    opens = data.map(d => d.open);
+                    volumes = data.map(d => d.volume);
+                }
+                indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
             }
 
             // Calculate features
