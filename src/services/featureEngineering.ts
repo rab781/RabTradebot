@@ -127,6 +127,9 @@ export class FeatureEngineeringService {
         // Pre-calculate indicators for all data points
         const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
 
+        // Pre-calculate returns for all data points to avoid redundant calculation in the loop
+        const allReturns = this.calculateReturns(closes);
+
         // Extract features for each candle (starting from index 200 to have enough history)
         for (let i = 200; i < data.length; i++) {
             const timestamp = data[i].timestamp;
@@ -164,7 +167,7 @@ export class FeatureEngineeringService {
                 ...this.extractVolumeFeatures(data, indicators, i),
 
                 // Statistical features
-                ...this.extractStatisticalFeatures(closes, i),
+                ...this.extractStatisticalFeatures(closes, allReturns, i),
 
                 // Market microstructure
                 ...this.extractMarketMicrostructure(data, i),
@@ -361,9 +364,13 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractStatisticalFeatures(closes: number[], index: number) {
-        const returns20 = this.calculateReturns(closes.slice(index - 20, index + 1));
-        const returns50 = this.calculateReturns(closes.slice(index - 50, index + 1));
+    private extractStatisticalFeatures(closes: number[], allReturns: number[], index: number) {
+        // Use pre-calculated returns
+        // Note: returns array is 0-indexed corresponding to closes[1] return.
+        // So return at closes[index] is at allReturns[index-1].
+        // We want 20 returns ending at index, so slice(index-20, index).
+        const returns20 = allReturns.slice(index - 20, index);
+        const returns50 = allReturns.slice(index - 50, index);
 
         return {
             volatility_20: this.calculateStdDev(returns20),
