@@ -67,7 +67,7 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 
 // ML model state
 let mlModelLoaded = false;
-let mlModelPath = './models/GRU_Production';
+const mlModelPath = './models/GRU_Production';
 
 // Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
@@ -1253,7 +1253,7 @@ bot.command('mlpredict', async (ctx) => {
     try {
         // Load model if not loaded
         if (!mlModelLoaded) {
-            const fs = require('fs');
+            const fs = await import('fs');
             if (fs.existsSync(mlModelPath)) {
                 const loadingMsg = await ctx.reply('🧠 Loading ML model...');
                 await mlModel.loadModel(mlModelPath);
@@ -1775,7 +1775,7 @@ ${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n
             await ctx.reply(newsSection);
             await ctx.reply(analysisSection + factorsSection);
 
-            await ctx.reply(`💡 TRADING RECOMMENDATIONS:
+            const message = `💡 TRADING RECOMMENDATIONS:
 • Use this analysis with technical indicators
 • Monitor news developments closely
 • Set appropriate stop losses
@@ -1784,7 +1784,9 @@ ${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n
 🔗 Commands to combine:
 /analyze ${symbol} - Technical analysis
 /signal ${symbol} - Trading signals
-/chart ${symbol} - Price charts`);
+/chart ${symbol} - Price charts`;
+
+            await ctx.reply(message);
 
             // Delete loading message
             try {
