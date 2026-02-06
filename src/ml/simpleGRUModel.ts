@@ -26,7 +26,7 @@ export class SimpleGRUModel {
         const input = tf.input({ shape: [this.sequenceLength, this.featureCount] });
 
         // Single GRU layer (much faster than LSTM)
-        let x = tf.layers.gru({
+        const x = tf.layers.gru({
             units: 16, // Small unit count
             kernelInitializer: 'glorotUniform',
             recurrentInitializer: 'glorotUniform',

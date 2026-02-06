@@ -1,5 +1,6 @@
 import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
 import axios from 'axios';
+import * as fs from 'fs';
 
 export interface HistoricalDataConfig {
     symbol: string;
@@ -188,18 +189,25 @@ export class DataManager {
             throw new Error('No candles provided');
         }
 
-        const prices = candles.flatMap(c => [c.open, c.high, c.low, c.close]);
-        const volumes = candles.map(c => c.volume);
+        let minPrice = Infinity;
+        let maxPrice = -Infinity;
+        let totalVolume = 0;
+
+        for (const candle of candles) {
+            if (candle.low < minPrice) minPrice = candle.low;
+            if (candle.high > maxPrice) maxPrice = candle.high;
+            totalVolume += candle.volume;
+        }
 
         return {
             count: candles.length,
             startDate: candles[0].date,
             endDate: candles[candles.length - 1].date,
             priceRange: {
-                min: Math.min(...prices),
-                max: Math.max(...prices)
+                min: minPrice,
+                max: maxPrice
             },
-            avgVolume: volumes.reduce((sum, v) => sum + v, 0) / volumes.length
+            avgVolume: totalVolume / candles.length
         };
     }
 
@@ -265,7 +273,6 @@ export class DataManager {
 
     // Data export/import functions
     async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
-        const fs = require('fs').promises;
         const data = {
             metadata: {
                 count: candles.length,
@@ -281,8 +288,7 @@ export class DataManager {
     }
 
     async importFromJson(filename: string): Promise<OHLCVCandle[]> {
-        const fs = require('fs').promises;
-        const data = JSON.parse(await fs.readFile(filename, 'utf8'));
+        const data = JSON.parse(await fs.promises.readFile(filename, 'utf8'));
         
         if (!data.candles || !Array.isArray(data.candles)) {
             throw new Error('Invalid data format in JSON file');
