@@ -213,7 +213,7 @@ export class DatabaseService {
 
         const profits = trades.map(t => t.profit || 0);
         const winningTrades = trades.filter(t => (t.profit || 0) > 0);
-        const totalProfit = profits.reduce((a, b) => a + b, 0);
+        const totalProfit = profits.reduce((a: number, b: number) => a + b, 0);
 
         return {
             totalTrades: trades.length,
@@ -463,7 +463,7 @@ export class DatabaseService {
         }
 
         const correct = predictions.filter(p => p.wasCorrect).length;
-        const avgConfidence = predictions.reduce((sum, p) => sum + p.confidence, 0) / predictions.length;
+        const avgConfidence = predictions.reduce((sum: number, p: any) => sum + p.confidence, 0) / predictions.length;
 
         return {
             total: predictions.length,
@@ -649,7 +649,7 @@ export class DatabaseService {
             take: 20
         });
 
-        return results.map(r => ({
+        return results.map((r: any) => ({
             ...r,
             trades: JSON.parse(r.trades),
             equityCurve: r.equityCurve ? JSON.parse(r.equityCurve) : undefined,

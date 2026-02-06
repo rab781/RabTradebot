@@ -2214,7 +2214,7 @@ bot.command('alerts', async (ctx) => {
         }
 
         let message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n`;
-        dbAlerts.forEach((alert, index) => {
+        dbAlerts.forEach((alert: any, index: number) => {
             message += `${index + 1}. ${alert.symbol}\n`;
             message += `   💰 $${alert.targetPrice} (${alert.alertType})\n`;
             message += `   📅 Created: ${new Date(alert.createdAt).toLocaleDateString()}\n\n`;
