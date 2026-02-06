@@ -83,7 +83,7 @@ class BotStateManager {
         lastUpdate: new Date()
     };
 
-    private eventListeners: Map<string, Function[]> = new Map();
+    private eventListeners: Map<string, Array<(...args: any[]) => void>> = new Map();
     private startTime: Date = new Date();
 
     private constructor() {
@@ -101,7 +101,7 @@ class BotStateManager {
     }
 
     // Event listener system
-    public on(event: string, callback: Function) {
+    public on(event: string, callback: (...args: any[]) => void) {
         if (!this.eventListeners.has(event)) {
             this.eventListeners.set(event, []);
         }

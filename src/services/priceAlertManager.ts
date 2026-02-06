@@ -1,4 +1,4 @@
-const BinanceFactory = require('node-binance-api');
+import BinanceFactory from 'node-binance-api';
 import { PublicCryptoService } from './publicCryptoService';
 
 interface PriceAlert {
@@ -21,7 +21,8 @@ export class PriceAlertManager {
         // Try to initialize private API, but don't fail if it doesn't work
         try {
             if (process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET) {
-                this.binance = new BinanceFactory({
+                const Binance = BinanceFactory as any;
+                this.binance = new Binance({
                     APIKEY: process.env.BINANCE_API_KEY,
                     APISECRET: process.env.BINANCE_API_SECRET
                 });

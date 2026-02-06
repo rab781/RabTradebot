@@ -346,9 +346,6 @@ export class SimpleComprehensiveAnalyzer {
         adxValue: number,
         atrValue: number
     ) {
-        let signals: number[] = [];
-        let reasoning: string[] = [];
-
         // --- 1. MARKET REGIME DETECTION (ADX) ---
         // Uses real ADX value passed from 1h timeframe
         const adx = adxValue;
@@ -374,6 +371,9 @@ export class SimpleComprehensiveAnalyzer {
         else if (timeframes['4h'] === 'bearish') directionalBias = 'BEARISH_WEAK';
 
         // --- 2. SIGNAL GENERATION BASED ON REGIME & BIAS ---
+
+        const signals: number[] = [];
+        const reasoning: string[] = [];
 
         // RSI Logic adapted to Regime
         if (rsi < 30) {
