@@ -306,10 +306,14 @@ export class ImageChartService {
         const changeText = `${sign}${changePercent.toFixed(2)}%`;
         const titleColor = changePercent >= 0 ? '#0ecb81' : '#f6465d';
 
-        const allHighs = limitedData.map(d => d.h);
-        const allLows = limitedData.map(d => d.l);
-        const minPrice = Math.min(...allLows) * 0.995;
-        const maxPrice = Math.max(...allHighs) * 1.005;
+        let min = Infinity;
+        let max = -Infinity;
+        for (const d of limitedData) {
+            if (d.l < min) min = d.l;
+            if (d.h > max) max = d.h;
+        }
+        const minPrice = min * 0.995;
+        const maxPrice = max * 1.005;
 
         const labels = limitedData.map((d, i) => {
             if (i % 10 === 0 || i === limitedData.length - 1) {
