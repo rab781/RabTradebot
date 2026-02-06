@@ -441,7 +441,7 @@ Confidence Level: ${newsAnalysis.marketMovement.confidence.toFixed(1)}%
 ${newsAnalysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}
 
 🔥 RECENT NEWS (${newsItems.length} items):
-${newsItems.map((item, index) => {
+${newsItems.map((item: any, index: number) => {
                             const sentiment = item.sentimentScore > 0.3 ? '🟢' :
                                 item.sentimentScore < -0.3 ? '🔴' : '🟡';
                             return `${index + 1}. ${sentiment} ${item.title.substring(0, 55)}...
