@@ -3,6 +3,7 @@ import { BacktestEngine } from './backtestEngine';
 import { OHLCVCandle } from '../types/dataframe';
 
 export interface OptimizationConfig {
+    pair: string;
     maxEvals: number;
     timerange: string;
     timeframe: string;
@@ -62,6 +63,7 @@ export class StrategyOptimizer {
                 
                 // Run backtest
                 const backtestConfig = {
+                    pair: this.config.pair,
                     strategy: modifiedStrategy.name,
                     timerange: this.config.timerange,
                     timeframe: this.config.timeframe,

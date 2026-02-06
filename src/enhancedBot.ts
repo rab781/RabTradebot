@@ -604,6 +604,7 @@ bot.command('backtest', async (ctx) => {
 
         // Configure and run backtest
         const backtestConfig = {
+            pair: symbol,
             strategy: strategy.name,
             timerange: `${startDate.toISOString().split('T')[0]}..${endDate.toISOString().split('T')[0]}`,
             timeframe: '5m',
@@ -942,6 +943,7 @@ This may take several minutes. ⏳`);
 
         // Configure optimization
         const optimizationConfig: OptimizationConfig = {
+            pair: symbol,
             maxEvals: 50, // Limit to prevent timeout
             timerange: `${startDate.toISOString().split('T')[0]}..${endDate.toISOString().split('T')[0]}`,
             timeframe: '5m',

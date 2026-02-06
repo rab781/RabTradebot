@@ -76,6 +76,7 @@ export interface StrategyResult {
 }
 
 export interface BacktestConfig {
+    pair: string;
     strategy: string;
     timerange: string;
     timeframe: string;

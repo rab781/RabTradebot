@@ -22,7 +22,7 @@ export class BacktestEngine {
 
         // Populate indicators
         const metadata: StrategyMetadata = {
-            pair: 'BTCUSDT', // TODO: Make this configurable
+            pair: this.config.pair,
             timeframe: this.config.timeframe,
             stake_currency: 'USDT'
         };
