@@ -9,6 +9,7 @@
     "build": "tsc",
     "clean": "rimraf dist",
     "clean:js": "node scripts/cleanup-js.js",
+    "postinstall": "prisma generate",
     "rebuild": "npm run clean && npm run build",
     "test-chutes": "ts-node scripts/test-chutes.ts",
     "test-chutes-api": "ts-node scripts/test-chutes-api.ts",

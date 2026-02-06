@@ -211,8 +211,8 @@ export class DatabaseService {
             };
         }
 
-        const profits = trades.map(t => t.profit || 0);
-        const winningTrades = trades.filter(t => (t.profit || 0) > 0);
+        const profits = trades.map((t: any) => t.profit || 0);
+        const winningTrades = trades.filter((t: any) => (t.profit || 0) > 0);
         const totalProfit = profits.reduce((a: number, b: number) => a + b, 0);
 
         return {
@@ -462,7 +462,7 @@ export class DatabaseService {
             };
         }
 
-        const correct = predictions.filter(p => p.wasCorrect).length;
+        const correct = predictions.filter((p: any) => p.wasCorrect).length;
         const avgConfidence = predictions.reduce((sum: number, p: any) => sum + p.confidence, 0) / predictions.length;
 
         return {
