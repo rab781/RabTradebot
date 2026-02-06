@@ -1,5 +1,6 @@
 import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
 import axios from 'axios';
+import * as fs from 'fs';
 
 export interface HistoricalDataConfig {
     symbol: string;
@@ -265,7 +266,6 @@ export class DataManager {
 
     // Data export/import functions
     async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
-        const fs = require('fs').promises;
         const data = {
             metadata: {
                 count: candles.length,
@@ -276,13 +276,12 @@ export class DataManager {
             candles: candles
         };
         
-        await fs.writeFile(filename, JSON.stringify(data, null, 2));
+        await fs.promises.writeFile(filename, JSON.stringify(data, null, 2));
         console.log(`Exported ${candles.length} candles to ${filename}`);
     }
 
     async importFromJson(filename: string): Promise<OHLCVCandle[]> {
-        const fs = require('fs').promises;
-        const data = JSON.parse(await fs.readFile(filename, 'utf8'));
+        const data = JSON.parse(await fs.promises.readFile(filename, 'utf8'));
         
         if (!data.candles || !Array.isArray(data.candles)) {
             throw new Error('Invalid data format in JSON file');

@@ -5,10 +5,19 @@ import { v4 as uuidv4 } from 'uuid';
 export class BacktestEngine {
     private strategy: IStrategy;
     private config: BacktestConfig;
+    private roiTable: { duration: number; roi: number }[];
 
     constructor(strategy: IStrategy, config: BacktestConfig) {
         this.strategy = strategy;
         this.config = config;
+
+        // Pre-compute ROI table
+        this.roiTable = Object.entries(this.strategy.minimalRoi)
+            .map(([timeStr, roiTarget]) => ({
+                duration: parseInt(timeStr),
+                roi: roiTarget,
+            }))
+            .sort((a, b) => b.duration - a.duration);
     }
 
     async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
@@ -32,10 +41,10 @@ export class BacktestEngine {
         const exitData = this.strategy.populateExitTrend(entryData, metadata);
 
         // Initialize backtest state
-        let balance = this.config.startingBalance;
+        const balance = this.config.startingBalance;
         const trades: Trade[] = [];
         const openTrades: Trade[] = [];
-        let tradeIdCounter = 1;
+        const tradeIdCounter = 1;
 
         // Track performance metrics
         let maxBalance = balance;
@@ -279,11 +288,10 @@ export class BacktestEngine {
     private checkRoi(trade: Trade, currentTime: Date): boolean {
         const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / (1000 * 60); // minutes
 
-        for (const [timeStr, roiTarget] of Object.entries(this.strategy.minimalRoi)) {
-            const timeThreshold = parseInt(timeStr);
-            if (tradeDuration >= timeThreshold) {
+        for (const entry of this.roiTable) {
+            if (tradeDuration >= entry.duration) {
                 const currentProfitPct = trade.profitPct || 0;
-                if (currentProfitPct >= roiTarget * 100) {
+                if (currentProfitPct >= entry.roi * 100) {
                     return true;
                 }
             }
