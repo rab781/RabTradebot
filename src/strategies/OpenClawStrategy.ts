@@ -457,25 +457,12 @@ export class OpenClawStrategy implements IStrategy {
         dataframe.enter_short = new Array(dataframe.close.length).fill(0);
         dataframe.enter_tag = new Array(dataframe.close.length).fill('');
 
-        // Convert dataframe to OHLCVCandle format for feature extraction
-        const candles = [];
-        for (let i = 0; i < dataframe.close.length; i++) {
-            candles.push({
-                timestamp: dataframe.date[i].getTime(),
-                open: dataframe.open[i],
-                high: dataframe.high[i],
-                low: dataframe.low[i],
-                close: dataframe.close[i],
-                volume: dataframe.volume[i],
-                date: dataframe.date[i]
-            });
-        }
-
         // Extract features if we have enough data
         let features: FeatureSet[] = [];
-        if (candles.length >= 200) {
+        if (dataframe.close.length >= 200) {
             try {
-                features = this.featureService.extractFeatures(candles, metadata.pair);
+                // Pass dataframe directly to avoid O(N) conversion
+                features = this.featureService.extractFeatures(dataframe, metadata.pair);
             } catch (error) {
                 console.warn('Feature extraction failed:', error);
             }
