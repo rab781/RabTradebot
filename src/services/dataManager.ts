@@ -188,18 +188,25 @@ export class DataManager {
             throw new Error('No candles provided');
         }
 
-        const prices = candles.flatMap(c => [c.open, c.high, c.low, c.close]);
-        const volumes = candles.map(c => c.volume);
+        let minPrice = Infinity;
+        let maxPrice = -Infinity;
+        let totalVolume = 0;
+
+        for (const candle of candles) {
+            if (candle.low < minPrice) minPrice = candle.low;
+            if (candle.high > maxPrice) maxPrice = candle.high;
+            totalVolume += candle.volume;
+        }
 
         return {
             count: candles.length,
             startDate: candles[0].date,
             endDate: candles[candles.length - 1].date,
             priceRange: {
-                min: Math.min(...prices),
-                max: Math.max(...prices)
+                min: minPrice,
+                max: maxPrice
             },
-            avgVolume: volumes.reduce((sum, v) => sum + v, 0) / volumes.length
+            avgVolume: totalVolume / candles.length
         };
     }
 
