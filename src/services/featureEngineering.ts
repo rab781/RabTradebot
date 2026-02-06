@@ -127,27 +127,42 @@ export class FeatureEngineeringService {
         // Pre-calculate indicators for all data points
         const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
 
+        // Pre-fetch cache if database is enabled
+        const startIdx = 200;
+        if (this.useDatabase && data.length > startIdx) {
+            const db = getDatabase();
+            const startTimestamp = data[startIdx].timestamp;
+            const endTimestamp = data[data.length - 1].timestamp;
+
+            try {
+                const cachedRange = db.getFeatureCacheRange(symbol, startTimestamp, endTimestamp);
+                for (const cached of cachedRange) {
+                    const cacheKey = `${symbol}_${cached.timestamp}`;
+                    if (!this.cache.has(cacheKey)) {
+                        try {
+                            const featureSet = JSON.parse(cached.features) as FeatureSet;
+                            this.cache.set(cacheKey, featureSet);
+                        } catch (e) {
+                            // Invalid JSON in cache
+                        }
+                    }
+                }
+            } catch (error) {
+                console.warn('Failed to pre-fetch feature cache:', error);
+            }
+        }
+
+        const featuresToInsert: any[] = [];
+
         // Extract features for each candle (starting from index 200 to have enough history)
         for (let i = 200; i < data.length; i++) {
             const timestamp = data[i].timestamp;
 
-            // Check cache first
+            // Check cache first (now includes DB pre-fetched items)
             const cacheKey = `${symbol}_${timestamp}`;
             if (this.cache.has(cacheKey)) {
                 features.push(this.cache.get(cacheKey)!);
                 continue;
-            }
-
-            // Check database cache
-            if (this.useDatabase) {
-                const db = getDatabase();
-                const cached = db.getFeatureCache(symbol, timestamp);
-                if (cached) {
-                    const featureSet = JSON.parse(cached.features) as FeatureSet;
-                    this.cache.set(cacheKey, featureSet);
-                    features.push(featureSet);
-                    continue;
-                }
             }
 
             // Calculate features
@@ -179,20 +194,25 @@ export class FeatureEngineeringService {
 
             // Save to database if enabled
             if (this.useDatabase) {
-                try {
-                    const db = getDatabase();
-                    db.insertFeatureCache({
-                        symbol,
-                        timestamp,
-                        features: JSON.stringify(featureSet),
-                        createdAt: Date.now()
-                    });
-                } catch (error) {
-                    // Ignore cache save errors
-                }
+                featuresToInsert.push({
+                    symbol,
+                    timestamp,
+                    features: JSON.stringify(featureSet),
+                    createdAt: Date.now()
+                });
             }
 
             features.push(featureSet);
+        }
+
+        // Batch insert new features
+        if (this.useDatabase && featuresToInsert.length > 0) {
+            try {
+                const db = getDatabase();
+                db.insertFeatureCacheBatch(featuresToInsert);
+            } catch (error) {
+                // Ignore cache save errors
+            }
         }
 
         return features;

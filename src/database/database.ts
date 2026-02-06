@@ -327,6 +327,27 @@ export class TradingDatabase {
         return stmt.get(symbol, timestamp) as FeatureCache | undefined;
     }
 
+    getFeatureCacheRange(symbol: string, startTimestamp: number, endTimestamp: number): FeatureCache[] {
+        const stmt = this.db.prepare(`
+            SELECT * FROM feature_cache
+            WHERE symbol = ? AND timestamp >= ? AND timestamp <= ?
+        `);
+        return stmt.all(symbol, startTimestamp, endTimestamp) as FeatureCache[];
+    }
+
+    insertFeatureCacheBatch(caches: FeatureCache[]): void {
+        const insert = this.db.prepare(`
+            INSERT OR REPLACE INTO feature_cache (symbol, timestamp, features)
+            VALUES (@symbol, @timestamp, @features)
+        `);
+
+        const insertMany = this.db.transaction((items: FeatureCache[]) => {
+            for (const item of items) insert.run(item);
+        });
+
+        insertMany(caches);
+    }
+
     cleanOldFeatureCache(olderThanDays: number = 30): number {
         const cutoffTime = Date.now() - (olderThanDays * 24 * 60 * 60 * 1000);
         const stmt = this.db.prepare('DELETE FROM feature_cache WHERE createdAt < ?');
