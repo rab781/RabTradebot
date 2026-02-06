@@ -604,6 +604,7 @@ bot.command('backtest', async (ctx) => {
 
         // Configure and run backtest
         const backtestConfig = {
+            pair: symbol,
             strategy: strategy.name,
             timerange: `${startDate.toISOString().split('T')[0]}..${endDate.toISOString().split('T')[0]}`,
             timeframe: '5m',
@@ -942,6 +943,7 @@ This may take several minutes. ⏳`);
 
         // Configure optimization
         const optimizationConfig: OptimizationConfig = {
+            pair: symbol,
             maxEvals: 50, // Limit to prevent timeout
             timerange: `${startDate.toISOString().split('T')[0]}..${endDate.toISOString().split('T')[0]}`,
             timeframe: '5m',
@@ -2212,7 +2214,7 @@ bot.command('alerts', async (ctx) => {
         }
 
         let message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n`;
-        dbAlerts.forEach((alert, index) => {
+        dbAlerts.forEach((alert: any, index: number) => {
             message += `${index + 1}. ${alert.symbol}\n`;
             message += `   💰 $${alert.targetPrice} (${alert.alertType})\n`;
             message += `   📅 Created: ${new Date(alert.createdAt).toLocaleDateString()}\n\n`;
