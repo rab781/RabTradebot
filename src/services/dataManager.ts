@@ -1,5 +1,6 @@
 import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
 import axios from 'axios';
+import { promises as fs } from 'fs';
 
 export interface HistoricalDataConfig {
     symbol: string;
@@ -265,7 +266,6 @@ export class DataManager {
 
     // Data export/import functions
     async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
-        const fs = require('fs').promises;
         const data = {
             metadata: {
                 count: candles.length,
@@ -281,7 +281,6 @@ export class DataManager {
     }
 
     async importFromJson(filename: string): Promise<OHLCVCandle[]> {
-        const fs = require('fs').promises;
         const data = JSON.parse(await fs.readFile(filename, 'utf8'));
         
         if (!data.candles || !Array.isArray(data.candles)) {

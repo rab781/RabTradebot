@@ -32,10 +32,11 @@ export class BacktestEngine {
         const exitData = this.strategy.populateExitTrend(entryData, metadata);
 
         // Initialize backtest state
-        let balance = this.config.startingBalance;
+        // let balance = this.config.startingBalance; // balance might be mutated in logic
+        const balance = this.config.startingBalance;
         const trades: Trade[] = [];
         const openTrades: Trade[] = [];
-        let tradeIdCounter = 1;
+        const tradeIdCounter = 1;
 
         // Track performance metrics
         let maxBalance = balance;
