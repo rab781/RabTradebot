@@ -117,6 +117,39 @@ export class FeatureEngineeringService {
             throw new Error('Need at least 200 candles for feature extraction');
         }
 
+        // Optimization: Check if all requested features are already in cache (memory or DB)
+        const cachedFeatures: FeatureSet[] = [];
+        let allCached = true;
+        const db = this.useDatabase ? getDatabase() : null;
+
+        for (let i = 200; i < data.length; i++) {
+            const timestamp = data[i].timestamp;
+            const cacheKey = `${symbol}_${timestamp}`;
+
+            if (this.cache.has(cacheKey)) {
+                cachedFeatures.push(this.cache.get(cacheKey)!);
+                continue;
+            }
+
+            // Check database cache
+            if (db) {
+                const cached = db.getFeatureCache(symbol, timestamp);
+                if (cached) {
+                    const featureSet = JSON.parse(cached.features) as FeatureSet;
+                    this.cache.set(cacheKey, featureSet);
+                    cachedFeatures.push(featureSet);
+                    continue;
+                }
+            }
+
+            allCached = false;
+            break;
+        }
+
+        if (allCached) {
+            return cachedFeatures;
+        }
+
         const features: FeatureSet[] = [];
         const closes = data.map(d => d.close);
         const highs = data.map(d => d.high);
