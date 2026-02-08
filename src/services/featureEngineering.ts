@@ -19,7 +19,6 @@ import {
     WilliamsR,
     MFI
 } from 'technicalindicators';
-import { getDatabase } from '../database/database';
 
 export interface FeatureSet {
     // Price-based features (9)
@@ -117,6 +116,46 @@ export class FeatureEngineeringService {
             throw new Error('Need at least 200 candles for feature extraction');
         }
 
+        // Optimization: Check if all requested features are already cached
+        // If so, we can skip the expensive indicator calculation
+        let allCached = true;
+        let db: any = null;
+
+        if (this.useDatabase) {
+            try {
+                // Lazy load database to avoid top-level import side effects and circular dependencies
+                // eslint-disable-next-line @typescript-eslint/no-var-requires
+                const { getDatabase } = require('../database/database');
+                db = getDatabase();
+            } catch (e) {
+                // DB might not be initialized or accessible
+            }
+        }
+
+        for (let i = 200; i < data.length; i++) {
+            const timestamp = data[i].timestamp;
+            const cacheKey = `${symbol}_${timestamp}`;
+
+            if (this.cache.has(cacheKey)) continue;
+
+            if (db) {
+                const cached = db.getFeatureCache(symbol, timestamp);
+                if (cached) {
+                    const featureSet = JSON.parse(cached.features) as FeatureSet;
+                    this.cache.set(cacheKey, featureSet);
+                    continue;
+                }
+            }
+
+            allCached = false;
+            break;
+        }
+
+        // If everything is cached, return immediately!
+        if (allCached) {
+            return data.slice(200).map(d => this.cache.get(`${symbol}_${d.timestamp}`)!);
+        }
+
         const features: FeatureSet[] = [];
         const closes = data.map(d => d.close);
         const highs = data.map(d => d.high);
@@ -138,9 +177,8 @@ export class FeatureEngineeringService {
                 continue;
             }
 
-            // Check database cache
-            if (this.useDatabase) {
-                const db = getDatabase();
+            // Check database cache (fallback)
+            if (db) {
                 const cached = db.getFeatureCache(symbol, timestamp);
                 if (cached) {
                     const featureSet = JSON.parse(cached.features) as FeatureSet;
@@ -178,9 +216,8 @@ export class FeatureEngineeringService {
             this.cache.set(cacheKey, featureSet);
 
             // Save to database if enabled
-            if (this.useDatabase) {
+            if (db) {
                 try {
-                    const db = getDatabase();
                     db.insertFeatureCache({
                         symbol,
                         timestamp,
