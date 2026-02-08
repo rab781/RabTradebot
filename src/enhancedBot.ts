@@ -67,7 +67,7 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 
 // ML model state
 let mlModelLoaded = false;
-let mlModelPath = './models/GRU_Production';
+const mlModelPath = './models/GRU_Production';
 
 // Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
@@ -1253,6 +1253,7 @@ bot.command('mlpredict', async (ctx) => {
     try {
         // Load model if not loaded
         if (!mlModelLoaded) {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
             const fs = require('fs');
             if (fs.existsSync(mlModelPath)) {
                 const loadingMsg = await ctx.reply('🧠 Loading ML model...');
@@ -2271,7 +2272,8 @@ bot.command('stats', async (ctx) => {
         // Get active alerts count
         const alerts = await db.getActiveAlerts(user.id);
 
-        const statsMessage = `
+        // eslint-disable-next-line
+        const message = `
 📊 YOUR TRADING STATISTICS
 
 👤 User: ${user.username || user.firstName || 'Anonymous'}
@@ -2297,7 +2299,7 @@ Use /mlstats for detailed ML performance
 Use /strategystats to compare strategies
         `;
 
-        await ctx.reply(statsMessage);
+        await ctx.reply(message);
         
         try {
             await ctx.deleteMessage(loadingMsg.message_id);
