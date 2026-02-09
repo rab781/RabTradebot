@@ -21,6 +21,8 @@ import {
 } from 'technicalindicators';
 import { getDatabase } from '../database/database';
 
+const MIN_CANDLES_FOR_FEATURES = 200;
+
 export interface FeatureSet {
     // Price-based features (9)
     returns: number;
@@ -113,8 +115,43 @@ export class FeatureEngineeringService {
      * Extract all features from candle data
      */
     extractFeatures(data: OHLCVCandle[], symbol: string): FeatureSet[] {
-        if (data.length < 200) {
-            throw new Error('Need at least 200 candles for feature extraction');
+        if (data.length < MIN_CANDLES_FOR_FEATURES) {
+            throw new Error(`Need at least ${MIN_CANDLES_FOR_FEATURES} candles for feature extraction`);
+        }
+
+        // Optimization: Check if all required features are already in cache
+        // This avoids expensive indicator calculation if we have everything cached
+        const cachedFeatures: FeatureSet[] = [];
+        let allCached = true;
+
+        for (let i = MIN_CANDLES_FOR_FEATURES; i < data.length; i++) {
+            const timestamp = data[i].timestamp;
+            const cacheKey = `${symbol}_${timestamp}`;
+
+            // Check memory cache
+            let featureSet = this.cache.get(cacheKey);
+
+            // Check database cache if not in memory
+            if (!featureSet && this.useDatabase) {
+                const db = getDatabase();
+                const cached = db.getFeatureCache(symbol, timestamp);
+                if (cached) {
+                    featureSet = JSON.parse(cached.features) as FeatureSet;
+                    // Update memory cache
+                    this.cache.set(cacheKey, featureSet);
+                }
+            }
+
+            if (featureSet) {
+                cachedFeatures.push(featureSet);
+            } else {
+                allCached = false;
+                break;
+            }
+        }
+
+        if (allCached) {
+            return cachedFeatures;
         }
 
         const features: FeatureSet[] = [];
@@ -127,8 +164,8 @@ export class FeatureEngineeringService {
         // Pre-calculate indicators for all data points
         const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
 
-        // Extract features for each candle (starting from index 200 to have enough history)
-        for (let i = 200; i < data.length; i++) {
+        // Extract features for each candle (starting from index MIN_CANDLES_FOR_FEATURES to have enough history)
+        for (let i = MIN_CANDLES_FOR_FEATURES; i < data.length; i++) {
             const timestamp = data[i].timestamp;
 
             // Check cache first
@@ -271,7 +308,7 @@ export class FeatureEngineeringService {
     }
 
     private extractMomentumIndicators(indicators: any, index: number) {
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
 
         const macdValue = indicators.macd[arrayIndex] || { MACD: 0, signal: 0, histogram: 0 };
         const stochValue = indicators.stoch[arrayIndex] || { k: 50, d: 50 };
@@ -295,7 +332,7 @@ export class FeatureEngineeringService {
     }
 
     private extractTrendIndicators(indicators: any, index: number, currentPrice: number) {
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
 
         const ema9 = indicators.ema_9[arrayIndex] || currentPrice;
         const ema21 = indicators.ema_21[arrayIndex] || currentPrice;
@@ -316,7 +353,7 @@ export class FeatureEngineeringService {
     }
 
     private extractVolatilityIndicators(indicators: any, index: number, currentPrice: number) {
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
         const bb = indicators.bb[arrayIndex] || { upper: currentPrice, middle: currentPrice, lower: currentPrice };
         const atr = indicators.atr[arrayIndex] || 0;
 
@@ -339,7 +376,7 @@ export class FeatureEngineeringService {
         const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
         const currentVolume = data[index].volume;
 
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
         const obv = indicators.obv[arrayIndex] || 0;
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
