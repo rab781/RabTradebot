@@ -14,7 +14,8 @@
     "test-chutes-api": "ts-node scripts/test-chutes-api.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
-    "test": "jest"
+    "test": "jest",
+    "postinstall": "prisma generate"
   },
   "keywords": [
     "telegram",
