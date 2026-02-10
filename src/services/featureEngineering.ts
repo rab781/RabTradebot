@@ -117,6 +117,24 @@ export class FeatureEngineeringService {
             throw new Error('Need at least 200 candles for feature extraction');
         }
 
+        // Optimization: Fast path if all required features are already in memory cache
+        // This avoids expensive indicator calculations when re-processing the same data
+        let allInCache = true;
+        for (let i = 200; i < data.length; i++) {
+            if (!this.cache.has(`${symbol}_${data[i].timestamp}`)) {
+                allInCache = false;
+                break;
+            }
+        }
+
+        if (allInCache) {
+            const cachedFeatures: FeatureSet[] = [];
+            for (let i = 200; i < data.length; i++) {
+                cachedFeatures.push(this.cache.get(`${symbol}_${data[i].timestamp}`)!);
+            }
+            return cachedFeatures;
+        }
+
         const features: FeatureSet[] = [];
         const closes = data.map(d => d.close);
         const highs = data.map(d => d.high);
