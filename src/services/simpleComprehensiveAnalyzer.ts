@@ -346,9 +346,6 @@ export class SimpleComprehensiveAnalyzer {
         adxValue: number,
         atrValue: number
     ) {
-        let signals: number[] = [];
-        let reasoning: string[] = [];
-
         // --- 1. MARKET REGIME DETECTION (ADX) ---
         // Uses real ADX value passed from 1h timeframe
         const adx = adxValue;

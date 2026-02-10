@@ -265,7 +265,7 @@ export class DataManager {
 
     // Data export/import functions
     async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
-        const fs = await import('fs');
+        const fs = (await import('fs')).promises;
         const data = {
             metadata: {
                 count: candles.length,
@@ -281,8 +281,8 @@ export class DataManager {
     }
 
     async importFromJson(filename: string): Promise<OHLCVCandle[]> {
-        const fs = await import('fs');
-        const data = JSON.parse(await fs.promises.readFile(filename, 'utf8'));
+        const fs = (await import('fs')).promises;
+        const data = JSON.parse(await fs.readFile(filename, 'utf8'));
         
         if (!data.candles || !Array.isArray(data.candles)) {
             throw new Error('Invalid data format in JSON file');
