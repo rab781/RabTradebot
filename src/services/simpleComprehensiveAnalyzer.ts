@@ -375,6 +375,9 @@ export class SimpleComprehensiveAnalyzer {
 
         // --- 2. SIGNAL GENERATION BASED ON REGIME & BIAS ---
 
+        const signals: number[] = [];
+        const reasoning: string[] = [];
+
         // RSI Logic adapted to Regime
         if (rsi < 30) {
             // Oversold - Good for Mean Reversion or Pullback in Bull Trend

@@ -67,7 +67,7 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 
 // ML model state
 let mlModelLoaded = false;
-let mlModelPath = './models/GRU_Production';
+const mlModelPath = './models/GRU_Production';
 
 // Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
@@ -1253,7 +1253,7 @@ bot.command('mlpredict', async (ctx) => {
     try {
         // Load model if not loaded
         if (!mlModelLoaded) {
-            const fs = require('fs');
+            const fs = await import('fs');
             if (fs.existsSync(mlModelPath)) {
                 const loadingMsg = await ctx.reply('🧠 Loading ML model...');
                 await mlModel.loadModel(mlModelPath);
@@ -2494,7 +2494,7 @@ bot.command('leaderboard', async (ctx) => {
 });
 
 // Error handling
-bot.catch((err, ctx) => {
+bot.catch((err: unknown, ctx: any) => {
     console.error('Bot error:', err);
     ctx.reply('❌ An unexpected error occurred. Please try again later.');
 });

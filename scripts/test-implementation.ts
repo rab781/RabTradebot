@@ -41,7 +41,7 @@ async function testImplementation() {
         };
 
         console.log('   Making simple test API call...');
-        const axios = require('axios');
+        const axios = (await import('axios')).default;
         const response = await axios.post(
             'https://api.perplexity.ai/chat/completions',
             testRequest,
