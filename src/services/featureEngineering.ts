@@ -124,8 +124,9 @@ export class FeatureEngineeringService {
         const opens = data.map(d => d.open);
         const volumes = data.map(d => d.volume);
 
-        // Pre-calculate indicators for all data points
-        const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
+        // Lazy-load indicators only if needed
+        // Note: Using 'any' type because extractMomentumIndicators and others expect 'any'
+        let indicators: any = null;
 
         // Extract features for each candle (starting from index 200 to have enough history)
         for (let i = 200; i < data.length; i++) {
@@ -150,7 +151,11 @@ export class FeatureEngineeringService {
                 }
             }
 
-            // Calculate features
+            // Calculate features (compute indicators if not already done)
+            if (!indicators) {
+                indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
+            }
+
             const featureSet: FeatureSet = {
                 // Price features
                 ...this.extractPriceFeatures(data, i),
