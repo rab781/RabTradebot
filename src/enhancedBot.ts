@@ -67,7 +67,7 @@ const featureService = new FeatureEngineeringService(false); // No DB caching fo
 
 // ML model state
 let mlModelLoaded = false;
-let mlModelPath = './models/GRU_Production';
+const mlModelPath = './models/GRU_Production';
 
 // Initialize Chutes AI service (must be before SignalGenerator)
 const chutesService = new ChutesService();
@@ -875,7 +875,7 @@ bot.command('performance', (ctx) => {
 
     const result = session.paperTrading.getCurrentResult();
 
-    let message = `
+    const message = `
 📈 DETAILED PERFORMANCE ANALYSIS
 
 💰 FINANCIAL METRICS:
@@ -1253,6 +1253,7 @@ bot.command('mlpredict', async (ctx) => {
     try {
         // Load model if not loaded
         if (!mlModelLoaded) {
+            // eslint-disable-next-line @typescript-eslint/no-var-requires
             const fs = require('fs');
             if (fs.existsSync(mlModelPath)) {
                 const loadingMsg = await ctx.reply('🧠 Loading ML model...');
@@ -2212,7 +2213,7 @@ bot.command('alerts', async (ctx) => {
         }
 
         let message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n`;
-        dbAlerts.forEach((alert, index) => {
+        dbAlerts.forEach((alert: any, index: number) => {
             message += `${index + 1}. ${alert.symbol}\n`;
             message += `   💰 $${alert.targetPrice} (${alert.alertType})\n`;
             message += `   📅 Created: ${new Date(alert.createdAt).toLocaleDateString()}\n\n`;

@@ -118,14 +118,25 @@ export class FeatureEngineeringService {
         }
 
         const features: FeatureSet[] = [];
-        const closes = data.map(d => d.close);
-        const highs = data.map(d => d.high);
-        const lows = data.map(d => d.low);
-        const opens = data.map(d => d.open);
-        const volumes = data.map(d => d.volume);
 
-        // Pre-calculate indicators for all data points
-        const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
+        // Lazy initialization variables
+        let closes: number[] | null = null;
+        let highs: number[] | null = null;
+        let lows: number[] | null = null;
+        let opens: number[] | null = null;
+        let volumes: number[] | null = null;
+        let indicators: any = null;
+
+        const ensureData = () => {
+            if (!closes) {
+                 closes = data.map(d => d.close);
+                 highs = data.map(d => d.high);
+                 lows = data.map(d => d.low);
+                 opens = data.map(d => d.open);
+                 volumes = data.map(d => d.volume);
+                 indicators = this.calculateAllIndicators(data, closes, highs!, lows!, opens!, volumes!);
+            }
+        };
 
         // Extract features for each candle (starting from index 200 to have enough history)
         for (let i = 200; i < data.length; i++) {
@@ -150,6 +161,9 @@ export class FeatureEngineeringService {
                 }
             }
 
+            // Ensure data is available for calculation
+            ensureData();
+
             // Calculate features
             const featureSet: FeatureSet = {
                 // Price features
@@ -157,14 +171,14 @@ export class FeatureEngineeringService {
 
                 // Technical indicators
                 ...this.extractMomentumIndicators(indicators, i),
-                ...this.extractTrendIndicators(indicators, i, closes[i]),
-                ...this.extractVolatilityIndicators(indicators, i, closes[i]),
+                ...this.extractTrendIndicators(indicators, i, closes![i]),
+                ...this.extractVolatilityIndicators(indicators, i, closes![i]),
 
                 // Volume features
                 ...this.extractVolumeFeatures(data, indicators, i),
 
                 // Statistical features
-                ...this.extractStatisticalFeatures(closes, i),
+                ...this.extractStatisticalFeatures(closes!, i),
 
                 // Market microstructure
                 ...this.extractMarketMicrostructure(data, i),

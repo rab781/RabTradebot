@@ -41,6 +41,7 @@ async function testImplementation() {
         };
 
         console.log('   Making simple test API call...');
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const axios = require('axios');
         const response = await axios.post(
             'https://api.perplexity.ai/chat/completions',

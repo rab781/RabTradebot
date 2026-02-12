@@ -265,6 +265,7 @@ export class DataManager {
 
     // Data export/import functions
     async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const fs = require('fs').promises;
         const data = {
             metadata: {
@@ -281,6 +282,7 @@ export class DataManager {
     }
 
     async importFromJson(filename: string): Promise<OHLCVCandle[]> {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const fs = require('fs').promises;
         const data = JSON.parse(await fs.readFile(filename, 'utf8'));
         
