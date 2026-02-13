@@ -378,6 +378,8 @@ export class FeatureEngineeringService {
     }
 
     private extractStatisticalFeatures(closes: number[], allReturns: number[], index: number) {
+        // allReturns is shifted by 1 relative to closes (allReturns[i] is return for candle i+1)
+        // So slice(index - 20, index) gives returns for candles [index - 19] to [index]
         const returns20 = allReturns.slice(index - 20, index);
         const returns50 = allReturns.slice(index - 50, index);
 

@@ -83,6 +83,7 @@ class BotStateManager {
         lastUpdate: new Date()
     };
 
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
     private eventListeners: Map<string, Function[]> = new Map();
     private startTime: Date = new Date();
 
@@ -101,6 +102,7 @@ class BotStateManager {
     }
 
     // Event listener system
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-function-type
     public on(event: string, callback: Function) {
         if (!this.eventListeners.has(event)) {
             this.eventListeners.set(event, []);
