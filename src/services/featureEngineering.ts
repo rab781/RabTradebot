@@ -126,6 +126,7 @@ export class FeatureEngineeringService {
         let opens: number[] | null = null;
         let volumes: number[] | null = null;
         let indicators: any = null;
+        let allReturns: number[] | null = null;
 
         const ensureData = () => {
             if (!closes) {
@@ -134,6 +135,7 @@ export class FeatureEngineeringService {
                  lows = data.map(d => d.low);
                  opens = data.map(d => d.open);
                  volumes = data.map(d => d.volume);
+                 allReturns = this.calculateReturns(closes);
                  indicators = this.calculateAllIndicators(data, closes, highs!, lows!, opens!, volumes!);
             }
         };
@@ -175,13 +177,13 @@ export class FeatureEngineeringService {
                 ...this.extractVolatilityIndicators(indicators, i, closes![i]),
 
                 // Volume features
-                ...this.extractVolumeFeatures(data, indicators, i),
+                ...this.extractVolumeFeatures(closes!, volumes!, indicators, i),
 
                 // Statistical features
-                ...this.extractStatisticalFeatures(closes!, i),
+                ...this.extractStatisticalFeatures(closes!, allReturns!, i),
 
                 // Market microstructure
-                ...this.extractMarketMicrostructure(data, i),
+                ...this.extractMarketMicrostructure(highs!, lows!, closes!, volumes!, i),
 
                 // Metadata
                 timestamp,
@@ -348,21 +350,21 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractVolumeFeatures(data: OHLCVCandle[], indicators: any, index: number) {
-        const volumes = data.slice(Math.max(0, index - 20), index + 1).map(d => d.volume);
-        const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
-        const currentVolume = data[index].volume;
+    private extractVolumeFeatures(closes: number[], volumes: number[], indicators: any, index: number) {
+        const volSlice = volumes.slice(Math.max(0, index - 20), index + 1);
+        const avgVolume = volSlice.reduce((a, b) => a + b, 0) / volSlice.length;
+        const currentVolume = volumes[index];
 
         const arrayIndex = index - 200;
         const obv = indicators.obv[arrayIndex] || 0;
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
         // Volume-price correlation
-        const closes = data.slice(Math.max(0, index - 20), index + 1).map(d => d.close);
-        const correlation = this.calculateCorrelation(closes, volumes);
+        const closeSlice = closes.slice(Math.max(0, index - 20), index + 1);
+        const correlation = this.calculateCorrelation(closeSlice, volSlice);
 
         // Volume Weighted Price
-        const vwp = closes.reduce((sum, close, i) => sum + close * volumes[i], 0) / volumes.reduce((a, b) => a + b, 0);
+        const vwp = closeSlice.reduce((sum, close, i) => sum + close * volSlice[i], 0) / volSlice.reduce((a, b) => a + b, 0);
 
         return {
             volumeRatio: currentVolume / avgVolume,
@@ -375,9 +377,11 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractStatisticalFeatures(closes: number[], index: number) {
-        const returns20 = this.calculateReturns(closes.slice(index - 20, index + 1));
-        const returns50 = this.calculateReturns(closes.slice(index - 50, index + 1));
+    private extractStatisticalFeatures(closes: number[], allReturns: number[], index: number) {
+        // allReturns is shifted by 1 relative to closes (allReturns[i] is return for candle i+1)
+        // So slice(index - 20, index) gives returns for candles [index - 19] to [index]
+        const returns20 = allReturns.slice(index - 20, index);
+        const returns50 = allReturns.slice(index - 50, index);
 
         return {
             volatility_20: this.calculateStdDev(returns20),
@@ -391,12 +395,11 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractMarketMicrostructure(data: OHLCVCandle[], index: number) {
-        const current = data[index];
-        const high = current.high;
-        const low = current.low;
-        const close = current.close;
-        const volume = current.volume;
+    private extractMarketMicrostructure(highs: number[], lows: number[], closes: number[], volumes: number[], index: number) {
+        const high = highs[index];
+        const low = lows[index];
+        const close = closes[index];
+        const volume = volumes[index];
 
         // Approximate bid-ask spread using high-low range
         const spreadApprox = ((high - low) / close) * 100;
@@ -405,7 +408,7 @@ export class FeatureEngineeringService {
         const volumeImbalance = (close - low) / (high - low);
 
         // Price efficiency (how directly price moved)
-        const priceEfficiency = this.calculatePriceEfficiency(data, index);
+        const priceEfficiency = this.calculatePriceEfficiency(closes, index);
 
         // Market depth proxy (volume * range)
         const marketDepthProxy = volume * (high - low);
@@ -519,18 +522,18 @@ export class FeatureEngineeringService {
         return denominator !== 0 ? numerator / denominator : 0;
     }
 
-    private calculatePriceEfficiency(data: OHLCVCandle[], index: number): number {
+    private calculatePriceEfficiency(closes: number[], index: number): number {
         if (index < 10) return 0;
 
-        const recentData = data.slice(index - 10, index + 1);
-        const startPrice = recentData[0].close;
-        const endPrice = recentData[recentData.length - 1].close;
+        const recentCloses = closes.slice(index - 10, index + 1);
+        const startPrice = recentCloses[0];
+        const endPrice = recentCloses[recentCloses.length - 1];
 
         const directDistance = Math.abs(endPrice - startPrice);
 
         let totalDistance = 0;
-        for (let i = 1; i < recentData.length; i++) {
-            totalDistance += Math.abs(recentData[i].close - recentData[i - 1].close);
+        for (let i = 1; i < recentCloses.length; i++) {
+            totalDistance += Math.abs(recentCloses[i] - recentCloses[i - 1]);
         }
 
         return totalDistance !== 0 ? directDistance / totalDistance : 0;
