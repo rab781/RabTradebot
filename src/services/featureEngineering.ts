@@ -383,15 +383,42 @@ export class FeatureEngineeringService {
         const returns20 = allReturns.slice(index - 20, index);
         const returns50 = allReturns.slice(index - 50, index);
 
+        // Optimization: Pre-calculate stats for returns20
+        let sum20 = 0;
+        const len20 = returns20.length;
+        for (let i = 0; i < len20; i++) sum20 += returns20[i];
+        const mean20 = sum20 / len20;
+
+        let sumSqDiff20 = 0;
+        for (let i = 0; i < len20; i++) {
+            const diff = returns20[i] - mean20;
+            sumSqDiff20 += diff * diff;
+        }
+        const stdDev20 = Math.sqrt(sumSqDiff20 / len20);
+
+        // Optimization: Pre-calculate stats for autocorrelation slice
+        const autoCorrSlice = closes.slice(index - 20, index + 1);
+        const lenAuto = autoCorrSlice.length;
+
+        let sumAuto = 0;
+        for (let i = 0; i < lenAuto; i++) sumAuto += autoCorrSlice[i];
+        const meanAuto = sumAuto / lenAuto;
+
+        let autoCorrDenominator = 0;
+        for (let i = 0; i < lenAuto; i++) {
+            const diff = autoCorrSlice[i] - meanAuto;
+            autoCorrDenominator += diff * diff;
+        }
+
         return {
-            volatility_20: this.calculateStdDev(returns20),
+            volatility_20: stdDev20,
             volatility_50: this.calculateStdDev(returns50),
-            skewness_20: this.calculateSkewness(returns20),
-            kurtosis_20: this.calculateKurtosis(returns20),
-            autocorrelation_1: this.calculateAutocorrelation(closes.slice(index - 20, index + 1), 1),
-            autocorrelation_5: this.calculateAutocorrelation(closes.slice(index - 20, index + 1), 5),
-            returns_mean_20: returns20.reduce((a, b) => a + b, 0) / returns20.length,
-            returns_std_20: this.calculateStdDev(returns20)
+            skewness_20: this.calculateSkewness(returns20, mean20, stdDev20),
+            kurtosis_20: this.calculateKurtosis(returns20, mean20, stdDev20),
+            autocorrelation_1: this.calculateAutocorrelation(autoCorrSlice, 1, meanAuto, autoCorrDenominator),
+            autocorrelation_5: this.calculateAutocorrelation(autoCorrSlice, 5, meanAuto, autoCorrDenominator),
+            returns_mean_20: mean20,
+            returns_std_20: stdDev20
         };
     }
 
@@ -454,49 +481,100 @@ export class FeatureEngineeringService {
     }
 
     private calculateStdDev(values: number[]): number {
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
-        const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
-        return Math.sqrt(variance);
+        const len = values.length;
+        if (len === 0) return 0;
+
+        let sum = 0;
+        for (let i = 0; i < len; i++) sum += values[i];
+        const mean = sum / len;
+
+        let sumSqDiff = 0;
+        for (let i = 0; i < len; i++) {
+            const diff = values[i] - mean;
+            sumSqDiff += diff * diff;
+        }
+
+        return Math.sqrt(sumSqDiff / len);
     }
 
-    private calculateSkewness(values: number[]): number {
+    private calculateSkewness(values: number[], mean?: number, stdDev?: number): number {
         const n = values.length;
-        const mean = values.reduce((a, b) => a + b, 0) / n;
-        const stdDev = this.calculateStdDev(values);
+        if (n < 3) return 0;
 
-        if (stdDev === 0) return 0;
+        let m = mean;
+        if (m === undefined) {
+             let sum = 0;
+             for (let i = 0; i < n; i++) sum += values[i];
+             m = sum / n;
+        }
 
-        const sum = values.reduce((acc, val) => acc + Math.pow((val - mean) / stdDev, 3), 0);
+        let s = stdDev;
+        if (s === undefined) {
+            s = this.calculateStdDev(values);
+        }
+
+        if (s === 0) return 0;
+
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+            sum += Math.pow((values[i] - m) / s, 3);
+        }
+
         return (n / ((n - 1) * (n - 2))) * sum;
     }
 
-    private calculateKurtosis(values: number[]): number {
+    private calculateKurtosis(values: number[], mean?: number, stdDev?: number): number {
         const n = values.length;
-        const mean = values.reduce((a, b) => a + b, 0) / n;
-        const stdDev = this.calculateStdDev(values);
+        if (n < 4) return 0;
 
-        if (stdDev === 0) return 0;
+        let m = mean;
+        if (m === undefined) {
+             let sum = 0;
+             for (let i = 0; i < n; i++) sum += values[i];
+             m = sum / n;
+        }
 
-        const sum = values.reduce((acc, val) => acc + Math.pow((val - mean) / stdDev, 4), 0);
+        let s = stdDev;
+        if (s === undefined) {
+            s = this.calculateStdDev(values);
+        }
+
+        if (s === 0) return 0;
+
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+            sum += Math.pow((values[i] - m) / s, 4);
+        }
+
         return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * sum - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
     }
 
-    private calculateAutocorrelation(values: number[], lag: number): number {
-        if (values.length <= lag) return 0;
+    private calculateAutocorrelation(values: number[], lag: number, mean?: number, denominator?: number): number {
+        const len = values.length;
+        if (len <= lag) return 0;
 
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        let m = mean;
+        if (m === undefined) {
+            let sum = 0;
+            for (let i = 0; i < len; i++) sum += values[i];
+            m = sum / len;
+        }
+
+        let d = denominator;
+        if (d === undefined) {
+            d = 0;
+            for (let i = 0; i < len; i++) {
+                const diff = values[i] - m;
+                d += diff * diff;
+            }
+        }
+
         let numerator = 0;
-        let denominator = 0;
-
-        for (let i = 0; i < values.length - lag; i++) {
-            numerator += (values[i] - mean) * (values[i + lag] - mean);
+        for (let i = 0; i < len - lag; i++) {
+            numerator += (values[i] - m) * (values[i + lag] - m);
         }
 
-        for (let i = 0; i < values.length; i++) {
-            denominator += Math.pow(values[i] - mean, 2);
-        }
-
-        return denominator !== 0 ? numerator / denominator : 0;
+        return d !== 0 ? numerator / d : 0;
     }
 
     private calculateCorrelation(x: number[], y: number[]): number {
