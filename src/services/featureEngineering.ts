@@ -383,15 +383,19 @@ export class FeatureEngineeringService {
         const returns20 = allReturns.slice(index - 20, index);
         const returns50 = allReturns.slice(index - 50, index);
 
+        const stats20 = this.calculateAdvancedStats(returns20);
+        const closesSlice = closes.slice(index - 20, index + 1);
+        const closesMean = closesSlice.reduce((a, b) => a + b, 0) / closesSlice.length;
+
         return {
-            volatility_20: this.calculateStdDev(returns20),
+            volatility_20: stats20.stdDev,
             volatility_50: this.calculateStdDev(returns50),
-            skewness_20: this.calculateSkewness(returns20),
-            kurtosis_20: this.calculateKurtosis(returns20),
-            autocorrelation_1: this.calculateAutocorrelation(closes.slice(index - 20, index + 1), 1),
-            autocorrelation_5: this.calculateAutocorrelation(closes.slice(index - 20, index + 1), 5),
-            returns_mean_20: returns20.reduce((a, b) => a + b, 0) / returns20.length,
-            returns_std_20: this.calculateStdDev(returns20)
+            skewness_20: stats20.skewness,
+            kurtosis_20: stats20.kurtosis,
+            autocorrelation_1: this.calculateAutocorrelationWithMean(closesSlice, 1, closesMean),
+            autocorrelation_5: this.calculateAutocorrelationWithMean(closesSlice, 5, closesMean),
+            returns_mean_20: stats20.mean,
+            returns_std_20: stats20.stdDev
         };
     }
 
@@ -426,6 +430,61 @@ export class FeatureEngineeringService {
     }
 
     // ==================== HELPER FUNCTIONS ====================
+
+    private calculateAdvancedStats(values: number[]) {
+        const n = values.length;
+        if (n === 0) return { mean: 0, stdDev: 0, skewness: 0, kurtosis: 0 };
+
+        let sum = 0;
+        for (let i = 0; i < n; i++) sum += values[i];
+        const mean = sum / n;
+
+        let sumSquaredDiff = 0;
+        let sumCubedDiff = 0;
+        let sumQuartDiff = 0;
+
+        for (let i = 0; i < n; i++) {
+            const diff = values[i] - mean;
+            const sq = diff * diff;
+            sumSquaredDiff += sq;
+            sumCubedDiff += sq * diff;
+            sumQuartDiff += sq * sq;
+        }
+
+        const variance = sumSquaredDiff / n;
+        const stdDev = Math.sqrt(variance);
+
+        let skewness = 0;
+        let kurtosis = 0;
+
+        if (stdDev !== 0) {
+            if (n > 2) {
+                skewness = (n / ((n - 1) * (n - 2))) * (sumCubedDiff / Math.pow(stdDev, 3));
+            }
+            if (n > 3) {
+                kurtosis = (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * (sumQuartDiff / Math.pow(stdDev, 4)) - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
+            }
+        }
+
+        return { mean, stdDev, skewness, kurtosis };
+    }
+
+    private calculateAutocorrelationWithMean(values: number[], lag: number, mean: number): number {
+        if (values.length <= lag) return 0;
+
+        let numerator = 0;
+        let denominator = 0;
+
+        for (let i = 0; i < values.length - lag; i++) {
+            numerator += (values[i] - mean) * (values[i + lag] - mean);
+        }
+
+        for (let i = 0; i < values.length; i++) {
+            denominator += Math.pow(values[i] - mean, 2);
+        }
+
+        return denominator !== 0 ? numerator / denominator : 0;
+    }
 
     private calculateMACDCrossover(macdArray: any[], index: number): number {
         if (index < 1) return 0;
