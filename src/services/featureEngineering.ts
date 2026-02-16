@@ -128,6 +128,13 @@ export class FeatureEngineeringService {
         let indicators: any = null;
         let allReturns: number[] | null = null;
 
+        // Rolling stats (pre-calculated for O(1) access)
+        let volStats21: { mean: number[], stdDev: number[] } | null = null;
+        let closeStats21: { mean: number[], stdDev: number[] } | null = null;
+        let closeVolMean21: number[] | null = null;
+        let returnStats20: { mean: number[], stdDev: number[] } | null = null;
+        let returnStdDev50: number[] | null = null;
+
         const ensureData = () => {
             if (!closes) {
                  closes = data.map(d => d.close);
@@ -137,6 +144,17 @@ export class FeatureEngineeringService {
                  volumes = data.map(d => d.volume);
                  allReturns = this.calculateReturns(closes);
                  indicators = this.calculateAllIndicators(data, closes, highs!, lows!, opens!, volumes!);
+
+                 // Pre-calculate rolling stats
+                 volStats21 = this.calculateRollingStats(volumes, 21);
+                 closeStats21 = this.calculateRollingStats(closes, 21);
+
+                 const closeVolProduct = closes.map((c, i) => c * volumes![i]);
+                 closeVolMean21 = this.calculateRollingMean(closeVolProduct, 21);
+
+                 returnStats20 = this.calculateRollingStats(allReturns, 20);
+                 const stats50 = this.calculateRollingStats(allReturns, 50);
+                 returnStdDev50 = stats50.stdDev;
             }
         };
 
@@ -177,10 +195,10 @@ export class FeatureEngineeringService {
                 ...this.extractVolatilityIndicators(indicators, i, closes![i]),
 
                 // Volume features
-                ...this.extractVolumeFeatures(closes!, volumes!, indicators, i),
+                ...this.extractVolumeFeatures(closes!, volumes!, indicators, i, volStats21!, closeStats21!, closeVolMean21!),
 
                 // Statistical features
-                ...this.extractStatisticalFeatures(closes!, allReturns!, i),
+                ...this.extractStatisticalFeatures(closes!, allReturns!, i, returnStats20!, returnStdDev50!, closeStats21!),
 
                 // Market microstructure
                 ...this.extractMarketMicrostructure(highs!, lows!, closes!, volumes!, i),
@@ -350,24 +368,41 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractVolumeFeatures(closes: number[], volumes: number[], indicators: any, index: number) {
-        const volSlice = volumes.slice(Math.max(0, index - 20), index + 1);
-        const avgVolume = volSlice.reduce((a, b) => a + b, 0) / volSlice.length;
+    private extractVolumeFeatures(
+        closes: number[],
+        volumes: number[],
+        indicators: any,
+        index: number,
+        volStats: { mean: number[], stdDev: number[] },
+        closeStats: { mean: number[], stdDev: number[] },
+        closeVolMean: number[]
+    ) {
+        const avgVolume = volStats.mean[index];
         const currentVolume = volumes[index];
 
         const arrayIndex = index - 200;
         const obv = indicators.obv[arrayIndex] || 0;
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
-        // Volume-price correlation
-        const closeSlice = closes.slice(Math.max(0, index - 20), index + 1);
-        const correlation = this.calculateCorrelation(closeSlice, volSlice);
+        // Volume-price correlation (Pearson)
+        // correlation = (E[XY] - E[X]E[Y]) / (sigmaX * sigmaY)
+        const meanX = closeStats.mean[index];
+        const meanY = volStats.mean[index]; // avgVolume
+        const sigmaX = closeStats.stdDev[index];
+        const sigmaY = volStats.stdDev[index];
+        const meanXY = closeVolMean[index];
 
-        // Volume Weighted Price
-        const vwp = closeSlice.reduce((sum, close, i) => sum + close * volSlice[i], 0) / volSlice.reduce((a, b) => a + b, 0);
+        let correlation = 0;
+        if (sigmaX > 0 && sigmaY > 0) {
+            correlation = (meanXY - meanX * meanY) / (sigmaX * sigmaY);
+        }
+
+        // Volume Weighted Price (VWP) = Sum(P*V) / Sum(V) = Mean(P*V) / Mean(V)
+        // Note: Mean(V) must be > 0.
+        const vwp = avgVolume > 0 ? meanXY / avgVolume : 0;
 
         return {
-            volumeRatio: currentVolume / avgVolume,
+            volumeRatio: avgVolume > 0 ? currentVolume / avgVolume : 1,
             volumeMA_20: avgVolume,
             obv: obv,
             obvSlope: obv - obvPrevious,
@@ -377,25 +412,52 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractStatisticalFeatures(closes: number[], allReturns: number[], index: number) {
+    private extractStatisticalFeatures(
+        closes: number[],
+        allReturns: number[],
+        index: number,
+        returnStats20: { mean: number[], stdDev: number[] },
+        returnStdDev50: number[],
+        closeStats21: { mean: number[], stdDev: number[] }
+    ) {
         // allReturns is shifted by 1 relative to closes (allReturns[i] is return for candle i+1)
         // So slice(index - 20, index) gives returns for candles [index - 19] to [index]
         const returns20 = allReturns.slice(index - 20, index);
-        const returns50 = allReturns.slice(index - 50, index);
 
+        // Pre-calculated stats
+        // We want returns for candles [index-19] to [index].
+        // These are returns[index-20]...returns[index-1].
+        // So we want stats at index-1.
+
+        // Let's verify: allReturns[0] = (price[1]-price[0])/price[0].
+        // We are at `index`. We want returns derived from price[index-20]...price[index].
+        // These are returns corresponding to (price[i]-price[i-1]).
+        // The return at `index` is (price[index]-price[index-1]). This is allReturns[index-1].
+        // So we want window ending at index-1.
+
+        const returnIndex = index - 1;
+        const mean20 = returnStats20.mean[returnIndex] || 0;
+        const std20 = returnStats20.stdDev[returnIndex] || 0;
+        const volatility50 = returnStdDev50[returnIndex] || 0;
+
+        // Skewness and Kurtosis are harder to optimize to O(1) without higher order moments rolling sum.
+        // We'll keep them as is for now, but optimize the call if possible.
+        // calculateAdvancedStats calculates everything. We only need skew/kurt.
         const stats20 = this.calculateAdvancedStats(returns20);
+
+        // Autocorrelation uses closes
         const closesSlice = closes.slice(index - 20, index + 1);
-        const closesMean = closesSlice.reduce((a, b) => a + b, 0) / closesSlice.length;
+        const closesMean = closeStats21.mean[index];
 
         return {
-            volatility_20: stats20.stdDev,
-            volatility_50: this.calculateStdDev(returns50),
+            volatility_20: std20,
+            volatility_50: volatility50,
             skewness_20: stats20.skewness,
             kurtosis_20: stats20.kurtosis,
             autocorrelation_1: this.calculateAutocorrelationWithMean(closesSlice, 1, closesMean),
             autocorrelation_5: this.calculateAutocorrelationWithMean(closesSlice, 5, closesMean),
-            returns_mean_20: stats20.mean,
-            returns_std_20: stats20.stdDev
+            returns_mean_20: mean20,
+            returns_std_20: std20
         };
     }
 
@@ -596,6 +658,59 @@ export class FeatureEngineeringService {
         }
 
         return totalDistance !== 0 ? directDistance / totalDistance : 0;
+    }
+
+    private calculateRollingMean(values: number[], period: number): number[] {
+        const result: number[] = new Array(values.length).fill(0);
+        let sum = 0;
+
+        // For the first 'period' elements
+        for (let i = 0; i < values.length; i++) {
+            sum += values[i];
+
+            if (i >= period) {
+                sum -= values[i - period];
+                result[i] = sum / period;
+            } else {
+                // To match behavior of slice(max(0, i-20), i+1) which has length i+1 for i<20
+                result[i] = sum / (i + 1);
+            }
+        }
+        return result;
+    }
+
+    private calculateRollingStats(values: number[], period: number): { mean: number[], stdDev: number[] } {
+        const means: number[] = new Array(values.length).fill(0);
+        const stdDevs: number[] = new Array(values.length).fill(0);
+
+        let sum = 0;
+        let sumSq = 0;
+
+        for (let i = 0; i < values.length; i++) {
+            const val = values[i];
+            sum += val;
+            sumSq += val * val;
+
+            if (i >= period) {
+                const oldVal = values[i - period];
+                sum -= oldVal;
+                sumSq -= oldVal * oldVal;
+
+                const mean = sum / period;
+                const variance = (sumSq / period) - (mean * mean);
+                means[i] = mean;
+                // Clamp variance to 0 to avoid negative due to precision
+                stdDevs[i] = Math.sqrt(Math.max(0, variance));
+            } else {
+                const count = i + 1;
+                const mean = sum / count;
+                const variance = (sumSq / count) - (mean * mean);
+                means[i] = mean;
+                stdDevs[i] = Math.sqrt(Math.max(0, variance));
+            }
+        }
+
+        return { mean: means, stdDev: stdDevs };
     }
 
     clearCache(): void {
