@@ -20,7 +20,7 @@ describe('FeatureEngineeringService Statistics Optimization', () => {
 
         // Old implementation calls
         const meanOld = data.reduce((a, b) => a + b, 0) / data.length;
-        const stdDevOld = s.calculateStdDev(data);
+        const stdDevOld = s.calculateStdDev(data, 0, data.length);
         const skewOld = s.calculateSkewness(data);
         const kurtOld = s.calculateKurtosis(data);
 
