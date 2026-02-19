@@ -351,8 +351,15 @@ export class FeatureEngineeringService {
     }
 
     private extractVolumeFeatures(closes: number[], volumes: number[], indicators: any, index: number) {
-        const volSlice = volumes.slice(Math.max(0, index - 20), index + 1);
-        const avgVolume = volSlice.reduce((a, b) => a + b, 0) / volSlice.length;
+        const startIdx = Math.max(0, index - 20);
+        const length = index + 1 - startIdx;
+
+        // Calculate average volume manually to avoid slice allocation
+        let sumVol = 0;
+        for (let i = 0; i < length; i++) {
+            sumVol += volumes[startIdx + i];
+        }
+        const avgVolume = sumVol / length;
         const currentVolume = volumes[index];
 
         const arrayIndex = index - 200;
@@ -360,11 +367,18 @@ export class FeatureEngineeringService {
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
         // Volume-price correlation
-        const closeSlice = closes.slice(Math.max(0, index - 20), index + 1);
-        const correlation = this.calculateCorrelation(closeSlice, volSlice);
+        const correlation = this.calculateCorrelation(closes, volumes, startIdx, startIdx, length);
 
         // Volume Weighted Price
-        const vwp = closeSlice.reduce((sum, close, i) => sum + close * volSlice[i], 0) / volSlice.reduce((a, b) => a + b, 0);
+        // Calculate manually to avoid slice
+        let sumVP = 0;
+        let sumV = 0;
+        for (let i = 0; i < length; i++) {
+            const v = volumes[startIdx + i];
+            sumVP += closes[startIdx + i] * v;
+            sumV += v;
+        }
+        const vwp = sumV !== 0 ? sumVP / sumV : 0;
 
         return {
             volumeRatio: currentVolume / avgVolume,
@@ -380,20 +394,31 @@ export class FeatureEngineeringService {
     private extractStatisticalFeatures(closes: number[], allReturns: number[], index: number) {
         // allReturns is shifted by 1 relative to closes (allReturns[i] is return for candle i+1)
         // So slice(index - 20, index) gives returns for candles [index - 19] to [index]
-        const returns20 = allReturns.slice(index - 20, index);
-        const returns50 = allReturns.slice(index - 50, index);
 
-        const stats20 = this.calculateAdvancedStats(returns20);
-        const closesSlice = closes.slice(index - 20, index + 1);
-        const closesMean = closesSlice.reduce((a, b) => a + b, 0) / closesSlice.length;
+        // Use pre-allocated calculation methods to avoid slice() calls with bounds checking
+        const start20 = Math.max(0, index - 20);
+        const len20 = index - start20;
+        const stats20 = this.calculateAdvancedStats(allReturns, start20, len20);
+
+        // Calculate mean of closes without slice
+        const closeStartIdx = Math.max(0, index - 20);
+        const closeLength = index + 1 - closeStartIdx;
+        let closeSum = 0;
+        for (let i = 0; i < closeLength; i++) {
+            closeSum += closes[closeStartIdx + i];
+        }
+        const closesMean = closeLength > 0 ? closeSum / closeLength : 0;
+
+        const start50 = Math.max(0, index - 50);
+        const len50 = index - start50;
 
         return {
             volatility_20: stats20.stdDev,
-            volatility_50: this.calculateStdDev(returns50),
+            volatility_50: this.calculateStdDev(allReturns, start50, len50),
             skewness_20: stats20.skewness,
             kurtosis_20: stats20.kurtosis,
-            autocorrelation_1: this.calculateAutocorrelationWithMean(closesSlice, 1, closesMean),
-            autocorrelation_5: this.calculateAutocorrelationWithMean(closesSlice, 5, closesMean),
+            autocorrelation_1: this.calculateAutocorrelationWithMean(closes, 1, closesMean, closeStartIdx, closeLength),
+            autocorrelation_5: this.calculateAutocorrelationWithMean(closes, 5, closesMean, closeStartIdx, closeLength),
             returns_mean_20: stats20.mean,
             returns_std_20: stats20.stdDev
         };
@@ -431,56 +456,55 @@ export class FeatureEngineeringService {
 
     // ==================== HELPER FUNCTIONS ====================
 
-    private calculateAdvancedStats(values: number[]) {
-        const n = values.length;
-        if (n === 0) return { mean: 0, stdDev: 0, skewness: 0, kurtosis: 0 };
+    private calculateAdvancedStats(values: number[], startIndex: number, length: number) {
+        if (length === 0) return { mean: 0, stdDev: 0, skewness: 0, kurtosis: 0 };
 
         let sum = 0;
-        for (let i = 0; i < n; i++) sum += values[i];
-        const mean = sum / n;
+        for (let i = 0; i < length; i++) sum += values[startIndex + i];
+        const mean = sum / length;
 
         let sumSquaredDiff = 0;
         let sumCubedDiff = 0;
         let sumQuartDiff = 0;
 
-        for (let i = 0; i < n; i++) {
-            const diff = values[i] - mean;
+        for (let i = 0; i < length; i++) {
+            const diff = values[startIndex + i] - mean;
             const sq = diff * diff;
             sumSquaredDiff += sq;
             sumCubedDiff += sq * diff;
             sumQuartDiff += sq * sq;
         }
 
-        const variance = sumSquaredDiff / n;
+        const variance = sumSquaredDiff / length;
         const stdDev = Math.sqrt(variance);
 
         let skewness = 0;
         let kurtosis = 0;
 
         if (stdDev !== 0) {
-            if (n > 2) {
-                skewness = (n / ((n - 1) * (n - 2))) * (sumCubedDiff / Math.pow(stdDev, 3));
+            if (length > 2) {
+                skewness = (length / ((length - 1) * (length - 2))) * (sumCubedDiff / Math.pow(stdDev, 3));
             }
-            if (n > 3) {
-                kurtosis = (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * (sumQuartDiff / Math.pow(stdDev, 4)) - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
+            if (length > 3) {
+                kurtosis = (length * (length + 1) / ((length - 1) * (length - 2) * (length - 3))) * (sumQuartDiff / Math.pow(stdDev, 4)) - (3 * Math.pow(length - 1, 2)) / ((length - 2) * (length - 3));
             }
         }
 
         return { mean, stdDev, skewness, kurtosis };
     }
 
-    private calculateAutocorrelationWithMean(values: number[], lag: number, mean: number): number {
-        if (values.length <= lag) return 0;
+    private calculateAutocorrelationWithMean(values: number[], lag: number, mean: number, startIndex: number, length: number): number {
+        if (length <= lag) return 0;
 
         let numerator = 0;
         let denominator = 0;
 
-        for (let i = 0; i < values.length - lag; i++) {
-            numerator += (values[i] - mean) * (values[i + lag] - mean);
+        for (let i = 0; i < length - lag; i++) {
+            numerator += (values[startIndex + i] - mean) * (values[startIndex + i + lag] - mean);
         }
 
-        for (let i = 0; i < values.length; i++) {
-            denominator += Math.pow(values[i] - mean, 2);
+        for (let i = 0; i < length; i++) {
+            denominator += Math.pow(values[startIndex + i] - mean, 2);
         }
 
         return denominator !== 0 ? numerator / denominator : 0;
@@ -512,16 +536,28 @@ export class FeatureEngineeringService {
         return returns;
     }
 
-    private calculateStdDev(values: number[]): number {
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
-        const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+    private calculateStdDev(values: number[], startIndex: number, length: number): number {
+        if (length === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < length; i++) sum += values[startIndex + i];
+        const mean = sum / length;
+
+        let sumSqDiff = 0;
+        for (let i = 0; i < length; i++) {
+            sumSqDiff += Math.pow(values[startIndex + i] - mean, 2);
+        }
+        const variance = sumSqDiff / length;
         return Math.sqrt(variance);
     }
 
     private calculateSkewness(values: number[]): number {
+        // Keeping as is since it's not used in hot path (calculateAdvancedStats is used instead)
+        // Ideally should be refactored too but it requires significant changes to pass start/len
         const n = values.length;
         const mean = values.reduce((a, b) => a + b, 0) / n;
-        const stdDev = this.calculateStdDev(values);
+
+        const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+        const stdDev = Math.sqrt(variance);
 
         if (stdDev === 0) return 0;
 
@@ -530,9 +566,12 @@ export class FeatureEngineeringService {
     }
 
     private calculateKurtosis(values: number[]): number {
+        // Keeping as is
         const n = values.length;
         const mean = values.reduce((a, b) => a + b, 0) / n;
-        const stdDev = this.calculateStdDev(values);
+
+        const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
+        const stdDev = Math.sqrt(variance);
 
         if (stdDev === 0) return 0;
 
@@ -558,20 +597,25 @@ export class FeatureEngineeringService {
         return denominator !== 0 ? numerator / denominator : 0;
     }
 
-    private calculateCorrelation(x: number[], y: number[]): number {
-        if (x.length !== y.length || x.length === 0) return 0;
+    private calculateCorrelation(x: number[], y: number[], startX: number, startY: number, length: number): number {
+        if (length === 0) return 0;
 
-        const n = x.length;
-        const meanX = x.reduce((a, b) => a + b, 0) / n;
-        const meanY = y.reduce((a, b) => a + b, 0) / n;
+        let sumX = 0;
+        let sumY = 0;
+        for (let i = 0; i < length; i++) {
+            sumX += x[startX + i];
+            sumY += y[startY + i];
+        }
+        const meanX = sumX / length;
+        const meanY = sumY / length;
 
         let numerator = 0;
         let sumXSquared = 0;
         let sumYSquared = 0;
 
-        for (let i = 0; i < n; i++) {
-            const diffX = x[i] - meanX;
-            const diffY = y[i] - meanY;
+        for (let i = 0; i < length; i++) {
+            const diffX = x[startX + i] - meanX;
+            const diffY = y[startY + i] - meanY;
             numerator += diffX * diffY;
             sumXSquared += diffX * diffX;
             sumYSquared += diffY * diffY;
@@ -584,15 +628,24 @@ export class FeatureEngineeringService {
     private calculatePriceEfficiency(closes: number[], index: number): number {
         if (index < 10) return 0;
 
-        const recentCloses = closes.slice(index - 10, index + 1);
-        const startPrice = recentCloses[0];
-        const endPrice = recentCloses[recentCloses.length - 1];
+        // recentCloses = closes.slice(index - 10, index + 1);
+        // startPrice = recentCloses[0] -> closes[index - 10]
+        // endPrice = recentCloses[last] -> closes[index]
+
+        const startPrice = closes[index - 10];
+        const endPrice = closes[index];
 
         const directDistance = Math.abs(endPrice - startPrice);
 
         let totalDistance = 0;
-        for (let i = 1; i < recentCloses.length; i++) {
-            totalDistance += Math.abs(recentCloses[i] - recentCloses[i - 1]);
+        // loop for i from 1 to 10
+        // diff between recentCloses[i] and recentCloses[i-1]
+        // recentCloses[i] maps to closes[index - 10 + i]
+        // recentCloses[0] is closes[index - 10]
+        // recentCloses[10] is closes[index]
+
+        for (let i = 1; i <= 10; i++) {
+            totalDistance += Math.abs(closes[index - 10 + i] - closes[index - 10 + i - 1]);
         }
 
         return totalDistance !== 0 ? directDistance / totalDistance : 0;
