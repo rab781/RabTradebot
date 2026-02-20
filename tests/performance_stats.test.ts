@@ -20,12 +20,12 @@ describe('FeatureEngineeringService Statistics Optimization', () => {
 
         // Old implementation calls
         const meanOld = data.reduce((a, b) => a + b, 0) / data.length;
-        const stdDevOld = s.calculateStdDev(data);
-        const skewOld = s.calculateSkewness(data);
-        const kurtOld = s.calculateKurtosis(data);
+        const stdDevOld = s.calculateStdDev(data, 0, data.length);
+        const skewOld = s.calculateSkewness(data, 0, data.length);
+        const kurtOld = s.calculateKurtosis(data, 0, data.length);
 
         // New implementation call
-        const statsNew = s.calculateAdvancedStats(data);
+        const statsNew = s.calculateAdvancedStats(data, 0, data.length);
 
         const EPSILON = 1e-10;
 
@@ -43,14 +43,14 @@ describe('FeatureEngineeringService Statistics Optimization', () => {
 
         const lag = 1;
         const autoCorrOld = s.calculateAutocorrelation(data, lag);
-        const autoCorrNew = s.calculateAutocorrelationWithMean(data, lag, mean);
+        const autoCorrNew = s.calculateAutocorrelationWithMean(data, 0, data.length, lag, mean);
 
         const EPSILON = 1e-10;
         expect(Math.abs(autoCorrOld - autoCorrNew)).toBeLessThan(EPSILON);
 
         const lag5 = 5;
         const autoCorrOld5 = s.calculateAutocorrelation(data, lag5);
-        const autoCorrNew5 = s.calculateAutocorrelationWithMean(data, lag5, mean);
+        const autoCorrNew5 = s.calculateAutocorrelationWithMean(data, 0, data.length, lag5, mean);
 
         expect(Math.abs(autoCorrOld5 - autoCorrNew5)).toBeLessThan(EPSILON);
     });
