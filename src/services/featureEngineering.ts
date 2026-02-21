@@ -222,6 +222,9 @@ export class FeatureEngineeringService {
         opens: number[],
         volumes: number[]
     ) {
+        // Calculate Bollinger Bands first to reuse SMA_20 (middle band)
+        const bb = BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 });
+
         return {
             rsi_7: RSI.calculate({ period: 7, values: closes }),
             rsi_14: RSI.calculate({ period: 14, values: closes }),
@@ -234,11 +237,11 @@ export class FeatureEngineeringService {
                 SimpleMAOscillator: false,
                 SimpleMASignal: false
             }),
-            bb: BollingerBands.calculate({ period: 20, values: closes, stdDev: 2 }),
+            bb,
             ema_9: EMA.calculate({ period: 9, values: closes }),
             ema_21: EMA.calculate({ period: 21, values: closes }),
             ema_50: EMA.calculate({ period: 50, values: closes }),
-            sma_20: SMA.calculate({ period: 20, values: closes }),
+            sma_20: bb.map(b => b.middle),
             sma_50: SMA.calculate({ period: 50, values: closes }),
             sma_200: SMA.calculate({ period: 200, values: closes }),
             atr: ATR.calculate({ high: highs, low: lows, close: closes, period: 14 }),
