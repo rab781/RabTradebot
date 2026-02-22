@@ -5,10 +5,14 @@ import { v4 as uuidv4 } from 'uuid';
 export class BacktestEngine {
     private strategy: IStrategy;
     private config: BacktestConfig;
+    private sortedRoi: [number, number][] = [];
 
     constructor(strategy: IStrategy, config: BacktestConfig) {
         this.strategy = strategy;
         this.config = config;
+        this.sortedRoi = Object.entries(strategy.minimalRoi)
+            .map(([k, v]) => [parseInt(k), v] as [number, number])
+            .sort((a, b) => a[0] - b[0]);
     }
 
     async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
@@ -107,6 +111,11 @@ export class BacktestEngine {
         candle: OHLCVCandle,
         balance: number
     ): Promise<void> {
+        // Hoist data access out of the loop
+        const exitLong = (exitData.exit_long as number[])[index];
+        const exitShort = (exitData.exit_short as number[])[index];
+        const exitTag = (exitData.exit_tag as string[])[index];
+
         for (let j = openTrades.length - 1; j >= 0; j--) {
             const trade = openTrades[j];
             const currentPrice = candle.close;
@@ -117,10 +126,6 @@ export class BacktestEngine {
             let exitReason = '';
 
             // Check exit signals
-            const exitLong = (exitData.exit_long as number[])[index];
-            const exitShort = (exitData.exit_short as number[])[index];
-            const exitTag = (exitData.exit_tag as string[])[index];
-
             if ((trade.side === 'long' && exitLong === 1) || (trade.side === 'short' && exitShort === 1)) {
                 shouldExit = true;
                 exitReason = 'exit_signal';
@@ -279,8 +284,8 @@ export class BacktestEngine {
     private checkRoi(trade: Trade, currentTime: Date): boolean {
         const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / (1000 * 60); // minutes
 
-        for (const [timeStr, roiTarget] of Object.entries(this.strategy.minimalRoi)) {
-            const timeThreshold = parseInt(timeStr);
+        // Use pre-calculated sorted ROI array to avoid object iteration overhead
+        for (const [timeThreshold, roiTarget] of this.sortedRoi) {
             if (tradeDuration >= timeThreshold) {
                 const currentProfitPct = trade.profitPct || 0;
                 if (currentProfitPct >= roiTarget * 100) {
