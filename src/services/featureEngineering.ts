@@ -351,8 +351,10 @@ export class FeatureEngineeringService {
     }
 
     private extractVolumeFeatures(closes: number[], volumes: number[], indicators: any, index: number) {
-        const volSlice = volumes.slice(Math.max(0, index - 20), index + 1);
-        const avgVolume = volSlice.reduce((a, b) => a + b, 0) / volSlice.length;
+        const startIndex = Math.max(0, index - 20);
+        const length = (index + 1) - startIndex;
+
+        const avgVolume = this.calculateMean(volumes, startIndex, length);
         const currentVolume = volumes[index];
 
         const arrayIndex = index - 200;
@@ -360,11 +362,18 @@ export class FeatureEngineeringService {
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
         // Volume-price correlation
-        const closeSlice = closes.slice(Math.max(0, index - 20), index + 1);
-        const correlation = this.calculateCorrelation(closeSlice, volSlice);
+        const correlation = this.calculateCorrelation(closes, volumes, startIndex, length);
 
         // Volume Weighted Price
-        const vwp = closeSlice.reduce((sum, close, i) => sum + close * volSlice[i], 0) / volSlice.reduce((a, b) => a + b, 0);
+        let sumPV = 0;
+        let sumV = 0;
+        for (let i = 0; i < length; i++) {
+            const p = closes[startIndex + i];
+            const v = volumes[startIndex + i];
+            sumPV += p * v;
+            sumV += v;
+        }
+        const vwp = sumV !== 0 ? sumPV / sumV : 0;
 
         return {
             volumeRatio: currentVolume / avgVolume,
@@ -379,21 +388,24 @@ export class FeatureEngineeringService {
 
     private extractStatisticalFeatures(closes: number[], allReturns: number[], index: number) {
         // allReturns is shifted by 1 relative to closes (allReturns[i] is return for candle i+1)
-        // So slice(index - 20, index) gives returns for candles [index - 19] to [index]
-        const returns20 = allReturns.slice(index - 20, index);
-        const returns50 = allReturns.slice(index - 50, index);
+        const ret20Start = Math.max(0, index - 20);
+        const ret20Len = index - ret20Start;
+        const stats20 = this.calculateAdvancedStats(allReturns, ret20Start, ret20Len);
 
-        const stats20 = this.calculateAdvancedStats(returns20);
-        const closesSlice = closes.slice(index - 20, index + 1);
-        const closesMean = closesSlice.reduce((a, b) => a + b, 0) / closesSlice.length;
+        const ret50Start = Math.max(0, index - 50);
+        const ret50Len = index - ret50Start;
+
+        const closesStart = Math.max(0, index - 20);
+        const closesLen = (index + 1) - closesStart;
+        const closesMean = this.calculateMean(closes, closesStart, closesLen);
 
         return {
             volatility_20: stats20.stdDev,
-            volatility_50: this.calculateStdDev(returns50),
+            volatility_50: this.calculateStdDev(allReturns, ret50Start, ret50Len),
             skewness_20: stats20.skewness,
             kurtosis_20: stats20.kurtosis,
-            autocorrelation_1: this.calculateAutocorrelationWithMean(closesSlice, 1, closesMean),
-            autocorrelation_5: this.calculateAutocorrelationWithMean(closesSlice, 5, closesMean),
+            autocorrelation_1: this.calculateAutocorrelationWithMean(closes, closesStart, closesLen, 1, closesMean),
+            autocorrelation_5: this.calculateAutocorrelationWithMean(closes, closesStart, closesLen, 5, closesMean),
             returns_mean_20: stats20.mean,
             returns_std_20: stats20.stdDev
         };
@@ -431,12 +443,21 @@ export class FeatureEngineeringService {
 
     // ==================== HELPER FUNCTIONS ====================
 
-    private calculateAdvancedStats(values: number[]) {
-        const n = values.length;
+    private calculateMean(values: number[], startIndex: number, length: number): number {
+        if (length === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < length; i++) {
+            sum += values[startIndex + i];
+        }
+        return sum / length;
+    }
+
+    private calculateAdvancedStats(values: number[], startIndex: number = 0, length?: number) {
+        const n = length ?? values.length;
         if (n === 0) return { mean: 0, stdDev: 0, skewness: 0, kurtosis: 0 };
 
         let sum = 0;
-        for (let i = 0; i < n; i++) sum += values[i];
+        for (let i = 0; i < n; i++) sum += values[startIndex + i];
         const mean = sum / n;
 
         let sumSquaredDiff = 0;
@@ -444,7 +465,7 @@ export class FeatureEngineeringService {
         let sumQuartDiff = 0;
 
         for (let i = 0; i < n; i++) {
-            const diff = values[i] - mean;
+            const diff = values[startIndex + i] - mean;
             const sq = diff * diff;
             sumSquaredDiff += sq;
             sumCubedDiff += sq * diff;
@@ -469,18 +490,18 @@ export class FeatureEngineeringService {
         return { mean, stdDev, skewness, kurtosis };
     }
 
-    private calculateAutocorrelationWithMean(values: number[], lag: number, mean: number): number {
-        if (values.length <= lag) return 0;
+    private calculateAutocorrelationWithMean(values: number[], startIndex: number, length: number, lag: number, mean: number): number {
+        if (length <= lag) return 0;
 
         let numerator = 0;
         let denominator = 0;
 
-        for (let i = 0; i < values.length - lag; i++) {
-            numerator += (values[i] - mean) * (values[i + lag] - mean);
+        for (let i = 0; i < length - lag; i++) {
+            numerator += (values[startIndex + i] - mean) * (values[startIndex + i + lag] - mean);
         }
 
-        for (let i = 0; i < values.length; i++) {
-            denominator += Math.pow(values[i] - mean, 2);
+        for (let i = 0; i < length; i++) {
+            denominator += Math.pow(values[startIndex + i] - mean, 2);
         }
 
         return denominator !== 0 ? numerator / denominator : 0;
@@ -512,10 +533,19 @@ export class FeatureEngineeringService {
         return returns;
     }
 
-    private calculateStdDev(values: number[]): number {
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
-        const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
-        return Math.sqrt(variance);
+    private calculateStdDev(values: number[], startIndex: number = 0, length?: number): number {
+        const n = length ?? values.length;
+        if (n === 0) return 0;
+
+        let sum = 0;
+        for (let i = 0; i < n; i++) sum += values[startIndex + i];
+        const mean = sum / n;
+
+        let varianceSum = 0;
+        for (let i = 0; i < n; i++) {
+            varianceSum += Math.pow(values[startIndex + i] - mean, 2);
+        }
+        return Math.sqrt(varianceSum / n);
     }
 
     private calculateSkewness(values: number[]): number {
@@ -558,20 +588,26 @@ export class FeatureEngineeringService {
         return denominator !== 0 ? numerator / denominator : 0;
     }
 
-    private calculateCorrelation(x: number[], y: number[]): number {
-        if (x.length !== y.length || x.length === 0) return 0;
+    private calculateCorrelation(x: number[], y: number[], startIndex: number = 0, length?: number): number {
+        const n = length ?? x.length;
+        if (n === 0) return 0;
 
-        const n = x.length;
-        const meanX = x.reduce((a, b) => a + b, 0) / n;
-        const meanY = y.reduce((a, b) => a + b, 0) / n;
+        let sumX = 0;
+        let sumY = 0;
+        for (let i = 0; i < n; i++) {
+            sumX += x[startIndex + i];
+            sumY += y[startIndex + i];
+        }
+        const meanX = sumX / n;
+        const meanY = sumY / n;
 
         let numerator = 0;
         let sumXSquared = 0;
         let sumYSquared = 0;
 
         for (let i = 0; i < n; i++) {
-            const diffX = x[i] - meanX;
-            const diffY = y[i] - meanY;
+            const diffX = x[startIndex + i] - meanX;
+            const diffY = y[startIndex + i] - meanY;
             numerator += diffX * diffY;
             sumXSquared += diffX * diffX;
             sumYSquared += diffY * diffY;
