@@ -30,6 +30,11 @@ describe('FeatureEngineeringService Statistics Optimization', () => {
         const EPSILON = 1e-10;
 
         expect(Math.abs(meanOld - statsNew.mean)).toBeLessThan(EPSILON);
+        // stdDev, skewness, kurtosis helpers also updated to support new signature but still work with (values)
+        // However, calculateStdDev might have changed signature in a way that breaks existing calls?
+        // Let's check calculateStdDev signature. It is (values, startIndex, length).
+        // If length is undefined, it uses values.length. This is backward compatible.
+
         expect(Math.abs(stdDevOld - statsNew.stdDev)).toBeLessThan(EPSILON);
         expect(Math.abs(skewOld - statsNew.skewness)).toBeLessThan(EPSILON);
         expect(Math.abs(kurtOld - statsNew.kurtosis)).toBeLessThan(EPSILON);
@@ -41,16 +46,32 @@ describe('FeatureEngineeringService Statistics Optimization', () => {
 
         const mean = data.reduce((a, b) => a + b, 0) / data.length;
 
+        // Inline legacy implementation for comparison
+        const calculateAutocorrelationOld = (values: number[], lag: number): number => {
+            if (values.length <= lag) return 0;
+            const m = values.reduce((a, b) => a + b, 0) / values.length;
+            let numerator = 0;
+            let denominator = 0;
+            for (let i = 0; i < values.length - lag; i++) {
+                numerator += (values[i] - m) * (values[i + lag] - m);
+            }
+            for (let i = 0; i < values.length; i++) {
+                denominator += Math.pow(values[i] - m, 2);
+            }
+            return denominator !== 0 ? numerator / denominator : 0;
+        };
+
         const lag = 1;
-        const autoCorrOld = s.calculateAutocorrelation(data, lag);
-        const autoCorrNew = s.calculateAutocorrelationWithMean(data, lag, mean);
+        const autoCorrOld = calculateAutocorrelationOld(data, lag);
+        // New signature: values, startIndex, length, lag, mean
+        const autoCorrNew = s.calculateAutocorrelationWithMean(data, 0, data.length, lag, mean);
 
         const EPSILON = 1e-10;
         expect(Math.abs(autoCorrOld - autoCorrNew)).toBeLessThan(EPSILON);
 
         const lag5 = 5;
-        const autoCorrOld5 = s.calculateAutocorrelation(data, lag5);
-        const autoCorrNew5 = s.calculateAutocorrelationWithMean(data, lag5, mean);
+        const autoCorrOld5 = calculateAutocorrelationOld(data, lag5);
+        const autoCorrNew5 = s.calculateAutocorrelationWithMean(data, 0, data.length, lag5, mean);
 
         expect(Math.abs(autoCorrOld5 - autoCorrNew5)).toBeLessThan(EPSILON);
     });
