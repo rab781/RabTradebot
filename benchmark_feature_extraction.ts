@@ -1,11 +1,6 @@
 import { FeatureEngineeringService } from './src/services/featureEngineering';
 import { OHLCVCandle } from './src/types/dataframe';
 
-// Mock technicalindicators to avoid installing if missing or slow
-// But wait, the service imports them. I should try to run it with ts-node.
-// If technicalindicators is not available, I might need to mock it or install it.
-// Let's assume it is available since it is in package.json (I assume).
-
 // Generate dummy data
 const generateData = (count: number): OHLCVCandle[] => {
     const data: OHLCVCandle[] = [];
