@@ -5,10 +5,15 @@ import { v4 as uuidv4 } from 'uuid';
 export class BacktestEngine {
     private strategy: IStrategy;
     private config: BacktestConfig;
+    // Pre-calculated ROI targets sorted by duration descending for efficient lookup
+    private sortedRoi: Array<[number, number]>;
 
     constructor(strategy: IStrategy, config: BacktestConfig) {
         this.strategy = strategy;
         this.config = config;
+        this.sortedRoi = Object.entries(this.strategy.minimalRoi)
+            .map(([timeStr, roi]) => [parseInt(timeStr), roi] as [number, number])
+            .sort((a, b) => b[0] - a[0]);
     }
 
     async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
@@ -279,8 +284,7 @@ export class BacktestEngine {
     private checkRoi(trade: Trade, currentTime: Date): boolean {
         const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / (1000 * 60); // minutes
 
-        for (const [timeStr, roiTarget] of Object.entries(this.strategy.minimalRoi)) {
-            const timeThreshold = parseInt(timeStr);
+        for (const [timeThreshold, roiTarget] of this.sortedRoi) {
             if (tradeDuration >= timeThreshold) {
                 const currentProfitPct = trade.profitPct || 0;
                 if (currentProfitPct >= roiTarget * 100) {
