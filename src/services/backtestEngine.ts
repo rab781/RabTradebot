@@ -69,7 +69,10 @@ export class BacktestEngine {
             this.updateTradesProfits(openTrades, currentPrice);
 
             // Update balance for open trades
-            const totalUnrealizedPnl = openTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
+            let totalUnrealizedPnl = 0;
+            for (let j = 0; j < openTrades.length; j++) {
+                totalUnrealizedPnl += openTrades[j].profit || 0;
+            }
             const currentBalance = balance + totalUnrealizedPnl;
 
             // Track drawdown
@@ -330,7 +333,11 @@ export class BacktestEngine {
         const profitableTrades = trades.filter(t => (t.profit || 0) > 0).length;
         const lossTrades = totalTrades - profitableTrades;
 
-        const totalProfit = trades.reduce((sum, t) => sum + (t.profit || 0), 0);
+        let totalProfit = 0;
+        for (let i = 0; i < totalTrades; i++) {
+            totalProfit += trades[i].profit || 0;
+        }
+
         const totalProfitPct = (totalProfit / startingBalance) * 100;
 
         const avgProfit = totalTrades > 0 ? totalProfit / totalTrades : 0;
@@ -342,38 +349,72 @@ export class BacktestEngine {
         const durations = trades
             .filter(t => t.closeDate)
             .map(t => t.closeDate!.getTime() - t.openDate.getTime());
+
+        let sumDuration = 0;
+        for (let i = 0; i < durations.length; i++) sumDuration += durations[i];
+
         const avgTradeDuration = durations.length > 0
-            ? durations.reduce((sum, d) => sum + d, 0) / durations.length / (1000 * 60) // minutes
+            ? sumDuration / durations.length / (1000 * 60) // minutes
             : 0;
 
         // Find best and worst trades
-        const bestTrade = trades.reduce((best, current) =>
-            (current.profit || 0) > (best?.profit || -Infinity) ? current : best, null as Trade | null);
-        const worstTrade = trades.reduce((worst, current) =>
-            (current.profit || 0) < (worst?.profit || Infinity) ? current : worst, null as Trade | null);
+        let bestTrade: Trade | null = null;
+        let worstTrade: Trade | null = null;
+
+        for (let i = 0; i < totalTrades; i++) {
+            const current = trades[i];
+            const currentProfit = current.profit || 0;
+            if (!bestTrade || currentProfit > (bestTrade.profit || -Infinity)) bestTrade = current;
+            if (!worstTrade || currentProfit < (worstTrade.profit || Infinity)) worstTrade = current;
+        }
 
         // Calculate additional metrics
-        const profits = trades.map(t => t.profit || 0);
-        const positiveReturns = profits.filter(p => p > 0);
-        const negativeReturns = profits.filter(p => p < 0);
+        const positiveReturns: number[] = [];
+        const negativeReturns: number[] = [];
+        for (let i = 0; i < totalTrades; i++) {
+            const profit = trades[i].profit || 0;
+            if (profit > 0) positiveReturns.push(profit);
+            else if (profit < 0) negativeReturns.push(profit);
+        }
+
+        let sumPositive = 0;
+        for (let i = 0; i < positiveReturns.length; i++) sumPositive += positiveReturns[i];
+
+        let sumNegative = 0;
+        for (let i = 0; i < negativeReturns.length; i++) sumNegative += negativeReturns[i];
 
         const avgPositiveReturn = positiveReturns.length > 0
-            ? positiveReturns.reduce((sum, p) => sum + p, 0) / positiveReturns.length : 0;
+            ? sumPositive / positiveReturns.length : 0;
         const avgNegativeReturn = negativeReturns.length > 0
-            ? negativeReturns.reduce((sum, p) => sum + p, 0) / negativeReturns.length : 0;
+            ? sumNegative / negativeReturns.length : 0;
 
         const profitFactor = avgNegativeReturn !== 0 ? Math.abs(avgPositiveReturn / avgNegativeReturn) : 0;
 
         // Simple Sharpe ratio calculation (using daily returns)
         const dailyReturns = this.calculateDailyReturns(trades, data);
-        const avgDailyReturn = dailyReturns.reduce((sum, r) => sum + r, 0) / dailyReturns.length;
-        const stdDailyReturn = Math.sqrt(dailyReturns.reduce((sum, r) => sum + Math.pow(r - avgDailyReturn, 2), 0) / dailyReturns.length);
+        let sumDailyReturn = 0;
+        for (let i = 0; i < dailyReturns.length; i++) sumDailyReturn += dailyReturns[i];
+        const avgDailyReturn = dailyReturns.length > 0 ? sumDailyReturn / dailyReturns.length : 0;
+
+        let sumSquaredDevDaily = 0;
+        for (let i = 0; i < dailyReturns.length; i++) {
+            sumSquaredDevDaily += Math.pow(dailyReturns[i] - avgDailyReturn, 2);
+        }
+        const stdDailyReturn = dailyReturns.length > 0 ? Math.sqrt(sumSquaredDevDaily / dailyReturns.length) : 0;
         const sharpeRatio = stdDailyReturn !== 0 ? avgDailyReturn / stdDailyReturn : 0;
 
         // Simple Sortino ratio (downside deviation)
-        const downsideReturns = dailyReturns.filter(r => r < 0);
+        const downsideReturns: number[] = [];
+        for (let i = 0; i < dailyReturns.length; i++) {
+            if (dailyReturns[i] < 0) downsideReturns.push(dailyReturns[i]);
+        }
+
+        let sumSquaredDownside = 0;
+        for (let i = 0; i < downsideReturns.length; i++) {
+            sumSquaredDownside += Math.pow(downsideReturns[i], 2);
+        }
         const downsideStd = downsideReturns.length > 0
-            ? Math.sqrt(downsideReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / downsideReturns.length)
+            ? Math.sqrt(sumSquaredDownside / downsideReturns.length)
             : 0;
         const sortinoRatio = downsideStd !== 0 ? avgDailyReturn / downsideStd : 0;
 
@@ -425,7 +466,10 @@ export class BacktestEngine {
 
         // Use Array.from to convert Map entries to array for better compatibility
         for (const [day, dayTrades] of Array.from(tradesByDay.entries())) {
-            const dayProfit = dayTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
+            let dayProfit = 0;
+            for (let i = 0; i < dayTrades.length; i++) {
+                dayProfit += dayTrades[i].profit || 0;
+            }
             cumulativeProfit += dayProfit;
             const dailyReturn = cumulativeProfit - previousCumulativeProfit;
             dailyReturns.push(dailyReturn);
