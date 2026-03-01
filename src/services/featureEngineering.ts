@@ -351,8 +351,19 @@ export class FeatureEngineeringService {
     }
 
     private extractVolumeFeatures(closes: number[], volumes: number[], indicators: any, index: number) {
-        const volSlice = volumes.slice(Math.max(0, index - 20), index + 1);
-        const avgVolume = volSlice.reduce((a, b) => a + b, 0) / volSlice.length;
+        const startIdx = Math.max(0, index - 20);
+        const endIdx = index + 1;
+        const sliceLen = endIdx - startIdx;
+
+        let sumVol = 0;
+        let sumVWPNumerator = 0;
+        for (let i = startIdx; i < endIdx; i++) {
+            const vol = volumes[i];
+            sumVol += vol;
+            sumVWPNumerator += closes[i] * vol;
+        }
+
+        const avgVolume = sumVol / sliceLen;
         const currentVolume = volumes[index];
 
         const arrayIndex = index - 200;
@@ -360,14 +371,15 @@ export class FeatureEngineeringService {
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
         // Volume-price correlation
-        const closeSlice = closes.slice(Math.max(0, index - 20), index + 1);
+        const closeSlice = closes.slice(startIdx, endIdx);
+        const volSlice = volumes.slice(startIdx, endIdx);
         const correlation = this.calculateCorrelation(closeSlice, volSlice);
 
         // Volume Weighted Price
-        const vwp = closeSlice.reduce((sum, close, i) => sum + close * volSlice[i], 0) / volSlice.reduce((a, b) => a + b, 0);
+        const vwp = sumVol !== 0 ? sumVWPNumerator / sumVol : closes[index];
 
         return {
-            volumeRatio: currentVolume / avgVolume,
+            volumeRatio: avgVolume !== 0 ? currentVolume / avgVolume : 1,
             volumeMA_20: avgVolume,
             obv: obv,
             obvSlope: obv - obvPrevious,
@@ -385,7 +397,11 @@ export class FeatureEngineeringService {
 
         const stats20 = this.calculateAdvancedStats(returns20);
         const closesSlice = closes.slice(index - 20, index + 1);
-        const closesMean = closesSlice.reduce((a, b) => a + b, 0) / closesSlice.length;
+        let closesSum = 0;
+        for (let j = 0; j < closesSlice.length; j++) {
+            closesSum += closesSlice[j];
+        }
+        const closesMean = closesSum / closesSlice.length;
 
         return {
             volatility_20: stats20.stdDev,
@@ -513,37 +529,68 @@ export class FeatureEngineeringService {
     }
 
     private calculateStdDev(values: number[]): number {
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
-        const variance = values.reduce((sum, val) => sum + Math.pow(val - mean, 2), 0) / values.length;
-        return Math.sqrt(variance);
+        const n = values.length;
+        if (n === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+            sum += values[i];
+        }
+        const mean = sum / n;
+        let varianceSum = 0;
+        for (let i = 0; i < n; i++) {
+            const diff = values[i] - mean;
+            varianceSum += diff * diff;
+        }
+        return Math.sqrt(varianceSum / n);
     }
 
     private calculateSkewness(values: number[]): number {
         const n = values.length;
-        const mean = values.reduce((a, b) => a + b, 0) / n;
+        if (n === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+            sum += values[i];
+        }
+        const mean = sum / n;
         const stdDev = this.calculateStdDev(values);
 
         if (stdDev === 0) return 0;
 
-        const sum = values.reduce((acc, val) => acc + Math.pow((val - mean) / stdDev, 3), 0);
-        return (n / ((n - 1) * (n - 2))) * sum;
+        let skewSum = 0;
+        for (let i = 0; i < n; i++) {
+            skewSum += Math.pow((values[i] - mean) / stdDev, 3);
+        }
+        return (n / ((n - 1) * (n - 2))) * skewSum;
     }
 
     private calculateKurtosis(values: number[]): number {
         const n = values.length;
-        const mean = values.reduce((a, b) => a + b, 0) / n;
+        if (n === 0) return 0;
+        let sum = 0;
+        for (let i = 0; i < n; i++) {
+            sum += values[i];
+        }
+        const mean = sum / n;
         const stdDev = this.calculateStdDev(values);
 
         if (stdDev === 0) return 0;
 
-        const sum = values.reduce((acc, val) => acc + Math.pow((val - mean) / stdDev, 4), 0);
-        return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * sum - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
+        let kurtSum = 0;
+        for (let i = 0; i < n; i++) {
+            kurtSum += Math.pow((values[i] - mean) / stdDev, 4);
+        }
+        return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * kurtSum - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
     }
 
     private calculateAutocorrelation(values: number[], lag: number): number {
         if (values.length <= lag) return 0;
 
-        const mean = values.reduce((a, b) => a + b, 0) / values.length;
+        let sum = 0;
+        for (let i = 0; i < values.length; i++) {
+            sum += values[i];
+        }
+        const mean = sum / values.length;
+
         let numerator = 0;
         let denominator = 0;
 
@@ -562,8 +609,14 @@ export class FeatureEngineeringService {
         if (x.length !== y.length || x.length === 0) return 0;
 
         const n = x.length;
-        const meanX = x.reduce((a, b) => a + b, 0) / n;
-        const meanY = y.reduce((a, b) => a + b, 0) / n;
+        let sumX = 0;
+        let sumY = 0;
+        for (let i = 0; i < n; i++) {
+            sumX += x[i];
+            sumY += y[i];
+        }
+        const meanX = sumX / n;
+        const meanY = sumY / n;
 
         let numerator = 0;
         let sumXSquared = 0;
