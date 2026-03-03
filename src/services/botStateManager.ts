@@ -83,7 +83,8 @@ class BotStateManager {
         lastUpdate: new Date()
     };
 
-    private eventListeners: Map<string, Function[]> = new Map();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    private eventListeners: Map<string, ((...args: any[]) => void)[]> = new Map();
     private startTime: Date = new Date();
 
     private constructor() {
@@ -101,7 +102,8 @@ class BotStateManager {
     }
 
     // Event listener system
-    public on(event: string, callback: Function) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    public on(event: string, callback: (...args: any[]) => void) {
         if (!this.eventListeners.has(event)) {
             this.eventListeners.set(event, []);
         }

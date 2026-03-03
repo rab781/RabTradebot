@@ -390,7 +390,7 @@ export class OpenClawStrategy implements IStrategy {
         const volume = this.calculateVolumeScore(dataframe, index);
 
         // Weights based on market regime
-        let weights = {
+        const weights = {
             regime: 0.2,
             momentum: 0.35,
             volume: 0.20,
@@ -407,7 +407,7 @@ export class OpenClawStrategy implements IStrategy {
         }
 
         let totalScore = 0;
-        let reasons: string[] = [];
+        const reasons: string[] = [];
 
         // Regime contribution
         if (regime === 'trending_bull') {
