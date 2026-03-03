@@ -155,27 +155,14 @@ export class FeatureEngineeringService {
         }
 
         const features: FeatureSet[] = [];
+        const closes = data.map(d => d.close);
+        const highs = data.map(d => d.high);
+        const lows = data.map(d => d.low);
+        const opens = data.map(d => d.open);
+        const volumes = data.map(d => d.volume);
 
-        // Lazy initialization variables
-        let closes: number[] | null = null;
-        let highs: number[] | null = null;
-        let lows: number[] | null = null;
-        let opens: number[] | null = null;
-        let volumes: number[] | null = null;
-        let indicators: any = null;
-        let allReturns: number[] | null = null;
-
-        const ensureData = () => {
-            if (!closes) {
-                 closes = data.map(d => d.close);
-                 highs = data.map(d => d.high);
-                 lows = data.map(d => d.low);
-                 opens = data.map(d => d.open);
-                 volumes = data.map(d => d.volume);
-                 allReturns = this.calculateReturns(closes);
-                 indicators = this.calculateAllIndicators(data, closes, highs!, lows!, opens!, volumes!);
-            }
-        };
+        // Pre-calculate indicators for all data points
+        const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
 
         // Extract features for each candle (starting from index MIN_CANDLES_FOR_FEATURES to have enough history)
         for (let i = MIN_CANDLES_FOR_FEATURES; i < data.length; i++) {
@@ -200,9 +187,6 @@ export class FeatureEngineeringService {
                 }
             }
 
-            // Ensure data is available for calculation
-            ensureData();
-
             // Calculate features
             const featureSet: FeatureSet = {
                 // Price features
@@ -210,17 +194,17 @@ export class FeatureEngineeringService {
 
                 // Technical indicators
                 ...this.extractMomentumIndicators(indicators, i),
-                ...this.extractTrendIndicators(indicators, i, closes![i]),
-                ...this.extractVolatilityIndicators(indicators, i, closes![i]),
+                ...this.extractTrendIndicators(indicators, i, closes[i]),
+                ...this.extractVolatilityIndicators(indicators, i, closes[i]),
 
                 // Volume features
-                ...this.extractVolumeFeatures(closes!, volumes!, indicators, i),
+                ...this.extractVolumeFeatures(data, indicators, i),
 
                 // Statistical features
-                ...this.extractStatisticalFeatures(closes!, allReturns!, i),
+                ...this.extractStatisticalFeatures(closes, i),
 
                 // Market microstructure
-                ...this.extractMarketMicrostructure(highs!, lows!, closes!, volumes!, i),
+                ...this.extractMarketMicrostructure(data, i),
 
                 // Metadata
                 timestamp,
@@ -387,21 +371,21 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractVolumeFeatures(closes: number[], volumes: number[], indicators: any, index: number) {
-        const volSlice = volumes.slice(Math.max(0, index - 20), index + 1);
-        const avgVolume = volSlice.reduce((a, b) => a + b, 0) / volSlice.length;
-        const currentVolume = volumes[index];
+    private extractVolumeFeatures(data: OHLCVCandle[], indicators: any, index: number) {
+        const volumes = data.slice(Math.max(0, index - 20), index + 1).map(d => d.volume);
+        const avgVolume = volumes.reduce((a, b) => a + b, 0) / volumes.length;
+        const currentVolume = data[index].volume;
 
         const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
         const obv = indicators.obv[arrayIndex] || 0;
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
         // Volume-price correlation
-        const closeSlice = closes.slice(Math.max(0, index - 20), index + 1);
-        const correlation = this.calculateCorrelation(closeSlice, volSlice);
+        const closes = data.slice(Math.max(0, index - 20), index + 1).map(d => d.close);
+        const correlation = this.calculateCorrelation(closes, volumes);
 
         // Volume Weighted Price
-        const vwp = closeSlice.reduce((sum, close, i) => sum + close * volSlice[i], 0) / volSlice.reduce((a, b) => a + b, 0);
+        const vwp = closes.reduce((sum, close, i) => sum + close * volumes[i], 0) / volumes.reduce((a, b) => a + b, 0);
 
         return {
             volumeRatio: currentVolume / avgVolume,
@@ -414,33 +398,28 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractStatisticalFeatures(closes: number[], allReturns: number[], index: number) {
-        // allReturns is shifted by 1 relative to closes (allReturns[i] is return for candle i+1)
-        // So slice(index - 20, index) gives returns for candles [index - 19] to [index]
-        const returns20 = allReturns.slice(index - 20, index);
-        const returns50 = allReturns.slice(index - 50, index);
-
-        const stats20 = this.calculateAdvancedStats(returns20);
-        const closesSlice = closes.slice(index - 20, index + 1);
-        const closesMean = closesSlice.reduce((a, b) => a + b, 0) / closesSlice.length;
+    private extractStatisticalFeatures(closes: number[], index: number) {
+        const returns20 = this.calculateReturns(closes.slice(index - 20, index + 1));
+        const returns50 = this.calculateReturns(closes.slice(index - 50, index + 1));
 
         return {
-            volatility_20: stats20.stdDev,
+            volatility_20: this.calculateStdDev(returns20),
             volatility_50: this.calculateStdDev(returns50),
-            skewness_20: stats20.skewness,
-            kurtosis_20: stats20.kurtosis,
-            autocorrelation_1: this.calculateAutocorrelationWithMean(closesSlice, 1, closesMean),
-            autocorrelation_5: this.calculateAutocorrelationWithMean(closesSlice, 5, closesMean),
-            returns_mean_20: stats20.mean,
-            returns_std_20: stats20.stdDev
+            skewness_20: this.calculateSkewness(returns20),
+            kurtosis_20: this.calculateKurtosis(returns20),
+            autocorrelation_1: this.calculateAutocorrelation(closes.slice(index - 20, index + 1), 1),
+            autocorrelation_5: this.calculateAutocorrelation(closes.slice(index - 20, index + 1), 5),
+            returns_mean_20: returns20.reduce((a, b) => a + b, 0) / returns20.length,
+            returns_std_20: this.calculateStdDev(returns20)
         };
     }
 
-    private extractMarketMicrostructure(highs: number[], lows: number[], closes: number[], volumes: number[], index: number) {
-        const high = highs[index];
-        const low = lows[index];
-        const close = closes[index];
-        const volume = volumes[index];
+    private extractMarketMicrostructure(data: OHLCVCandle[], index: number) {
+        const current = data[index];
+        const high = current.high;
+        const low = current.low;
+        const close = current.close;
+        const volume = current.volume;
 
         // Approximate bid-ask spread using high-low range
         const spreadApprox = ((high - low) / close) * 100;
@@ -449,7 +428,7 @@ export class FeatureEngineeringService {
         const volumeImbalance = (close - low) / (high - low);
 
         // Price efficiency (how directly price moved)
-        const priceEfficiency = this.calculatePriceEfficiency(closes, index);
+        const priceEfficiency = this.calculatePriceEfficiency(data, index);
 
         // Market depth proxy (volume * range)
         const marketDepthProxy = volume * (high - low);
@@ -467,61 +446,6 @@ export class FeatureEngineeringService {
     }
 
     // ==================== HELPER FUNCTIONS ====================
-
-    private calculateAdvancedStats(values: number[]) {
-        const n = values.length;
-        if (n === 0) return { mean: 0, stdDev: 0, skewness: 0, kurtosis: 0 };
-
-        let sum = 0;
-        for (let i = 0; i < n; i++) sum += values[i];
-        const mean = sum / n;
-
-        let sumSquaredDiff = 0;
-        let sumCubedDiff = 0;
-        let sumQuartDiff = 0;
-
-        for (let i = 0; i < n; i++) {
-            const diff = values[i] - mean;
-            const sq = diff * diff;
-            sumSquaredDiff += sq;
-            sumCubedDiff += sq * diff;
-            sumQuartDiff += sq * sq;
-        }
-
-        const variance = sumSquaredDiff / n;
-        const stdDev = Math.sqrt(variance);
-
-        let skewness = 0;
-        let kurtosis = 0;
-
-        if (stdDev !== 0) {
-            if (n > 2) {
-                skewness = (n / ((n - 1) * (n - 2))) * (sumCubedDiff / Math.pow(stdDev, 3));
-            }
-            if (n > 3) {
-                kurtosis = (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * (sumQuartDiff / Math.pow(stdDev, 4)) - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
-            }
-        }
-
-        return { mean, stdDev, skewness, kurtosis };
-    }
-
-    private calculateAutocorrelationWithMean(values: number[], lag: number, mean: number): number {
-        if (values.length <= lag) return 0;
-
-        let numerator = 0;
-        let denominator = 0;
-
-        for (let i = 0; i < values.length - lag; i++) {
-            numerator += (values[i] - mean) * (values[i + lag] - mean);
-        }
-
-        for (let i = 0; i < values.length; i++) {
-            denominator += Math.pow(values[i] - mean, 2);
-        }
-
-        return denominator !== 0 ? numerator / denominator : 0;
-    }
 
     private calculateMACDCrossover(macdArray: any[], index: number): number {
         if (index < 1) return 0;
@@ -618,18 +542,18 @@ export class FeatureEngineeringService {
         return denominator !== 0 ? numerator / denominator : 0;
     }
 
-    private calculatePriceEfficiency(closes: number[], index: number): number {
+    private calculatePriceEfficiency(data: OHLCVCandle[], index: number): number {
         if (index < 10) return 0;
 
-        const recentCloses = closes.slice(index - 10, index + 1);
-        const startPrice = recentCloses[0];
-        const endPrice = recentCloses[recentCloses.length - 1];
+        const recentData = data.slice(index - 10, index + 1);
+        const startPrice = recentData[0].close;
+        const endPrice = recentData[recentData.length - 1].close;
 
         const directDistance = Math.abs(endPrice - startPrice);
 
         let totalDistance = 0;
-        for (let i = 1; i < recentCloses.length; i++) {
-            totalDistance += Math.abs(recentCloses[i] - recentCloses[i - 1]);
+        for (let i = 1; i < recentData.length; i++) {
+            totalDistance += Math.abs(recentData[i].close - recentData[i - 1].close);
         }
 
         return totalDistance !== 0 ? directDistance / totalDistance : 0;

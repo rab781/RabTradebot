@@ -213,7 +213,7 @@ export class DatabaseService {
 
         const profits = trades.map((t: any) => t.profit || 0);
         const winningTrades = trades.filter((t: any) => (t.profit || 0) > 0);
-        const totalProfit = profits.reduce((a, b) => a + b, 0);
+        const totalProfit = profits.reduce((a: number, b: number) => a + b, 0);
 
         return {
             totalTrades: trades.length,
@@ -462,7 +462,7 @@ export class DatabaseService {
             };
         }
 
-        const correct = predictions.filter(p => p.wasCorrect).length;
+        const correct = predictions.filter((p: any) => p.wasCorrect).length;
         const avgConfidence = predictions.reduce((sum: number, p: any) => sum + p.confidence, 0) / predictions.length;
 
         return {
@@ -649,7 +649,7 @@ export class DatabaseService {
             take: 20
         });
 
-        return results.map((r: any) => ({
+        return results.map(r => ({
             ...r,
             trades: JSON.parse(r.trades),
             equityCurve: r.equityCurve ? JSON.parse(r.equityCurve) : undefined,
@@ -685,7 +685,8 @@ export class DatabaseService {
      * Get recent errors
      */
     async getRecentErrors(limit: number = 50) {
-        // @ts-ignore
+        // eslint-disable-next-line @typescript-eslint/ban-ts-comment
+        // @ts-ignore Prisma client type generation issue
         return await this.prisma.errorLog.findMany({
             orderBy: { createdAt: 'desc' },
             take: limit

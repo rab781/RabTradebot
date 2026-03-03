@@ -1,9 +1,10 @@
 
-// Mock the database module before importing anything that uses it
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const Module = require('module');
 const originalRequire = Module.prototype.require;
 
-Module.prototype.require = function(path: string) {
+// Mock the database module before importing anything that uses it
+Module.prototype.require = function(path: string, ...args: any[]) {
   if (path.includes('database/database')) {
       return {
           getDatabase: () => ({
@@ -14,7 +15,7 @@ Module.prototype.require = function(path: string) {
           closeDatabase: () => {}
       };
   }
-  return originalRequire.apply(this, arguments);
+  return originalRequire.apply(this, [path, ...args]);
 };
 
 import { FeatureEngineeringService, FeatureSet } from '../src/services/featureEngineering';

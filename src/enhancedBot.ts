@@ -2212,7 +2212,7 @@ bot.command('alerts', async (ctx) => {
             return ctx.reply('❌ No active alerts found. Create one with /alert [symbol] [price] [above/below]');
         }
 
-        let message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n`;
+        const message = `🔔 YOUR ACTIVE ALERTS (${dbAlerts.length}):\n\n`;
         dbAlerts.forEach((alert: any, index: number) => {
             message += `${index + 1}. ${alert.symbol}\n`;
             message += `   💰 $${alert.targetPrice} (${alert.alertType})\n`;
