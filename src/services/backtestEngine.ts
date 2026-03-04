@@ -418,21 +418,24 @@ export class BacktestEngine {
         let cumulativeProfit = 0;
         let previousCumulativeProfit = 0;
 
-        // Group trades by day
-        const tradesByDay = new Map<string, Trade[]>();
-        for (const trade of trades) {
-            if (trade.closeDate) {
-                const day = trade.closeDate.toISOString().split('T')[0];
-                if (!tradesByDay.has(day)) {
-                    tradesByDay.set(day, []);
-                }
-                tradesByDay.get(day)!.push(trade);
-            }
+        // ⚡ Bolt Optimization: Group profits per day directly to avoid creating
+        // intermediate arrays, array.reduce, and expensive string parsing.
+        // Math.floor(timestamp / 86400000) is a fast way to get a unique integer for UTC day.
+        const dayProfits = new Map<number, number>();
+
+        for (let i = 0; i < trades.length; i++) {
+            const trade = trades[i];
+            if (!trade.closeDate) continue;
+
+            // Unique integer per UTC day (86400000 ms = 1 day)
+            const dayKey = Math.floor(trade.closeDate.getTime() / 86400000);
+
+            const currentProfit = dayProfits.get(dayKey) || 0;
+            dayProfits.set(dayKey, currentProfit + (trade.profit || 0));
         }
 
-        // Use Array.from to convert Map entries to array for better compatibility
-        for (const [day, dayTrades] of Array.from(tradesByDay.entries())) {
-            const dayProfit = dayTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
+        // The Map preserves insertion order, so we can iterate its values
+        for (const dayProfit of dayProfits.values()) {
             cumulativeProfit += dayProfit;
             const dailyReturn = cumulativeProfit - previousCumulativeProfit;
             dailyReturns.push(dailyReturn);
