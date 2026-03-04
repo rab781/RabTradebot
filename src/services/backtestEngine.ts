@@ -5,10 +5,16 @@ import { v4 as uuidv4 } from 'uuid';
 export class BacktestEngine {
     private strategy: IStrategy;
     private config: BacktestConfig;
+    private sortedRoi: [number, number][];
 
     constructor(strategy: IStrategy, config: BacktestConfig) {
         this.strategy = strategy;
         this.config = config;
+
+        // Cache sorted ROI to prevent Object.entries() overhead on every candle check
+        this.sortedRoi = Object.entries(this.strategy.minimalRoi || {})
+            .map(([timeStr, roiTarget]) => [parseInt(timeStr), roiTarget] as [number, number])
+            .sort((a, b) => a[0] - b[0]);
     }
 
     async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
@@ -107,9 +113,13 @@ export class BacktestEngine {
         candle: OHLCVCandle,
         balance: number
     ): Promise<void> {
+        const currentPrice = candle.close;
+        const exitLong = (exitData.exit_long as number[] || [])[index];
+        const exitShort = (exitData.exit_short as number[] || [])[index];
+        const exitTag = (exitData.exit_tag as string[] || [])[index];
+
         for (let j = openTrades.length - 1; j >= 0; j--) {
             const trade = openTrades[j];
-            const currentPrice = candle.close;
             const currentProfit = this.calculateTradeProfit(trade, currentPrice);
             const currentProfitPct = (currentProfit / (trade.amount * trade.openRate)) * 100;
 
@@ -117,10 +127,6 @@ export class BacktestEngine {
             let exitReason = '';
 
             // Check exit signals
-            const exitLong = (exitData.exit_long as number[])[index];
-            const exitShort = (exitData.exit_short as number[])[index];
-            const exitTag = (exitData.exit_tag as string[])[index];
-
             if ((trade.side === 'long' && exitLong === 1) || (trade.side === 'short' && exitShort === 1)) {
                 shouldExit = true;
                 exitReason = 'exit_signal';
@@ -278,11 +284,12 @@ export class BacktestEngine {
 
     private checkRoi(trade: Trade, currentTime: Date): boolean {
         const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / (1000 * 60); // minutes
+        const currentProfitPct = trade.profitPct || 0;
 
-        for (const [timeStr, roiTarget] of Object.entries(this.strategy.minimalRoi)) {
-            const timeThreshold = parseInt(timeStr);
+        // Use pre-computed sortedRoi for performance improvement during hot-path evaluation
+        for (let i = 0; i < this.sortedRoi.length; i++) {
+            const [timeThreshold, roiTarget] = this.sortedRoi[i];
             if (tradeDuration >= timeThreshold) {
-                const currentProfitPct = trade.profitPct || 0;
                 if (currentProfitPct >= roiTarget * 100) {
                     return true;
                 }
