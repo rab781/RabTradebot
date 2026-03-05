@@ -8,3 +8,7 @@
 ## 2025-05-18 - [Hot-path Object.entries allocation overhead]
 **Learning:** In backtesting and paper trading engines, calling `Object.entries(this.strategy.minimalRoi)` inside `checkRoi` created massive allocation overhead because it ran for every open trade on every simulated candle, slowing down evaluations significantly.
 **Action:** Pre-compute and sort strategy configurations (like `minimalRoi`) in the constructor into a static array (`this.sortedRoi`), bypassing the repeated dynamic object allocation for a ~35x speedup in the evaluation method.
+
+## 2026-03-05 - [Parallelizing Independent API Calls]
+**Learning:** In services orchestrating multiple distinct external API requests (e.g., fetching data from different timeframes or pulling separate datasets like order books vs historical candles), doing them sequentially creates a waterfall effect that drastically hurts performance due to cumulative network latency.
+**Action:** Always inspect sequential asynchronous calls (`await a(); await b();`). If they do not depend on each other's output, wrap them in `Promise.all([a(), b()])` to fetch data concurrently.
