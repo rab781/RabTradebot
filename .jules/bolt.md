@@ -12,3 +12,7 @@
 ## 2026-03-05 - [Parallelizing Independent API Calls]
 **Learning:** In services orchestrating multiple distinct external API requests (e.g., fetching data from different timeframes or pulling separate datasets like order books vs historical candles), doing them sequentially creates a waterfall effect that drastically hurts performance due to cumulative network latency.
 **Action:** Always inspect sequential asynchronous calls (`await a(); await b();`). If they do not depend on each other's output, wrap them in `Promise.all([a(), b()])` to fetch data concurrently.
+
+## 2024-05-24 - [Avoid Array.slice() inside hot paths]
+**Learning:** Calling `Array.prototype.slice()` and creating new arrays during tight iteration loops (like inside `extractFeatures` which processes large data arrays) introduces massive garbage collection and allocation overhead in Node.js.
+**Action:** When creating statistical or data-extraction helper methods, design signatures to accept optional `startIndex` and `length` bound parameters and iterate using standard `for` loops. This enables traversing slices of existing pre-allocated arrays (in an SoA manner) without reallocating intermediate arrays for every sliding window calculation.
