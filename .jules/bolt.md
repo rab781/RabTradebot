@@ -16,3 +16,7 @@
 ## 2024-05-24 - [Avoid Array.slice() inside hot paths]
 **Learning:** Calling `Array.prototype.slice()` and creating new arrays during tight iteration loops (like inside `extractFeatures` which processes large data arrays) introduces massive garbage collection and allocation overhead in Node.js.
 **Action:** When creating statistical or data-extraction helper methods, design signatures to accept optional `startIndex` and `length` bound parameters and iterate using standard `for` loops. This enables traversing slices of existing pre-allocated arrays (in an SoA manner) without reallocating intermediate arrays for every sliding window calculation.
+
+## 2025-05-24 - [O(N*M) Allocation bottlenecks in Indicator Calculations]
+**Learning:** In `OpenClawStrategy.ts`, calculating rolling volatility (standard deviation) over a dataset by using nested loops that repeatedly instantiate arrays (`const returns = []`), push to them, and then compute metrics via `.reduce()` creates massive O(N*M) overhead from closure creation and garbage collection.
+**Action:** Optimize rolling indicator loops by pre-allocating result arrays (`new Array(len).fill(0)`), pre-calculating the base unit (e.g., all step-to-step returns) in a single O(N) pass, and then using a rolling loop of primitive variables to compute the sum and variance.

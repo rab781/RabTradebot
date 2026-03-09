@@ -269,22 +269,34 @@ export class OpenClawStrategy implements IStrategy {
         dataframe.price_vs_ema21 = priceVsEma21;
 
         // Volatility (returns std dev)
-        const volatility: number[] = [];
+        // ⚡ Bolt Optimization: Pre-calculate returns and use primitive loops
+        // Avoids O(N*M) array allocations and expensive reduce closures in hot path
         const period = 20;
-        for (let i = 0; i < closes.length; i++) {
-            if (i < period) {
-                volatility.push(0);
-                continue;
-            }
+        const volatility: number[] = new Array(closes.length).fill(0);
+        const allReturns: number[] = new Array(closes.length).fill(0);
 
-            const returns = [];
+        // Pre-calculate returns once
+        for (let i = 1; i < closes.length; i++) {
+            allReturns[i] = (closes[i] - closes[i - 1]) / closes[i - 1];
+        }
+
+        // Calculate sliding window variance
+        for (let i = period; i < closes.length; i++) {
+            let sum = 0;
+            // First pass: mean
             for (let j = i - period + 1; j <= i; j++) {
-                returns.push((closes[j] - closes[j - 1]) / closes[j - 1]);
+                sum += allReturns[j];
+            }
+            const mean = sum / period;
+
+            // Second pass: variance
+            let varianceSum = 0;
+            for (let j = i - period + 1; j <= i; j++) {
+                const diff = allReturns[j] - mean;
+                varianceSum += diff * diff;
             }
 
-            const mean = returns.reduce((a, b) => a + b, 0) / returns.length;
-            const variance = returns.reduce((sum, r) => sum + Math.pow(r - mean, 2), 0) / returns.length;
-            volatility.push(Math.sqrt(variance));
+            volatility[i] = Math.sqrt(varianceSum / period);
         }
         dataframe.volatility = volatility;
 
