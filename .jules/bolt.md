@@ -16,3 +16,7 @@
 ## 2024-05-24 - [Avoid Array.slice() inside hot paths]
 **Learning:** Calling `Array.prototype.slice()` and creating new arrays during tight iteration loops (like inside `extractFeatures` which processes large data arrays) introduces massive garbage collection and allocation overhead in Node.js.
 **Action:** When creating statistical or data-extraction helper methods, design signatures to accept optional `startIndex` and `length` bound parameters and iterate using standard `for` loops. This enables traversing slices of existing pre-allocated arrays (in an SoA manner) without reallocating intermediate arrays for every sliding window calculation.
+
+## 2025-05-18 - [Optimizing Multiple Custom Indicator Loops in Strategies]
+**Learning:** In strategy files like `OpenClawStrategy.ts`, calculating multiple custom indicators (like `bbWidth`, `volumeRatio`, `volatility`, etc.) in separate iterative loops that use `Array.push` and nested array calculations (`Array.slice`, `Array.reduce`) creates massive allocation overhead and O(N*M) time complexity.
+**Action:** Consolidate these iterations into a single, pre-allocated `for` loop (`new Array(length).fill(0)`), pre-calculate variables like `returns` once to avoid repeated slices/reduces inside rolling windows, and combine the index lookups to reduce garbage collection pressure. This can yield a >3x speedup on custom indicator population in strategies.
