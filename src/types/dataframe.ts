@@ -20,6 +20,7 @@ export interface OHLCVCandle {
 
 export class DataFrameBuilder {
     private data: DataFrame;
+    private columnNames: string[];
 
     constructor() {
         this.data = {
@@ -30,6 +31,7 @@ export class DataFrameBuilder {
             volume: [],
             date: []
         };
+        this.columnNames = ['open', 'high', 'low', 'close', 'volume', 'date'];
     }
 
     addCandle(candle: OHLCVCandle): this {
@@ -43,13 +45,50 @@ export class DataFrameBuilder {
     }
 
     addCandles(candles: OHLCVCandle[]): this {
-        candles.forEach(candle => this.addCandle(candle));
+        const len = candles.length;
+        if (len === 0) return this;
+
+        // Fast path for empty dataframe - pre-allocate arrays
+        if (this.data.open.length === 0) {
+            const open = new Array(len);
+            const high = new Array(len);
+            const low = new Array(len);
+            const close = new Array(len);
+            const volume = new Array(len);
+            const date = new Array(len);
+
+            for (let i = 0; i < len; i++) {
+                const c = candles[i];
+                open[i] = c.open;
+                high[i] = c.high;
+                low[i] = c.low;
+                close[i] = c.close;
+                volume[i] = c.volume;
+                date[i] = c.date;
+            }
+
+            this.data.open = open;
+            this.data.high = high;
+            this.data.low = low;
+            this.data.close = close;
+            this.data.volume = volume;
+            this.data.date = date;
+        } else {
+            // Fallback for appending to existing data
+            for (let i = 0; i < len; i++) {
+                this.addCandle(candles[i]);
+            }
+        }
+
         return this;
     }
 
     addColumn(name: string, values: number[] | string[] | Date[]): this {
         if (values.length !== this.data.open.length) {
             throw new Error(`Column ${name} length (${values.length}) doesn't match existing data length (${this.data.open.length})`);
+        }
+        if (!(name in this.data)) {
+            this.columnNames.push(name);
         }
         this.data[name] = values;
         return this;
@@ -60,6 +99,9 @@ export class DataFrameBuilder {
     }
 
     setColumn(name: string, values: number[] | string[] | Date[]): this {
+        if (!(name in this.data)) {
+            this.columnNames.push(name);
+        }
         this.data[name] = values;
         return this;
     }
@@ -78,8 +120,11 @@ export class DataFrameBuilder {
             date: []
         };
 
-        for (const [key, values] of Object.entries(this.data)) {
-            result[key] = values.slice(start, end);
+        for (const key of this.columnNames) {
+            const values = this.data[key];
+            if (values) {
+                result[key] = (values as any[]).slice(start, end);
+            }
         }
 
         return result;
