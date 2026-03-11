@@ -254,45 +254,35 @@ export class OpenClawStrategy implements IStrategy {
             const lower = bbLower[i] || 0;
             const middle = bbMiddle[i] || 0;
 
-            if (middle > 0) {
-                bbWidth[i] = ((upper - lower) / middle) * 100;
-            } else {
-                bbWidth[i] = 0;
+        // Volatility (returns std dev)
+        // ⚡ Bolt Optimization: Pre-calculate returns and use primitive loops
+        // Avoids O(N*M) array allocations and expensive reduce closures in hot path
+        const period = 20;
+        const volatility: number[] = new Array(closes.length).fill(0);
+        const allReturns: number[] = new Array(closes.length).fill(0);
+
+        // Pre-calculate returns once
+        for (let i = 1; i < closes.length; i++) {
+            allReturns[i] = (closes[i] - closes[i - 1]) / closes[i - 1];
+        }
+
+        // Calculate sliding window variance
+        for (let i = period; i < closes.length; i++) {
+            let sum = 0;
+            // First pass: mean
+            for (let j = i - period + 1; j <= i; j++) {
+                sum += allReturns[j];
+            }
+            const mean = sum / period;
+
+            // Second pass: variance
+            let varianceSum = 0;
+            for (let j = i - period + 1; j <= i; j++) {
+                const diff = allReturns[j] - mean;
+                varianceSum += diff * diff;
             }
 
-            if (upper !== lower) {
-                bbPercentB[i] = (close - lower) / (upper - lower);
-            } else {
-                bbPercentB[i] = 0.5;
-            }
-
-            // Volume ratio
-            const volumeMa = volMaArr[i] || 1;
-            volumeRatio[i] = volumes[i] / volumeMa;
-
-            // Price vs EMAs
-            const ema9 = ema9Arr[i] || close;
-            const ema21 = ema21Arr[i] || close;
-
-            priceVsEma9[i] = ((close - ema9) / ema9) * 100;
-            priceVsEma21[i] = ((close - ema21) / ema21) * 100;
-
-            // Volatility
-            if (i >= period) {
-                let sum = 0;
-                for (let j = i - period + 1; j <= i; j++) {
-                    sum += allReturns[j];
-                }
-                const mean = sum / period;
-
-                let sumSqDiff = 0;
-                for (let j = i - period + 1; j <= i; j++) {
-                    const diff = allReturns[j] - mean;
-                    sumSqDiff += diff * diff;
-                }
-
-                volatility[i] = Math.sqrt(sumSqDiff / period);
-            }
+            volatility[i] = Math.sqrt(varianceSum / period);
         }
 
         dataframe.bb_width = bbWidth;
