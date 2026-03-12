@@ -203,30 +203,6 @@ export class OpenClawStrategy implements IStrategy {
         dataframe.bb_middle = new Array(bbPad).fill(closes[0]).concat(bbResult.map(b => b?.middle || 0));
         dataframe.bb_lower = new Array(bbPad).fill(closes[0]).concat(bbResult.map(b => b?.lower || 0));
 
-        // BB Width and %B
-        const bbWidth: number[] = [];
-        const bbPercentB: number[] = [];
-        for (let i = 0; i < closes.length; i++) {
-            const upper = (dataframe.bb_upper as number[])[i] || 0;
-            const lower = (dataframe.bb_lower as number[])[i] || 0;
-            const middle = (dataframe.bb_middle as number[])[i] || 0;
-            const close = closes[i];
-
-            if (middle > 0) {
-                bbWidth.push(((upper - lower) / middle) * 100);
-            } else {
-                bbWidth.push(0);
-            }
-
-            if (upper !== lower) {
-                bbPercentB.push((close - lower) / (upper - lower));
-            } else {
-                bbPercentB.push(0.5);
-            }
-        }
-        dataframe.bb_width = bbWidth;
-        dataframe.bb_percentb = bbPercentB;
-
         // ATR
         const atrResult = ATR.calculate({
             high: highs,
@@ -244,60 +220,86 @@ export class OpenClawStrategy implements IStrategy {
         const volMa = SMA.calculate({ period: 20, values: volumes });
         dataframe.volume_ma = new Array(length - volMa.length).fill(volumes[0]).concat(volMa);
 
-        // Volume ratio
-        const volumeRatio: number[] = [];
-        for (let i = 0; i < volumes.length; i++) {
-            const volumeMa = (dataframe.volume_ma as number[])[i] || 1;
-            volumeRatio.push(volumes[i] / volumeMa);
-        }
-        dataframe.volume_ratio = volumeRatio;
+        // === COMBINED LOOP FOR OPTIMIZED CUSTOM INDICATORS ===
+        // Bolt: Optimize O(N) multi-loop allocations and slice overheads by merging
+        // bbWidth, bbPercentB, volumeRatio, priceVsEma, and volatility into a single pass
 
-        // === CUSTOM INDICATORS ===
+        const bbWidth = new Array(length).fill(0);
+        const bbPercentB = new Array(length).fill(0);
+        const volumeRatio = new Array(length).fill(0);
+        const priceVsEma9 = new Array(length).fill(0);
+        const priceVsEma21 = new Array(length).fill(0);
+        const volatility = new Array(length).fill(0);
 
-        // Price vs EMAs (% difference)
-        const priceVsEma9: number[] = [];
-        const priceVsEma21: number[] = [];
-        for (let i = 0; i < closes.length; i++) {
-            const close = closes[i];
-            const ema9 = (dataframe.ema_9 as number[])[i] || close;
-            const ema21 = (dataframe.ema_21 as number[])[i] || close;
-
-            priceVsEma9.push(((close - ema9) / ema9) * 100);
-            priceVsEma21.push(((close - ema21) / ema21) * 100);
-        }
-        dataframe.price_vs_ema9 = priceVsEma9;
-        dataframe.price_vs_ema21 = priceVsEma21;
-
-        // Volatility (returns std dev)
-        // ⚡ Bolt Optimization: Pre-calculate returns and use primitive loops
-        // Avoids O(N*M) array allocations and expensive reduce closures in hot path
-        const period = 20;
-        const volatility: number[] = new Array(closes.length).fill(0);
-        const allReturns: number[] = new Array(closes.length).fill(0);
-
-        // Pre-calculate returns once
-        for (let i = 1; i < closes.length; i++) {
+        // Pre-calculate returns to avoid repeated allocations in rolling volatility
+        const allReturns = new Array(length).fill(0);
+        for (let i = 1; i < length; i++) {
             allReturns[i] = (closes[i] - closes[i - 1]) / closes[i - 1];
         }
 
-        // Calculate sliding window variance
-        for (let i = period; i < closes.length; i++) {
-            let sum = 0;
-            // First pass: mean
-            for (let j = i - period + 1; j <= i; j++) {
-                sum += allReturns[j];
-            }
-            const mean = sum / period;
+        const ema9Arr = dataframe.ema_9 as number[];
+        const ema21Arr = dataframe.ema_21 as number[];
+        const volMaArr = dataframe.volume_ma as number[];
+        const bbUpper = dataframe.bb_upper as number[];
+        const bbLower = dataframe.bb_lower as number[];
+        const bbMiddle = dataframe.bb_middle as number[];
 
-            // Second pass: variance
-            let varianceSum = 0;
-            for (let j = i - period + 1; j <= i; j++) {
-                const diff = allReturns[j] - mean;
-                varianceSum += diff * diff;
+        const period = 20;
+
+        for (let i = 0; i < length; i++) {
+            const close = closes[i];
+
+            // BB Width and %B
+            const upper = bbUpper[i] || 0;
+            const lower = bbLower[i] || 0;
+            const middle = bbMiddle[i] || 0;
+
+            if (middle > 0) {
+                bbWidth[i] = ((upper - lower) / middle) * 100;
+            } else {
+                bbWidth[i] = 0;
             }
 
-            volatility[i] = Math.sqrt(varianceSum / period);
+            if (upper !== lower) {
+                bbPercentB[i] = (close - lower) / (upper - lower);
+            } else {
+                bbPercentB[i] = 0.5;
+            }
+
+            // Volume ratio
+            const volumeMa = volMaArr[i] || 1;
+            volumeRatio[i] = volumes[i] / volumeMa;
+
+            // Price vs EMAs
+            const ema9 = ema9Arr[i] || close;
+            const ema21 = ema21Arr[i] || close;
+
+            priceVsEma9[i] = ((close - ema9) / ema9) * 100;
+            priceVsEma21[i] = ((close - ema21) / ema21) * 100;
+
+            // Volatility
+            if (i >= period) {
+                let sum = 0;
+                for (let j = i - period + 1; j <= i; j++) {
+                    sum += allReturns[j];
+                }
+                const mean = sum / period;
+
+                let sumSqDiff = 0;
+                for (let j = i - period + 1; j <= i; j++) {
+                    const diff = allReturns[j] - mean;
+                    sumSqDiff += diff * diff;
+                }
+
+                volatility[i] = Math.sqrt(sumSqDiff / period);
+            }
         }
+
+        dataframe.bb_width = bbWidth;
+        dataframe.bb_percentb = bbPercentB;
+        dataframe.volume_ratio = volumeRatio;
+        dataframe.price_vs_ema9 = priceVsEma9;
+        dataframe.price_vs_ema21 = priceVsEma21;
         dataframe.volatility = volatility;
 
         return dataframe;
