@@ -151,45 +151,75 @@ export class DataFrameBuilder {
         return new DataFrameBuilder().build();
     }
 
-    // Helper method to get typical price (hlc3)
+// Helper method to get typical price (hlc3)
     static getTypicalPrice(dataframe: DataFrame): number[] {
-        return dataframe.high.map((high, i) => 
-            (high + dataframe.low[i] + dataframe.close[i]) / 3
-        );
+        const len = dataframe.high.length;
+        const result = new Array(len);
+        const highs = dataframe.high;
+        const lows = dataframe.low;
+        const closes = dataframe.close;
+
+        for (let i = 0; i < len; i++) {
+            result[i] = (highs[i] + lows[i] + closes[i]) / 3;
+        }
+        return result;
     }
 
     // Helper method to calculate percentage change
     static getPercentageChange(values: number[], periods: number = 1): number[] {
-        const result: number[] = new Array(periods).fill(0);
-        for (let i = periods; i < values.length; i++) {
+        const len = values.length;
+        const result: number[] = new Array(len);
+
+        // Fill initial periods with 0
+        for (let i = 0; i < periods && i < len; i++) {
+            result[i] = 0;
+        }
+
+        for (let i = periods; i < len; i++) {
             const currentValue = values[i];
             const previousValue = values[i - periods];
-            result.push(((currentValue - previousValue) / previousValue) * 100);
+            result[i] = ((currentValue - previousValue) / previousValue) * 100;
         }
         return result;
     }
 
     // Helper method to calculate simple moving average
     static getSMA(values: number[], period: number): number[] {
-        const result: number[] = new Array(period - 1).fill(NaN);
-        for (let i = period - 1; i < values.length; i++) {
-            const sum = values.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-            result.push(sum / period);
+        const len = values.length;
+        const result: number[] = new Array(len).fill(NaN);
+
+        if (len < period) return result;
+
+        let sum = 0;
+        // Calculate initial sum
+        for (let i = 0; i < period; i++) {
+            sum += values[i];
         }
+
+        result[period - 1] = sum / period;
+
+        // Calculate sliding window sum
+        for (let i = period; i < len; i++) {
+            sum = sum - values[i - period] + values[i];
+            result[i] = sum / period;
+        }
+
         return result;
     }
 
     // Helper method to calculate exponential moving average
     static getEMA(values: number[], period: number): number[] {
-        const result: number[] = [];
+        const len = values.length;
+        const result: number[] = new Array(len);
+        if (len === 0) return result;
+
         const multiplier = 2 / (period + 1);
         
         // First value is just the first price
-        result.push(values[0]);
+        result[0] = values[0];
         
-        for (let i = 1; i < values.length; i++) {
-            const ema = (values[i] * multiplier) + (result[i - 1] * (1 - multiplier));
-            result.push(ema);
+        for (let i = 1; i < len; i++) {
+            result[i] = (values[i] * multiplier) + (result[i - 1] * (1 - multiplier));
         }
         
         return result;
@@ -197,25 +227,45 @@ export class DataFrameBuilder {
 
     // Helper method for crossed above condition
     static crossedAbove(series1: number[], series2: number[] | number): boolean[] {
-        const series2Array = typeof series2 === 'number' 
-            ? new Array(series1.length).fill(series2) 
-            : series2;
+        const len = series1.length;
+        const result = new Array<boolean>(len);
+
+        if (len === 0) return result;
+
+        result[0] = false;
+
+        if (typeof series2 === 'number') {
+            for (let i = 1; i < len; i++) {
+                result[i] = series1[i] > series2 && series1[i - 1] <= series2;
+            }
+        } else {
+            for (let i = 1; i < len; i++) {
+                result[i] = series1[i] > series2[i] && series1[i - 1] <= series2[i - 1];
+            }
+        }
             
-        return series1.map((value, i) => {
-            if (i === 0) return false;
-            return value > series2Array[i] && series1[i - 1] <= series2Array[i - 1];
-        });
+        return result;
     }
 
     // Helper method for crossed below condition
     static crossedBelow(series1: number[], series2: number[] | number): boolean[] {
-        const series2Array = typeof series2 === 'number' 
-            ? new Array(series1.length).fill(series2) 
-            : series2;
+        const len = series1.length;
+        const result = new Array<boolean>(len);
+
+        if (len === 0) return result;
+
+        result[0] = false;
+
+        if (typeof series2 === 'number') {
+            for (let i = 1; i < len; i++) {
+                result[i] = series1[i] < series2 && series1[i - 1] >= series2;
+            }
+        } else {
+            for (let i = 1; i < len; i++) {
+                result[i] = series1[i] < series2[i] && series1[i - 1] >= series2[i - 1];
+            }
+        }
             
-        return series1.map((value, i) => {
-            if (i === 0) return false;
-            return value < series2Array[i] && series1[i - 1] >= series2Array[i - 1];
-        });
+        return result;
     }
 }

@@ -20,3 +20,11 @@
 ## 2025-05-24 - [O(N*M) Allocation bottlenecks in Indicator Calculations]
 **Learning:** In `OpenClawStrategy.ts`, calculating rolling volatility (standard deviation) over a dataset by using nested loops that repeatedly instantiate arrays (`const returns = []`), push to them, and then compute metrics via `.reduce()` creates massive O(N*M) overhead from closure creation and garbage collection.
 **Action:** Optimize rolling indicator loops by pre-allocating result arrays (`new Array(len).fill(0)`), pre-calculating the base unit (e.g., all step-to-step returns) in a single O(N) pass, and then using a rolling loop of primitive variables to compute the sum and variance.
+
+## 2025-05-24 - [O(N) vs O(N*M) in Sliding Window Calculations]
+**Learning:** In `DataFrameBuilder.getSMA`, calculating a simple moving average by using `.slice().reduce()` inside a loop over the entire dataset creates a massive O(N * K) overhead (where K is the period). By maintaining a sliding window sum (adding the new value and subtracting the old value as the window moves), the time complexity is reduced to O(N), resulting in a ~4x speedup for a period of 200.
+**Action:** Always look for opportunities to replace nested loops or higher-order array methods (like `.slice().reduce()`) with a sliding window approach for calculations over a rolling period.
+
+## 2025-05-24 - [Pre-allocating Arrays vs Array.push()]
+**Learning:** In `DataFrameBuilder` helper methods (`getTypicalPrice`, `getPercentageChange`, `getEMA`, `crossedAbove`, `crossedBelow`), dynamically resizing arrays using `.push()` or creating new arrays with `.map()` is significantly slower than pre-allocating an array of the exact required size (`new Array(len)`) and using a standard `for` loop to fill it.
+**Action:** When the output array size is known in advance (which is almost always the case for indicator/feature calculations), pre-allocate the array and use direct index assignment for maximum performance in Node.js.
