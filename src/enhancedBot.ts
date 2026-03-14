@@ -407,39 +407,43 @@ ${technicalSection}`);
     await ctx.reply(`${timeframeSection}
 ${backtestSection}`);
 
-    // Generate and send charts
-    try {
-      await ctx.reply('🔄 Generating charts...');
-      const timeframes = ['1h', '4h', '1d'];
+        // Generate and send charts
+        try {
+            await ctx.reply('🔄 Generating charts...');
+            const timeframes = ['1h', '4h', '1d'];
 
-      for (const tf of timeframes) {
-        // Get data efficiently (limit to 100 candles)
-        const data = await dataManager.getRecentData(symbol, tf, 100);
+            for (const tf of timeframes) {
+                try {
+                    // Get data efficiently (limit to 100 candles)
+                    const data = await dataManager.getRecentData(symbol, tf, 100);
 
-        if (data && data.length > 0) {
-          // Convert data to format expected by ImageChartService
-          const chartData = data.map((d) => ({
-            t: d.timestamp,
-            o: d.open,
-            h: d.high,
-            l: d.low,
-            c: d.close,
-            v: d.volume,
-          }));
+                    if (!data || data.length === 0) {
+                        console.warn(`[Analyze] No chart data available for ${symbol} ${tf}`);
+                        continue;
+                    }
 
-          const chartResult = await imageChartService.generateCandlestickChart(
-            symbol,
-            tf,
-            chartData
-          );
-          const patternInfo =
-            chartResult.patterns.length > 0
-              ? `\n📊 Patterns: ${chartResult.patterns.map((p) => `${p.name} (${p.confidence}%)`).join(', ')}`
-              : '';
-          await ctx.replyWithPhoto(
-            { source: chartResult.buffer },
-            { caption: `${symbol} ${tf} Chart${patternInfo}` }
-          );
+                    // Convert data to format expected by ImageChartService
+                    const chartData = data.map(d => ({
+                        t: d.timestamp,
+                        o: d.open,
+                        h: d.high,
+                        l: d.low,
+                        c: d.close,
+                        v: d.volume
+                    }));
+
+                    const chartResult = await imageChartService.generateCandlestickChart(symbol, tf, chartData);
+                    const patternInfo = chartResult.patterns.length > 0
+                        ? `\n📊 Patterns: ${chartResult.patterns.map(p => `${p.name} (${p.confidence}%)`).join(', ')}`
+                        : '';
+                    await ctx.replyWithPhoto({ source: chartResult.buffer }, { caption: `${symbol} ${tf} Chart${patternInfo}` });
+                } catch (tfChartError) {
+                    console.error(`Chart generation failed for ${symbol} ${tf}:`, tfChartError);
+                }
+            }
+        } catch (chartError) {
+            console.error('Chart generation error in /analyze:', chartError);
+            await ctx.reply('⚠️ Could not generate chart images, but analysis continues...');
         }
       }
     } catch (chartError) {
@@ -2698,9 +2702,7 @@ startWebServer();
 // Start prediction verification service
 predictionVerifier.start();
 
-bot
-  .launch()
-  .then(() => {
+bot.launch({ dropPendingUpdates: true }).then(() => {
     console.log('✅ Bot started successfully!');
     console.log('🎯 Ready to receive commands...');
     console.log('💡 Send /start to see available commands');
