@@ -8,6 +8,7 @@ import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
+import os from 'os';
 import BotStateManager from './services/botStateManager';
 
 const app = express();
@@ -19,13 +20,18 @@ const io = new SocketIOServer(httpServer, {
     }
 });
 
-const PORT = process.env.WEB_PORT || 3000;
+const PORT = Number(process.env.WEB_PORT || 3000);
+const HOST = process.env.WEB_HOST || '0.0.0.0';
 const stateManager = BotStateManager.getInstance();
 
 // Middleware
 app.use(cors());
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
+
+app.get('/', (req: Request, res: Response) => {
+    res.sendFile(path.join(__dirname, '../public/index.html'));
+});
 
 // API Routes
 
@@ -142,8 +148,16 @@ io.on('connection', (socket) => {
 
 // Start server
 export function startWebServer() {
-    httpServer.listen(PORT, () => {
+    httpServer.listen(PORT, HOST, () => {
+        const interfaces = os.networkInterfaces();
+        const lanIp = Object.values(interfaces)
+            .flat()
+            .find((iface) => iface && iface.family === 'IPv4' && !iface.internal)?.address;
+
         console.log(`🌐 Web Dashboard running at http://localhost:${PORT}`);
+        if (lanIp) {
+            console.log(`🌐 LAN Access: http://${lanIp}:${PORT}`);
+        }
         console.log(`📊 API available at http://localhost:${PORT}/api`);
         console.log(`🔌 WebSocket ready for real-time updates`);
     });
