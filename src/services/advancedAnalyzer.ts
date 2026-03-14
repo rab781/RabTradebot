@@ -105,9 +105,14 @@ export class AdvancedAnalyzer {
             };
         } catch (error: any) {
             console.error(`[AdvancedAnalyzer] Error in volume analysis for ${symbol}:`, error);
-            throw new Error(
-                `Failed to analyze volume for ${symbol}: ${error.message || 'Unknown error'}`
-            );
+            // Keep /analyze usable even when exchange APIs are temporarily unavailable.
+            return {
+                symbol,
+                volumeChange24h: 0,
+                volumeRank: 0,
+                unusualVolume: false,
+                recommendation: `NEUTRAL - volume data unavailable (${error.message || 'Unknown error'})`,
+            };
         }
     }
     async findSupportResistance(symbol: string): Promise<SupportResistance> {

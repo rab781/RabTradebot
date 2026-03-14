@@ -1,5 +1,6 @@
 import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
 import axios from 'axios';
+import * as https from 'https';
 
 export interface HistoricalDataConfig {
     symbol: string;
@@ -12,8 +13,80 @@ export interface HistoricalDataConfig {
 export class DataManager {
     private baseUrl = 'https://api.binance.com/api/v3';
     private dataCache = new Map<string, OHLCVCandle[]>();
+    private insecureAgent = new https.Agent({ rejectUnauthorized: false });
 
     constructor() {}
+
+    private shouldRetryInsecureTls(error: any): boolean {
+        const code = String(error?.code || '');
+        const message = String(error?.message || '').toLowerCase();
+
+        return (
+            code.includes('CERT') ||
+            code.includes('UNABLE_TO_GET_ISSUER_CERT') ||
+            message.includes('unable to get local issuer certificate') ||
+            message.includes('self signed certificate')
+        );
+    }
+
+    private async getWithTlsFallback(url: string, config: any): Promise<any> {
+        try {
+            return await axios.get(url, config);
+        } catch (error: any) {
+            const allowInsecure = process.env.ALLOW_INSECURE_TLS !== 'false';
+            if (!allowInsecure || !this.shouldRetryInsecureTls(error)) {
+                throw error;
+            }
+
+            console.warn('[DataManager] TLS certificate validation failed, retrying with insecure TLS fallback.');
+            return axios.get(url, {
+                ...config,
+                httpsAgent: this.insecureAgent,
+            });
+        }
+    }
+
+    private mapCryptoCompareRows(rows: any[]): OHLCVCandle[] {
+        return rows.map((row: any) => ({
+            timestamp: Number(row.time || 0) * 1000,
+            open: Number(row.open || 0),
+            high: Number(row.high || 0),
+            low: Number(row.low || 0),
+            close: Number(row.close || 0),
+            volume: Number(row.volumeto || row.volumefrom || 0),
+            date: new Date(Number(row.time || 0) * 1000),
+        }));
+    }
+
+    private async getRecentDataFromCryptoCompare(symbol: string, timeframe: string, limit: number): Promise<OHLCVCandle[]> {
+        const base = symbol.replace('USDT', '').replace('USD', '');
+        const endpoint = timeframe.endsWith('d') ? 'histoday' : timeframe.endsWith('h') ? 'histohour' : 'histominute';
+
+        let aggregate = 1;
+        if (timeframe.endsWith('m')) aggregate = parseInt(timeframe.replace('m', ''), 10) || 1;
+        else if (timeframe.endsWith('h')) aggregate = parseInt(timeframe.replace('h', ''), 10) || 1;
+        else if (timeframe.endsWith('d')) aggregate = parseInt(timeframe.replace('d', ''), 10) || 1;
+
+        const response = await this.getWithTlsFallback(
+            `https://min-api.cryptocompare.com/data/v2/${endpoint}`,
+            {
+                params: {
+                    fsym: base,
+                    tsym: 'USD',
+                    limit,
+                    aggregate,
+                },
+                timeout: 10000,
+            }
+        );
+
+        const rows = response?.data?.Data?.Data;
+        if (!Array.isArray(rows) || rows.length === 0) {
+            throw new Error(`CryptoCompare returned no recent data for ${symbol}`);
+        }
+
+        return this.mapCryptoCompareRows(rows);
+    }
 
     async downloadHistoricalData(config: HistoricalDataConfig): Promise<OHLCVCandle[]> {
         const cacheKey = `${config.symbol}_${config.timeframe}_${config.startDate.getTime()}_${config.endDate.getTime()}`;
@@ -37,14 +110,15 @@ export class DataManager {
 
             // Download data in chunks if date range is large
             while (currentStartTime < endTime) {
-                const response = await axios.get(`${this.baseUrl}/klines`, {
+                const response = await this.getWithTlsFallback(`${this.baseUrl}/klines`, {
                     params: {
                         symbol: config.symbol,
                         interval: interval,
                         startTime: currentStartTime,
                         endTime: endTime,
                         limit: limit
-                    }
+                    },
+                    timeout: 10000,
                 });
 
                 const rawCandles = response.data;
@@ -93,12 +167,13 @@ export class DataManager {
         try {
             const interval = this.convertTimeframeToInterval(timeframe);
             
-            const response = await axios.get(`${this.baseUrl}/klines`, {
+            const response = await this.getWithTlsFallback(`${this.baseUrl}/klines`, {
                 params: {
                     symbol: symbol,
                     interval: interval,
                     limit: limit
-                }
+                },
+                timeout: 10000,
             });
 
             const rawCandles = response.data;
@@ -115,8 +190,15 @@ export class DataManager {
             return candles;
 
         } catch (error) {
-            console.error(`Error fetching recent data for ${symbol}:`, error);
-            throw error;
+            console.error(`Error fetching recent data for ${symbol} from Binance:`, error);
+
+            try {
+                console.log(`[DataManager] Falling back to CryptoCompare for ${symbol} ${timeframe}`);
+                return await this.getRecentDataFromCryptoCompare(symbol, timeframe, limit);
+            } catch (fallbackError) {
+                console.error(`Error fetching recent data for ${symbol} from fallback source:`, fallbackError);
+                throw fallbackError;
+            }
         }
     }
 

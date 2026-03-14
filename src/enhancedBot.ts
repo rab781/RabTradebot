@@ -265,10 +265,6 @@ bot.command('signal', async (ctx) => {
 // COMPREHENSIVE ANALYSIS COMMAND
 bot.command('analyze', async (ctx) => {
     const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
-    const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
-    const userId = ctx.message.from.id;
-
-    console.log(`[${new Date().toISOString()}] User: ${username} (${userId}) requested comprehensive analysis for: ${symbol || 'undefined'}`);
 
     if (!symbol) {
         return ctx.reply(`❌ Please provide a symbol.
@@ -283,6 +279,10 @@ Example: /analyze BTCUSDT
 • Risk management setup
 • Chart links`);
     }
+
+    const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
+    const userId = ctx.message.from.id;
+    console.log(`[${new Date().toISOString()}] User: ${username} (${userId}) requested comprehensive analysis for: ${symbol}`);
 
     try {
         const loadingMessage = await ctx.reply(`🔄 Performing comprehensive analysis for ${symbol}...
@@ -378,10 +378,15 @@ ${backtestSection}`);
             const timeframes = ['1h', '4h', '1d'];
 
             for (const tf of timeframes) {
-                // Get data efficiently (limit to 100 candles)
-                const data = await dataManager.getRecentData(symbol, tf, 100);
+                try {
+                    // Get data efficiently (limit to 100 candles)
+                    const data = await dataManager.getRecentData(symbol, tf, 100);
 
-                if (data && data.length > 0) {
+                    if (!data || data.length === 0) {
+                        console.warn(`[Analyze] No chart data available for ${symbol} ${tf}`);
+                        continue;
+                    }
+
                     // Convert data to format expected by ImageChartService
                     const chartData = data.map(d => ({
                         t: d.timestamp,
@@ -397,6 +402,8 @@ ${backtestSection}`);
                         ? `\n📊 Patterns: ${chartResult.patterns.map(p => `${p.name} (${p.confidence}%)`).join(', ')}`
                         : '';
                     await ctx.replyWithPhoto({ source: chartResult.buffer }, { caption: `${symbol} ${tf} Chart${patternInfo}` });
+                } catch (tfChartError) {
+                    console.error(`Chart generation failed for ${symbol} ${tf}:`, tfChartError);
                 }
             }
         } catch (chartError) {
@@ -2510,7 +2517,7 @@ startWebServer();
 // Start prediction verification service
 predictionVerifier.start();
 
-bot.launch().then(() => {
+bot.launch({ dropPendingUpdates: true }).then(() => {
     console.log('✅ Bot started successfully!');
     console.log('🎯 Ready to receive commands...');
     console.log('💡 Send /start to see available commands');

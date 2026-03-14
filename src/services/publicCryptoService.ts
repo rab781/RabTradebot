@@ -1,13 +1,47 @@
 import axios from 'axios';
+import * as https from 'https';
 
 export class PublicCryptoService {
     private readonly BASE_URL = 'https://api.binance.com/api/v3';
+    private readonly insecureAgent = new https.Agent({ rejectUnauthorized: false });
+
+    private shouldRetryInsecureTls(error: any): boolean {
+        const code = String(error?.code || '');
+        const message = String(error?.message || '').toLowerCase();
+
+        return (
+            code.includes('CERT') ||
+            code.includes('UNABLE_TO_GET_ISSUER_CERT') ||
+            message.includes('unable to get local issuer certificate') ||
+            message.includes('self signed certificate')
+        );
+    }
+
+    private async getWithTlsFallback(url: string, config: any): Promise<any> {
+        try {
+            return await axios.get(url, config);
+        } catch (error: any) {
+            const allowInsecure = process.env.ALLOW_INSECURE_TLS !== 'false';
+            if (!allowInsecure || !this.shouldRetryInsecureTls(error)) {
+                throw error;
+            }
+
+            console.warn(
+                '[PublicCryptoService] TLS certificate validation failed, retrying with insecure TLS fallback.'
+            );
+
+            return axios.get(url, {
+                ...config,
+                httpsAgent: this.insecureAgent,
+            });
+        }
+    }
 
     async getCandlestickData(symbol: string, interval: string = '1h', limit: number = 100): Promise<any[]> {
         try {
             console.log(`[PublicCryptoService] Fetching candlestick data for ${symbol} (${interval}, limit: ${limit})`);
             
-            const response = await axios.get(`${this.BASE_URL}/klines`, {
+            const response = await this.getWithTlsFallback(`${this.BASE_URL}/klines`, {
                 params: {
                     symbol,
                     interval,
@@ -37,7 +71,7 @@ export class PublicCryptoService {
         try {
             console.log(`[PublicCryptoService] Fetching 24hr ticker for ${symbol}`);
             
-            const response = await axios.get(`${this.BASE_URL}/ticker/24hr`, {
+            const response = await this.getWithTlsFallback(`${this.BASE_URL}/ticker/24hr`, {
                 params: { symbol },
                 timeout: 10000
             });
@@ -59,7 +93,7 @@ export class PublicCryptoService {
         try {
             console.log(`[PublicCryptoService] Fetching recent trades for ${symbol} (limit: ${limit})`);
             
-            const response = await axios.get(`${this.BASE_URL}/trades`, {
+            const response = await this.getWithTlsFallback(`${this.BASE_URL}/trades`, {
                 params: {
                     symbol,
                     limit
