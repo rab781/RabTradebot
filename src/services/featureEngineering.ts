@@ -21,6 +21,8 @@ import {
 } from 'technicalindicators';
 import { getDatabase } from '../database/database';
 
+const MIN_CANDLES_FOR_FEATURES = 200;
+
 export interface FeatureSet {
     // Price-based features (9)
     returns: number;
@@ -113,35 +115,57 @@ export class FeatureEngineeringService {
      * Extract all features from candle data
      */
     extractFeatures(data: OHLCVCandle[], symbol: string): FeatureSet[] {
-        if (data.length < 200) {
-            throw new Error('Need at least 200 candles for feature extraction');
+        if (data.length < MIN_CANDLES_FOR_FEATURES) {
+            throw new Error(`Need at least ${MIN_CANDLES_FOR_FEATURES} candles for feature extraction`);
+        }
+
+        // Optimization: Check if all required features are already in cache
+        // This avoids expensive indicator calculation if we have everything cached
+        const cachedFeatures: FeatureSet[] = [];
+        let allCached = true;
+
+        for (let i = MIN_CANDLES_FOR_FEATURES; i < data.length; i++) {
+            const timestamp = data[i].timestamp;
+            const cacheKey = `${symbol}_${timestamp}`;
+
+            // Check memory cache
+            let featureSet = this.cache.get(cacheKey);
+
+            // Check database cache if not in memory
+            if (!featureSet && this.useDatabase) {
+                const db = getDatabase();
+                const cached = db.getFeatureCache(symbol, timestamp);
+                if (cached) {
+                    featureSet = JSON.parse(cached.features) as FeatureSet;
+                    // Update memory cache
+                    this.cache.set(cacheKey, featureSet);
+                }
+            }
+
+            if (featureSet) {
+                cachedFeatures.push(featureSet);
+            } else {
+                allCached = false;
+                break;
+            }
+        }
+
+        if (allCached) {
+            return cachedFeatures;
         }
 
         const features: FeatureSet[] = [];
+        const closes = data.map(d => d.close);
+        const highs = data.map(d => d.high);
+        const lows = data.map(d => d.low);
+        const opens = data.map(d => d.open);
+        const volumes = data.map(d => d.volume);
 
-        // Lazy initialization variables
-        let closes: number[] | null = null;
-        let highs: number[] | null = null;
-        let lows: number[] | null = null;
-        let opens: number[] | null = null;
-        let volumes: number[] | null = null;
-        let indicators: any = null;
-        let allReturns: number[] | null = null;
+        // Pre-calculate indicators for all data points
+        const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
 
-        const ensureData = () => {
-            if (!closes) {
-                 closes = data.map(d => d.close);
-                 highs = data.map(d => d.high);
-                 lows = data.map(d => d.low);
-                 opens = data.map(d => d.open);
-                 volumes = data.map(d => d.volume);
-                 allReturns = this.calculateReturns(closes);
-                 indicators = this.calculateAllIndicators(data, closes, highs!, lows!, opens!, volumes!);
-            }
-        };
-
-        // Extract features for each candle (starting from index 200 to have enough history)
-        for (let i = 200; i < data.length; i++) {
+        // Extract features for each candle (starting from index MIN_CANDLES_FOR_FEATURES to have enough history)
+        for (let i = MIN_CANDLES_FOR_FEATURES; i < data.length; i++) {
             const timestamp = data[i].timestamp;
 
             // Check cache first
@@ -163,9 +187,6 @@ export class FeatureEngineeringService {
                 }
             }
 
-            // Ensure data is available for calculation
-            ensureData();
-
             // Calculate features
             const featureSet: FeatureSet = {
                 // Price features
@@ -173,17 +194,17 @@ export class FeatureEngineeringService {
 
                 // Technical indicators
                 ...this.extractMomentumIndicators(indicators, i),
-                ...this.extractTrendIndicators(indicators, i, closes![i]),
-                ...this.extractVolatilityIndicators(indicators, i, closes![i]),
+                ...this.extractTrendIndicators(indicators, i, closes[i]),
+                ...this.extractVolatilityIndicators(indicators, i, closes[i]),
 
                 // Volume features
-                ...this.extractVolumeFeatures(closes!, volumes!, indicators, i),
+                ...this.extractVolumeFeatures(data, indicators, i),
 
                 // Statistical features
-                ...this.extractStatisticalFeatures(closes!, allReturns!, i),
+                ...this.extractStatisticalFeatures(closes, i),
 
                 // Market microstructure
-                ...this.extractMarketMicrostructure(highs!, lows!, closes!, volumes!, i),
+                ...this.extractMarketMicrostructure(data, i),
 
                 // Metadata
                 timestamp,
@@ -287,7 +308,7 @@ export class FeatureEngineeringService {
     }
 
     private extractMomentumIndicators(indicators: any, index: number) {
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
 
         const macdValue = indicators.macd[arrayIndex] || { MACD: 0, signal: 0, histogram: 0 };
         const stochValue = indicators.stoch[arrayIndex] || { k: 50, d: 50 };
@@ -311,7 +332,7 @@ export class FeatureEngineeringService {
     }
 
     private extractTrendIndicators(indicators: any, index: number, currentPrice: number) {
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
 
         const ema9 = indicators.ema_9[arrayIndex] || currentPrice;
         const ema21 = indicators.ema_21[arrayIndex] || currentPrice;
@@ -332,7 +353,7 @@ export class FeatureEngineeringService {
     }
 
     private extractVolatilityIndicators(indicators: any, index: number, currentPrice: number) {
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
         const bb = indicators.bb[arrayIndex] || { upper: currentPrice, middle: currentPrice, lower: currentPrice };
         const atr = indicators.atr[arrayIndex] || 0;
 
@@ -365,7 +386,7 @@ export class FeatureEngineeringService {
         const avgVolume = sumVolume / length;
         const currentVolume = volumes[index];
 
-        const arrayIndex = index - 200;
+        const arrayIndex = index - MIN_CANDLES_FOR_FEATURES;
         const obv = indicators.obv[arrayIndex] || 0;
         const obvPrevious = indicators.obv[Math.max(0, arrayIndex - 1)] || 0;
 
@@ -420,11 +441,12 @@ export class FeatureEngineeringService {
         };
     }
 
-    private extractMarketMicrostructure(highs: number[], lows: number[], closes: number[], volumes: number[], index: number) {
-        const high = highs[index];
-        const low = lows[index];
-        const close = closes[index];
-        const volume = volumes[index];
+    private extractMarketMicrostructure(data: OHLCVCandle[], index: number) {
+        const current = data[index];
+        const high = current.high;
+        const low = current.low;
+        const close = current.close;
+        const volume = current.volume;
 
         // Approximate bid-ask spread using high-low range
         const spreadApprox = ((high - low) / close) * 100;
@@ -433,7 +455,7 @@ export class FeatureEngineeringService {
         const volumeImbalance = (close - low) / (high - low);
 
         // Price efficiency (how directly price moved)
-        const priceEfficiency = this.calculatePriceEfficiency(closes, index);
+        const priceEfficiency = this.calculatePriceEfficiency(data, index);
 
         // Market depth proxy (volume * range)
         const marketDepthProxy = volume * (high - low);
@@ -647,7 +669,7 @@ export class FeatureEngineeringService {
         return denominator !== 0 ? numerator / denominator : 0;
     }
 
-    private calculatePriceEfficiency(closes: number[], index: number): number {
+    private calculatePriceEfficiency(data: OHLCVCandle[], index: number): number {
         if (index < 10) return 0;
 
         const startPrice = closes[index - 10];
