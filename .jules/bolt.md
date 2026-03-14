@@ -39,3 +39,7 @@
 ## 2025-05-25 - [Pre-allocating columnar arrays]
 **Learning:** In `DataFrameBuilder.fromCandles`, using a single-pass `for` loop with pre-allocated arrays (`new Array(len)`) is significantly faster (~3-4x speedup) for columnar data generation than using iterative `.push()` inside `.forEach()` callbacks.
 **Action:** If a dataframe is empty during initialization, pre-allocate arrays and fill them using a single loop. This avoids the overhead of repeated `Array.push()` calls and callback closures.
+
+## 2025-05-25 - [Math.max/min spread operator stack overflow on large arrays]
+**Learning:** Using `Math.max(...array)` or `Math.min(...array)` on very large arrays (e.g., > 65,535 elements) throws a `RangeError: Maximum call stack size exceeded` because the V8 engine has a hard limit on the number of arguments passed to a function. In `DataManager.getDataSummary`, combining `flatMap` with `Math.max` on datasets of ~200k items caused crashes and enormous memory allocation overhead.
+**Action:** When finding min/max values in potentially large arrays (like historical datasets), always use a manual `for` loop to accumulate the min/max values linearly without spreading.
