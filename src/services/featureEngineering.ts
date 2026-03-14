@@ -164,6 +164,9 @@ export class FeatureEngineeringService {
         // Pre-calculate indicators for all data points
         const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
 
+        // Pre-calculate all returns (allReturns[i] = return for close[i+1] relative to close[i])
+        const allReturns = closes.slice(1).map((c, i) => (c - closes[i]) / closes[i]);
+
         // Extract features for each candle (starting from index MIN_CANDLES_FOR_FEATURES to have enough history)
         for (let i = MIN_CANDLES_FOR_FEATURES; i < data.length; i++) {
             const timestamp = data[i].timestamp;
@@ -198,10 +201,10 @@ export class FeatureEngineeringService {
                 ...this.extractVolatilityIndicators(indicators, i, closes[i]),
 
                 // Volume features
-                ...this.extractVolumeFeatures(data, indicators, i),
+                ...this.extractVolumeFeatures(closes, volumes, indicators, i),
 
                 // Statistical features
-                ...this.extractStatisticalFeatures(closes, i),
+                ...this.extractStatisticalFeatures(closes, allReturns, i),
 
                 // Market microstructure
                 ...this.extractMarketMicrostructure(data, i),
@@ -672,14 +675,14 @@ export class FeatureEngineeringService {
     private calculatePriceEfficiency(data: OHLCVCandle[], index: number): number {
         if (index < 10) return 0;
 
-        const startPrice = closes[index - 10];
-        const endPrice = closes[index];
+        const startPrice = data[index - 10].close;
+        const endPrice = data[index].close;
 
         const directDistance = Math.abs(endPrice - startPrice);
 
         let totalDistance = 0;
         for (let i = index - 9; i <= index; i++) {
-            totalDistance += Math.abs(closes[i] - closes[i - 1]);
+            totalDistance += Math.abs(data[i].close - data[i - 1].close);
         }
 
         return totalDistance !== 0 ? directDistance / totalDistance : 0;
