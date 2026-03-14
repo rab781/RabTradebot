@@ -77,6 +77,9 @@ const binanceService = new BinanceService();
 const chutesService = new ChutesService();
 const imageChartService = new ImageChartService();
 
+// Inject ChutesService into NewsAnalyzer so scraped data is analysed by AI
+newsAnalyzer.setChutesService(chutesService);
+
 // Initialize SignalGenerator with Chutes
 const signalGenerator = new SignalGenerator(technicalAnalyzer, chutesService);
 

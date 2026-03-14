@@ -563,4 +563,160 @@ Latest: ${news[0].title}`;
 
         return message;
     }
+
+    /**
+     * Analyze REAL scraped news articles + Reddit posts using Chutes AI.
+     * This is more accurate than searchCryptoNews() because the AI analyzes
+     * actual scraped content instead of generating its own.
+     */
+    async analyzeRealNews(
+        symbol: string,
+        articles: { title: string; summary: string; source: string; url: string }[],
+        redditPosts: { title: string; subreddit: string; score: number }[],
+        currentPrice?: number
+    ): Promise<ChutesAnalysis> {
+        if (!this.isConfigured()) {
+            throw new Error('Chutes API not configured');
+        }
+
+        if (articles.length === 0 && redditPosts.length === 0) {
+            return this.createFallbackAnalysis(symbol, currentPrice);
+        }
+
+        const cacheKey = this.getCacheKey(symbol, `real_news_${articles.length}_${redditPosts.length}`);
+        const cached = this.getCachedData(cacheKey);
+        if (cached) {
+            console.log('✅ Using cached real-news analysis for', symbol);
+            return cached;
+        }
+
+        const cryptoName = this.getCryptoName(symbol);
+        const priceContext = currentPrice ? `Current Price: $${currentPrice.toFixed(4)}` : '';
+
+        // Build article context (max 20 articles to stay within token limit)
+        const articleContext = articles.slice(0, 20).map((a, i) =>
+            `[Article ${i + 1}] Source: ${a.source}\nHeadline: ${a.title}\nSummary: ${a.summary.slice(0, 200)}`
+        ).join('\n\n');
+
+        // Build Reddit context (max 10 posts)
+        const redditContext = redditPosts.slice(0, 10).map((p, i) =>
+            `[Reddit ${i + 1}] r/${p.subreddit} (↑${p.score}): ${p.title}`
+        ).join('\n');
+
+        const prompt = `You are an elite cryptocurrency market analyst. Analyze the following REAL scraped news and Reddit posts for ${cryptoName} (${symbol}).
+
+${priceContext}
+
+═══ SCRAPED NEWS ARTICLES (${articles.length} total) ═══
+${articleContext || 'No articles scraped.'}
+
+═══ REDDIT COMMUNITY POSTS (${redditPosts.length} total) ═══
+${redditContext || 'No Reddit posts scraped.'}
+
+Based ONLY on the above real data (do NOT invent news), provide:
+
+1. Overall market sentiment (BULLISH / BEARISH / NEUTRAL)
+2. Key factors driving sentiment
+3. Short-term (24h), medium-term (7d), long-term (30d) impact predictions
+4. Expected price movement direction and confidence
+5. Price targets if current price is provided
+
+Return JSON:
+{
+  "overallSentiment": "BULLISH|BEARISH|NEUTRAL",
+  "impactPrediction": {
+    "shortTerm": "24h prediction based on scraped news",
+    "mediumTerm": "7-day outlook based on trends in articles",
+    "longTerm": "30-day forecast based on fundamental factors"
+  },
+  "keyFactors": [
+    "Key factor 1 with evidence from articles",
+    "Key factor 2 with evidence",
+    "Key factor 3 with evidence"
+  ],
+  "marketMovement": {
+    "direction": "UP|DOWN|SIDEWAYS",
+    "confidence": 70,
+    "expectedRange": {"low": 0, "high": 0}
+  },
+  "priceTarget": {"bullish": 0, "bearish": 0, "neutral": 0},
+  "sentiment_breakdown": {
+    "news_sentiment": "BULLISH|BEARISH|NEUTRAL",
+    "reddit_sentiment": "BULLISH|BEARISH|NEUTRAL",
+    "dominant_themes": ["theme1", "theme2"]
+  }
+}`;
+
+        try {
+            const response = await axios.post(
+                `${this.baseUrl}/chat/completions`,
+                {
+                    model: 'Qwen/Qwen3-32B',
+                    messages: [
+                        {
+                            role: 'system',
+                            content: 'You are a professional cryptocurrency analyst. Analyze only the provided real scraped news data. Do NOT invent or hallucinate news. Base all predictions strictly on the given articles and Reddit posts. Return valid JSON.'
+                        },
+                        { role: 'user', content: prompt }
+                    ],
+                    max_tokens: 2000,
+                    temperature: 0.1,
+                    stream: false
+                },
+                {
+                    headers: {
+                        'Authorization': `Bearer ${this.apiKey}`,
+                        'Content-Type': 'application/json'
+                    },
+                    timeout: 120000
+                }
+            );
+
+            const content = this.cleanModelResponse(response.data.choices[0].message.content);
+            const parsed = JSON.parse(content);
+
+            // Convert scraped articles to ChutesNewsItem format for compatibility
+            const newsItems: ChutesNewsItem[] = articles.slice(0, 10).map(a => ({
+                title: a.title,
+                content: a.summary,
+                url: a.url,
+                publishedAt: new Date(),
+                source: a.source,
+                relevanceScore: 0.8,
+                sentimentScore: 0,
+                impactLevel: 'MEDIUM' as const
+            }));
+
+            const analysis: ChutesAnalysis = {
+                symbol,
+                newsItems,
+                overallSentiment: parsed.overallSentiment || 'NEUTRAL',
+                impactPrediction: parsed.impactPrediction || {
+                    shortTerm: 'Insufficient data',
+                    mediumTerm: 'Insufficient data',
+                    longTerm: 'Insufficient data'
+                },
+                keyFactors: parsed.keyFactors || [],
+                marketMovement: {
+                    direction: parsed.marketMovement?.direction || 'SIDEWAYS',
+                    confidence: Math.max(0, Math.min(100, parsed.marketMovement?.confidence || 50)),
+                    expectedRange: parsed.marketMovement?.expectedRange || { low: 0, high: 0 }
+                },
+                priceTarget: parsed.priceTarget || {
+                    bullish: currentPrice ? currentPrice * 1.05 : 0,
+                    bearish: currentPrice ? currentPrice * 0.95 : 0,
+                    neutral: currentPrice || 0
+                },
+                timestamp: new Date()
+            };
+
+            this.setCachedData(cacheKey, analysis);
+            console.log(`✅ Real-news AI analysis completed for ${symbol} (${articles.length} articles, ${redditPosts.length} reddit posts)`);
+            return analysis;
+
+        } catch (error: any) {
+            console.error('❌ Chutes real-news analysis error:', error.message);
+            throw new Error(`Real-news analysis failed: ${error.message}`);
+        }
+    }
 }
