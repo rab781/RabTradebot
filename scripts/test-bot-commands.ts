@@ -6,33 +6,40 @@
 import { db } from '../src/services/databaseService';
 
 async function testBotCommands() {
-    console.log('🤖 TESTING BOT COMMANDS DATA FLOW\n');
-    console.log('='.repeat(60));
+  console.log('🤖 TESTING BOT COMMANDS DATA FLOW\n');
+  console.log('='.repeat(60));
 
-    try {
-        // Simulate user
-        const user = await db.getOrCreateUser(12345, 'TestBotUser', 'testbotuser');
-        console.log(`✅ User: ${user.username} (ID: ${user.id})\n`);
+  try {
+    // Simulate user
+    const user = await db.getOrCreateUser(12345, {
+      username: 'testbotuser',
+      firstName: 'TestBot',
+      lastName: 'User',
+    });
+    if (!user) {
+      throw new Error('Failed to create/retrieve user');
+    }
+    console.log(`✅ User: ${user.username} (ID: ${user.id})\n`);
 
-        // ========================================
-        // Simulate /mlpredict command
-        // ========================================
-        console.log('📊 Simulating: /mlpredict BTCUSDT');
-        console.log('-'.repeat(60));
+    // ========================================
+    // Simulate /mlpredict command
+    // ========================================
+    console.log('📊 Simulating: /mlpredict BTCUSDT');
+    console.log('-'.repeat(60));
 
-        const prediction = await db.savePrediction({
-            userId: user.id,
-            symbol: 'BTCUSDT',
-            modelName: 'GRU',
-            modelVersion: '1.0.0',
-            predictedDirection: 'UP',
-            confidence: 0.68,
-            predictedChange: 2.3,
-            currentPrice: 45000
-        });
+    const prediction = await db.savePrediction({
+      userId: user!.id,
+      symbol: 'BTCUSDT',
+      modelName: 'GRU',
+      modelVersion: '1.0.0',
+      predictedDirection: 'UP',
+      confidence: 0.68,
+      predictedChange: 2.3,
+      currentPrice: 45000,
+    });
 
-        console.log('Bot would reply:');
-        console.log(`
+    console.log('Bot would reply:');
+    console.log(`
 🤖 ML PREDICTION for BTCUSDT
 
 📈 Prediction: ${prediction.predictedDirection}
@@ -43,22 +50,22 @@ async function testBotCommands() {
 ⏰ Prediction saved! Will verify in 1 hour.
         `);
 
-        // ========================================
-        // Simulate /stats command
-        // ========================================
-        console.log('\n📊 Simulating: /stats');
-        console.log('-'.repeat(60));
+    // ========================================
+    // Simulate /stats command
+    // ========================================
+    console.log('\n📊 Simulating: /stats');
+    console.log('-'.repeat(60));
 
-        const tradeStats = await db.getUserTradeStats(user.id);
-        const predStats = await db.getPredictionStats(undefined, undefined, user.id);
-        const alerts = await db.getActiveAlerts(user.id);
+    const tradeStats = await db.getUserTradeStats(user!.id);
+    const predStats = await db.getPredictionStats(undefined, undefined, user!.id);
+    const alerts = await db.getActiveAlerts(user!.id);
 
-        console.log('Bot would reply:');
-        console.log(`
+    console.log('Bot would reply:');
+    console.log(`
 📊 YOUR TRADING STATISTICS
 
-👤 User: ${user.username || 'Anonymous'}
-📅 Member since: ${user.createdAt.toLocaleDateString()}
+👤 User: ${user!.username || 'Anonymous'}
+📅 Member since: ${user!.createdAt.toLocaleDateString()}
 
 💰 TRADING PERFORMANCE:
 Total Trades: ${tradeStats.totalTrades}
@@ -77,18 +84,18 @@ Avg Confidence: ${(predStats.avgConfidence * 100).toFixed(1)}%
 Active Alerts: ${alerts.length}
         `);
 
-        // ========================================
-        // Simulate /mlstats command
-        // ========================================
-        console.log('\n📊 Simulating: /mlstats BTCUSDT');
-        console.log('-'.repeat(60));
+    // ========================================
+    // Simulate /mlstats command
+    // ========================================
+    console.log('\n📊 Simulating: /mlstats BTCUSDT');
+    console.log('-'.repeat(60));
 
-        const overallStats = await db.getPredictionStats();
-        const symbolStats = await db.getPredictionStats(undefined, 'BTCUSDT');
-        const gruStats = await db.getPredictionStats('GRU');
+    const overallStats = await db.getPredictionStats();
+    const symbolStats = await db.getPredictionStats(undefined, 'BTCUSDT');
+    const gruStats = await db.getPredictionStats('GRU');
 
-        console.log('Bot would reply:');
-        console.log(`
+    console.log('Bot would reply:');
+    console.log(`
 🤖 ML MODEL PERFORMANCE
 
 📊 OVERALL STATS:
@@ -108,37 +115,37 @@ Accuracy: ${symbolStats.accuracy.toFixed(1)}%
 Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
         `);
 
-        // ========================================
-        // Simulate /strategystats command
-        // ========================================
-        console.log('\n📊 Simulating: /strategystats');
-        console.log('-'.repeat(60));
+    // ========================================
+    // Simulate /strategystats command
+    // ========================================
+    console.log('\n📊 Simulating: /strategystats');
+    console.log('-'.repeat(60));
 
-        const sampleMetrics = await db.getStrategyMetrics('SampleStrategy');
-        const openclawMetrics = await db.getStrategyMetrics('OpenClawStrategy');
+    const sampleMetrics = await db.getStrategyMetrics('SampleStrategy');
+    const openclawMetrics = await db.getStrategyMetrics('OpenClawStrategy');
 
-        if (sampleMetrics.length === 0 && openclawMetrics.length === 0) {
-            console.log('Bot would reply:');
-            console.log('❌ No strategy data found. Run some backtests first with /backtest\n');
-        } else {
-            console.log('Bot would reply with strategy comparison...\n');
-        }
+    if (sampleMetrics.length === 0 && openclawMetrics.length === 0) {
+      console.log('Bot would reply:');
+      console.log('❌ No strategy data found. Run some backtests first with /backtest\n');
+    } else {
+      console.log('Bot would reply with strategy comparison...\n');
+    }
 
-        // ========================================
-        // Simulate Prediction Verification (1 hour later)
-        // ========================================
-        console.log('\n⏰ Simulating: Prediction Verification (after 1 hour)');
-        console.log('-'.repeat(60));
+    // ========================================
+    // Simulate Prediction Verification (1 hour later)
+    // ========================================
+    console.log('\n⏰ Simulating: Prediction Verification (after 1 hour)');
+    console.log('-'.repeat(60));
 
-        // Manually verify the prediction
-        const verified = await db.verifyPrediction(prediction.id, {
-            actualDirection: 'UP',
-            actualChange: 3.1,
-            actualPrice: 46395
-        });
+    // Manually verify the prediction
+    const verified = await db.verifyPrediction(prediction.id, {
+      actualDirection: 'UP',
+      actualChange: 3.1,
+      actualPrice: 46395,
+    });
 
-        console.log('Verification Result:');
-        console.log(`
+    console.log('Verification Result:');
+    console.log(`
 ✅ PREDICTION VERIFIED
 
 Symbol: ${verified.symbol}
@@ -153,38 +160,37 @@ Price Movement:
 - To: $${verified.actualPrice!.toLocaleString()}
         `);
 
-        // ========================================
-        // Summary
-        // ========================================
-        console.log('\n' + '='.repeat(60));
-        console.log('✅ ALL BOT COMMANDS WORKING CORRECTLY!\n');
-        console.log('🎯 Features Verified:');
-        console.log('   ✅ ML Prediction Tracking - Saves predictions to DB');
-        console.log('   ✅ /stats - Shows user statistics');
-        console.log('   ✅ /mlstats - Shows ML accuracy');
-        console.log('   ✅ /strategystats - Shows strategy comparison');
-        console.log('   ✅ Auto Verification - Updates predictions with actual results');
-        console.log('\n💡 To test in Telegram:');
-        console.log('   1. npm run dev');
-        console.log('   2. Send /start to your bot');
-        console.log('   3. Try: /mlpredict BTCUSDT');
-        console.log('   4. Try: /stats');
-        console.log('   5. Try: /mlstats');
-
-    } catch (error) {
-        console.error('❌ Test failed:', error);
-        throw error;
-    } finally {
-        await db.disconnect();
-    }
+    // ========================================
+    // Summary
+    // ========================================
+    console.log('\n' + '='.repeat(60));
+    console.log('✅ ALL BOT COMMANDS WORKING CORRECTLY!\n');
+    console.log('🎯 Features Verified:');
+    console.log('   ✅ ML Prediction Tracking - Saves predictions to DB');
+    console.log('   ✅ /stats - Shows user statistics');
+    console.log('   ✅ /mlstats - Shows ML accuracy');
+    console.log('   ✅ /strategystats - Shows strategy comparison');
+    console.log('   ✅ Auto Verification - Updates predictions with actual results');
+    console.log('\n💡 To test in Telegram:');
+    console.log('   1. npm run dev');
+    console.log('   2. Send /start to your bot');
+    console.log('   3. Try: /mlpredict BTCUSDT');
+    console.log('   4. Try: /stats');
+    console.log('   5. Try: /mlstats');
+  } catch (error) {
+    console.error('❌ Test failed:', error);
+    throw error;
+  } finally {
+    await db.disconnect();
+  }
 }
 
 testBotCommands()
-    .then(() => {
-        console.log('\n✅ Bot command simulation completed!');
-        process.exit(0);
-    })
-    .catch((error) => {
-        console.error('\n❌ Simulation failed:', error);
-        process.exit(1);
-    });
+  .then(() => {
+    console.log('\n✅ Bot command simulation completed!');
+    process.exit(0);
+  })
+  .catch((error) => {
+    console.error('\n❌ Simulation failed:', error);
+    process.exit(1);
+  });
