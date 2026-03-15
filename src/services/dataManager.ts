@@ -1,5 +1,6 @@
 import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
-import axios from 'axios';
+import axios, { AxiosProxyConfig } from 'axios';
+import * as fs from 'fs';
 import * as https from 'https';
 
 export interface HistoricalDataConfig {
@@ -11,11 +12,81 @@ export interface HistoricalDataConfig {
 }
 
 export class DataManager {
-    private baseUrl = 'https://api.binance.com/api/v3';
+    private baseUrl: string;
     private dataCache = new Map<string, OHLCVCandle[]>();
     private insecureAgent = new https.Agent({ rejectUnauthorized: false });
+    private secureAgent?: https.Agent;
+    private proxyConfig?: AxiosProxyConfig;
 
-    constructor() {}
+    constructor() {
+        const configuredBase = process.env.BINANCE_BASE_URL || 'https://api.binance.com';
+        this.baseUrl = `${configuredBase.replace(/\/$/, '')}/api/v3`;
+
+        const caCertPath = process.env.BINANCE_CA_CERT_PATH || '';
+        if (caCertPath) {
+            try {
+                const ca = fs.readFileSync(caCertPath, 'utf-8');
+                this.secureAgent = new https.Agent({ ca, rejectUnauthorized: true });
+                console.log(`[DataManager] Loaded custom CA certificate from ${caCertPath}`);
+            } catch (error) {
+                console.error(`[DataManager] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
+            }
+        }
+
+        const proxyUrl = process.env.BINANCE_PROXY_URL || '';
+        if (proxyUrl) {
+            this.proxyConfig = this.parseProxyUrl(proxyUrl);
+            if (this.proxyConfig) {
+                console.log(`[DataManager] Using proxy ${this.proxyConfig.protocol}://${this.proxyConfig.host}:${this.proxyConfig.port}`);
+            } else {
+                console.error('[DataManager] BINANCE_PROXY_URL is invalid and will be ignored');
+            }
+        }
+    }
+
+    private parseProxyUrl(proxyUrl: string): AxiosProxyConfig | undefined {
+        try {
+            const parsed = new URL(proxyUrl);
+            if (!parsed.hostname || !parsed.port) {
+                return undefined;
+            }
+
+            const proxy: AxiosProxyConfig = {
+                protocol: parsed.protocol.replace(':', ''),
+                host: parsed.hostname,
+                port: Number(parsed.port),
+            };
+
+            if (parsed.username || parsed.password) {
+                proxy.auth = {
+                    username: decodeURIComponent(parsed.username),
+                    password: decodeURIComponent(parsed.password),
+                };
+            }
+
+            return proxy;
+        } catch {
+            return undefined;
+        }
+    }
+
+    private buildRequestConfig(config: any): any {
+        if (this.proxyConfig) {
+            return {
+                ...config,
+                proxy: this.proxyConfig,
+            };
+        }
+
+        if (this.secureAgent) {
+            return {
+                ...config,
+                httpsAgent: this.secureAgent,
+            };
+        }
+
+        return config;
+    }
 
     private shouldRetryInsecureTls(error: any): boolean {
         const code = String(error?.code || '');
@@ -30,8 +101,10 @@ export class DataManager {
     }
 
     private async getWithTlsFallback(url: string, config: any): Promise<any> {
+        const requestConfig = this.buildRequestConfig(config);
+
         try {
-            return await axios.get(url, config);
+            return await axios.get(url, requestConfig);
         } catch (error: any) {
             const allowInsecure = process.env.ALLOW_INSECURE_TLS !== 'false';
             if (!allowInsecure || !this.shouldRetryInsecureTls(error)) {
@@ -40,7 +113,8 @@ export class DataManager {
 
             console.warn('[DataManager] TLS certificate validation failed, retrying with insecure TLS fallback.');
             return axios.get(url, {
-                ...config,
+                ...requestConfig,
+                proxy: undefined,
                 httpsAgent: this.insecureAgent,
             });
         }

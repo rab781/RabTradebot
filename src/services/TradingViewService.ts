@@ -12,9 +12,12 @@ export interface TradingViewConfig {
 export class TradingViewService {
     private config: TradingViewConfig;
     private insecureAgent = new https.Agent({ rejectUnauthorized: false });
+    private readonly binanceKlinesUrl: string;
     
     constructor(config: TradingViewConfig) {
         this.config = config;
+        const configuredBase = process.env.BINANCE_BASE_URL || 'https://api.binance.com';
+        this.binanceKlinesUrl = `${configuredBase.replace(/\/$/, '')}/api/v3/klines`;
     }
 
     private shouldRetryInsecureTls(error: any): boolean {
@@ -257,7 +260,7 @@ export class TradingViewService {
     private async getBinanceData(symbol: string, interval: string): Promise<DataFrame> {
         // Binance is free with generous rate limits
         const binanceInterval = this.convertToBinanceInterval(interval);
-        const response = await this.getWithTlsFallback('https://api.binance.com/api/v3/klines', {
+        const response = await this.getWithTlsFallback(this.binanceKlinesUrl, {
             params: {
                 symbol: symbol,
                 interval: binanceInterval,

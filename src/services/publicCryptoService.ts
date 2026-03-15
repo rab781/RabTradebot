@@ -1,9 +1,27 @@
 import axios from 'axios';
+import * as fs from 'fs';
 import * as https from 'https';
 
 export class PublicCryptoService {
-    private readonly BASE_URL = 'https://api.binance.com/api/v3';
+    private readonly BASE_URL: string;
     private readonly insecureAgent = new https.Agent({ rejectUnauthorized: false });
+    private readonly secureAgent?: https.Agent;
+
+    constructor() {
+        const configuredBase = process.env.BINANCE_BASE_URL || 'https://api.binance.com';
+        this.BASE_URL = `${configuredBase.replace(/\/$/, '')}/api/v3`;
+
+        const caCertPath = process.env.BINANCE_CA_CERT_PATH || '';
+        if (caCertPath) {
+            try {
+                const ca = fs.readFileSync(caCertPath, 'utf-8');
+                this.secureAgent = new https.Agent({ ca, rejectUnauthorized: true });
+                console.log(`[PublicCryptoService] Loaded custom CA certificate from ${caCertPath}`);
+            } catch (error) {
+                console.error(`[PublicCryptoService] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
+            }
+        }
+    }
 
     private shouldRetryInsecureTls(error: any): boolean {
         const code = String(error?.code || '');
@@ -18,8 +36,15 @@ export class PublicCryptoService {
     }
 
     private async getWithTlsFallback(url: string, config: any): Promise<any> {
+        const requestConfig = this.secureAgent
+            ? {
+                  ...config,
+                  httpsAgent: this.secureAgent,
+              }
+            : config;
+
         try {
-            return await axios.get(url, config);
+            return await axios.get(url, requestConfig);
         } catch (error: any) {
             const allowInsecure = process.env.ALLOW_INSECURE_TLS !== 'false';
             if (!allowInsecure || !this.shouldRetryInsecureTls(error)) {
@@ -31,7 +56,7 @@ export class PublicCryptoService {
             );
 
             return axios.get(url, {
-                ...config,
+                ...requestConfig,
                 httpsAgent: this.insecureAgent,
             });
         }

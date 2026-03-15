@@ -1,5 +1,7 @@
-import axios from 'axios';
+import axios, { AxiosProxyConfig } from 'axios';
 import crypto from 'crypto';
+import fs from 'fs';
+import https from 'https';
 
 // ─────────────────────────────────────────────
 // Types
@@ -47,16 +49,94 @@ export interface BinanceHealthStatus {
 // ─────────────────────────────────────────────
 
 export class BinanceService {
-    private readonly BASE_URL = 'https://api.binance.com';
+    private readonly BASE_URL: string;
     private apiKey: string;
     private apiSecret: string;
+    private readonly httpsAgent?: https.Agent;
+    private readonly proxyConfig?: AxiosProxyConfig;
 
     constructor() {
+        this.BASE_URL = process.env.BINANCE_BASE_URL || 'https://api.binance.com';
         this.apiKey = process.env.BINANCE_API_KEY || '';
         this.apiSecret = process.env.BINANCE_API_SECRET || '';
 
+        const tlsInsecure = /^(1|true|yes)$/i.test(process.env.BINANCE_TLS_INSECURE || '');
+        const caCertPath = process.env.BINANCE_CA_CERT_PATH || '';
+        const proxyUrl = process.env.BINANCE_PROXY_URL || '';
+
+        if (proxyUrl) {
+            this.proxyConfig = this.parseProxyUrl(proxyUrl);
+            if (this.proxyConfig) {
+                const proxyAuth = this.proxyConfig.auth?.username ? 'with auth' : 'without auth';
+                console.log(`🌐 [BinanceService] Using proxy ${this.proxyConfig.protocol}//${this.proxyConfig.host}:${this.proxyConfig.port} (${proxyAuth})`);
+            } else {
+                console.error('❌ [BinanceService] BINANCE_PROXY_URL is invalid and will be ignored');
+            }
+        }
+
+        if (tlsInsecure) {
+            this.httpsAgent = new https.Agent({ rejectUnauthorized: false });
+            console.warn('⚠️  [BinanceService] BINANCE_TLS_INSECURE=true, TLS certificate verification is disabled');
+        } else if (caCertPath) {
+            try {
+                const ca = fs.readFileSync(caCertPath, 'utf-8');
+                this.httpsAgent = new https.Agent({ ca, rejectUnauthorized: true });
+                console.log(`✅ [BinanceService] Loaded custom CA certificate from ${caCertPath}`);
+            } catch (error) {
+                console.error(`❌ [BinanceService] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
+            }
+        }
+
         if (!this.apiKey || !this.apiSecret) {
             console.warn('⚠️  [BinanceService] BINANCE_API_KEY / BINANCE_API_SECRET not set in environment');
+        }
+
+        console.log(`🔗 [BinanceService] Using base URL: ${this.BASE_URL}`);
+    }
+
+    private requestConfig(timeout: number, extra: Record<string, any> = {}): Record<string, any> {
+        if (this.proxyConfig) {
+            return {
+                timeout,
+                proxy: this.proxyConfig,
+                ...extra,
+            };
+        }
+
+        if (!this.httpsAgent) {
+            return { timeout, ...extra };
+        }
+
+        return {
+            timeout,
+            httpsAgent: this.httpsAgent,
+            ...extra,
+        };
+    }
+
+    private parseProxyUrl(proxyUrl: string): AxiosProxyConfig | undefined {
+        try {
+            const parsed = new URL(proxyUrl);
+            if (!parsed.hostname || !parsed.port) {
+                return undefined;
+            }
+
+            const proxyConfig: AxiosProxyConfig = {
+                protocol: parsed.protocol.replace(':', ''),
+                host: parsed.hostname,
+                port: Number(parsed.port),
+            };
+
+            if (parsed.username || parsed.password) {
+                proxyConfig.auth = {
+                    username: decodeURIComponent(parsed.username),
+                    password: decodeURIComponent(parsed.password),
+                };
+            }
+
+            return proxyConfig;
+        } catch {
+            return undefined;
         }
     }
 
@@ -89,12 +169,12 @@ export class BinanceService {
 
         try {
             // 1. Ping – smallest possible call to measure latency
-            await axios.get(`${this.BASE_URL}/api/v3/ping`, { timeout: 8000 });
+            await axios.get(`${this.BASE_URL}/api/v3/ping`, this.requestConfig(8000));
             const latencyMs = Date.now() - start;
 
             // 2. Server time – calculate clock drift
             const t0 = Date.now();
-            const timeRes = await axios.get(`${this.BASE_URL}/api/v3/time`, { timeout: 8000 });
+            const timeRes = await axios.get(`${this.BASE_URL}/api/v3/time`, this.requestConfig(8000));
             const t1 = Date.now();
 
             const serverTime: number = timeRes.data.serverTime;
@@ -134,9 +214,10 @@ export class BinanceService {
             const signature = this.sign(queryString);
 
             const response = await axios.get(`${this.BASE_URL}/api/v3/account`, {
-                params: { timestamp, signature },
-                headers: { 'X-MBX-APIKEY': this.apiKey },
-                timeout: 12000,
+                ...this.requestConfig(12000, {
+                    params: { timestamp, signature },
+                    headers: { 'X-MBX-APIKEY': this.apiKey },
+                }),
             });
 
             const data = response.data;
@@ -178,7 +259,7 @@ export class BinanceService {
     async getRateLimits(): Promise<BinanceRateLimitInfo[]> {
         try {
             const res = await axios.get(`${this.BASE_URL}/api/v3/exchangeInfo`, {
-                timeout: 10000,
+                ...this.requestConfig(10000),
             });
             return (res.data.rateLimits ?? []) as BinanceRateLimitInfo[];
         } catch {
@@ -362,11 +443,17 @@ export class BinanceService {
         if (error.code === 'ETIMEDOUT' || error.code === 'ECONNABORTED') {
             return 'Request timed out – network may be slow or blocked';
         }
+        if (error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' || error.code === 'SELF_SIGNED_CERT_IN_CHAIN' || /local issuer certificate/i.test(error.message || '')) {
+            return 'TLS certificate validation failed (local issuer certificate). Set BINANCE_CA_CERT_PATH to your CA bundle or BINANCE_TLS_INSECURE=true for temporary bypass';
+        }
         if (error.response?.status === 429) {
             return 'Rate limit exceeded – too many requests';
         }
         if (error.response?.status === 418) {
             return 'IP banned temporarily (rate limit was exceeded repeatedly)';
+        }
+        if (error.response?.status === 403) {
+            return 'Request blocked (403) – possible IP/region restriction, firewall/proxy policy, or endpoint access denial';
         }
         return error.message ?? 'Unknown network error';
     }
@@ -376,6 +463,14 @@ export class BinanceService {
         const binanceCode = error.response?.data?.code as number | undefined;
         const binanceMsg = error.response?.data?.msg as string | undefined;
 
+        if (
+            error.code === 'UNABLE_TO_VERIFY_LEAF_SIGNATURE' ||
+            error.code === 'SELF_SIGNED_CERT_IN_CHAIN' ||
+            /local issuer certificate/i.test(error.message || '')
+        ) {
+            return 'TLS certificate validation failed (local issuer certificate). Set BINANCE_CA_CERT_PATH to your CA bundle or BINANCE_TLS_INSECURE=true for temporary bypass';
+        }
+
         if (binanceCode === -2014) return 'API-key format invalid';
         if (binanceCode === -2015) return 'Invalid API-key, IP, or permissions';
         if (binanceCode === -1022) return 'Invalid signature – check your API secret';
@@ -383,7 +478,9 @@ export class BinanceService {
         if (binanceCode === -1021)
             return 'Timestamp out of sync – your system clock may be drifting';
         if (status === 401) return 'Unauthorized – invalid API key or secret';
-        if (status === 403) return 'Forbidden – insufficient permissions on this API key';
+        if (status === 403) {
+            return 'Forbidden (403) – possible API key permission issue, IP whitelist mismatch, or regional endpoint restriction';
+        }
         if (status === 429) return 'Rate limit exceeded';
 
         return binanceMsg ?? error.message ?? 'Unknown authentication error';

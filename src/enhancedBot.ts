@@ -464,70 +464,72 @@ ${backtestSection}`);
 💡 Use /backtest ${symbol} 30 for detailed backtesting
 💡 Use /papertrade ${symbol} to start paper trading`);
 
-    // Add Chutes news analysis if configured
-    if (chutesService.isConfigured()) {
-      try {
-        await ctx.reply(`🔄 Adding news sentiment analysis...`);
+    // Add scraped news analysis (and AI if configured)
+    try {
+      console.log(`[SCRAPE] [/analyze] news-enrichment start symbol=${symbol}`);
+      await ctx.reply(`🔄 Adding scraped news sentiment analysis...`);
+      const newsResult = await newsAnalyzer.analyzeComprehensiveNews(symbol, analysisResult.currentPrice);
+      console.log(
+        `[SCRAPE] [/analyze] news-enrichment result symbol=${symbol} articles=${newsResult.traditionalNews.articles.length} reddit=${newsResult.redditSentiment.posts.length} ai=${newsResult.aiAnalysis ? 'yes' : 'no'}`
+      );
 
-        const newsItems = await chutesService.searchCryptoNews(symbol, 5);
-        if (newsItems.length > 0) {
-          const newsAnalysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
+      if (
+        newsResult.traditionalNews.articles.length === 0 &&
+        newsResult.redditSentiment.posts.length === 0
+      ) {
+        await ctx.reply(`📰 No recent scraped news found for ${symbol}`);
+      } else if (newsResult.aiAnalysis) {
+        const ai = newsResult.aiAnalysis;
+        const newsSection = `
+📰 NEWS SENTIMENT ANALYSIS (Scraped Data + Chutes AI):
 
-          const newsSection = `
-📰 NEWS SENTIMENT ANALYSIS (Powered by Chutes AI):
+📊 Overall Sentiment: ${ai.overallSentiment} ${
+          ai.overallSentiment === 'BULLISH'
+            ? '🟢📈'
+            : ai.overallSentiment === 'BEARISH'
+              ? '🔴📉'
+              : '🟡➡️'
+        }
 
-📊 Overall Sentiment: ${newsAnalysis.overallSentiment} ${
-            newsAnalysis.overallSentiment === 'BULLISH'
-              ? '🟢📈'
-              : newsAnalysis.overallSentiment === 'BEARISH'
-                ? '🔴📉'
-                : '🟡➡️'
-          }
-
-📈 Market Movement Prediction: ${newsAnalysis.marketMovement.direction} ${
-            newsAnalysis.marketMovement.direction === 'UP'
-              ? '📈'
-              : newsAnalysis.marketMovement.direction === 'DOWN'
-                ? '📉'
-                : '➡️'
-          }
-Confidence Level: ${newsAnalysis.marketMovement.confidence.toFixed(1)}%
+📈 Market Movement Prediction: ${ai.marketMovement.direction} ${
+          ai.marketMovement.direction === 'UP'
+            ? '📈'
+            : ai.marketMovement.direction === 'DOWN'
+              ? '📉'
+              : '➡️'
+        }
+Confidence Level: ${ai.marketMovement.confidence.toFixed(1)}%
 
 ⏰ IMPACT PREDICTIONS:
-🔹 24H: ${newsAnalysis.impactPrediction.shortTerm}
-🔸 7D: ${newsAnalysis.impactPrediction.mediumTerm}
-🔹 30D: ${newsAnalysis.impactPrediction.longTerm}
+🔹 24H: ${ai.impactPrediction.shortTerm}
+🔸 7D: ${ai.impactPrediction.mediumTerm}
+🔹 30D: ${ai.impactPrediction.longTerm}
 
-️ KEY MARKET FACTORS:
-${newsAnalysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}
-
-🔥 RECENT NEWS (${newsItems.length} items):
-${newsItems
-  .map((item, index) => {
-    const sentiment = item.sentimentScore > 0.3 ? '🟢' : item.sentimentScore < -0.3 ? '🔴' : '🟡';
-    return `${index + 1}. ${sentiment} ${item.title.substring(0, 55)}...
-   📊 Impact: ${item.impactLevel} | Sentiment: ${item.sentimentScore.toFixed(2)}`;
-  })
+🔥 SCRAPED NEWS (${newsResult.traditionalNews.articles.length} items):
+${newsResult.traditionalNews.articles
+  .slice(0, 5)
+  .map((item, index) => `${index + 1}. [${item.source}] ${item.title.substring(0, 70)}...`)
   .join('\n')}
+
+💬 REDDIT SIGNALS (${newsResult.redditSentiment.posts.length} posts): ${newsResult.redditSentiment.label}
 
 💡 Use /pnews ${symbol} for detailed news analysis`;
 
-          await ctx.reply(newsSection);
-        }
-      } catch (newsError) {
-        console.error('News analysis error in /analyze:', newsError);
-        await ctx.reply(`💡 For news analysis, try: /pnews ${symbol}`);
+        await ctx.reply(newsSection);
+      } else {
+        await ctx.reply(`
+📰 NEWS SENTIMENT ANALYSIS (Scraped Data):
+
+News Sentiment: ${newsResult.traditionalNews.sentiment}
+Reddit Sentiment: ${newsResult.redditSentiment.label}
+Combined: ${newsResult.combinedSentiment.label}
+Confidence: ${newsResult.combinedSentiment.confidence.toFixed(1)}%
+
+💡 Set CHUTES_API_KEY to enable AI deep analysis from this scraped data.`);
       }
-    } else {
-      await ctx.reply(`📰 NEWS ANALYSIS AVAILABLE:
-💡 Setup Chutes AI for advanced news sentiment analysis!
-
-🔧 Available commands:
-• /pnews ${symbol} - Advanced AI news analysis
-• /impact ${symbol} - Quick impact check
-• /pstatus - Check Chutes configuration
-
-📖 Setup: Add CHUTES_API_KEY to your .env file`);
+    } catch (newsError) {
+      console.error('News analysis error in /analyze:', newsError);
+      await ctx.reply(`💡 For news analysis, try: /pnews ${symbol}`);
     }
 
     // Delete loading message
@@ -1683,76 +1685,91 @@ bot.command('news', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /news BTCUSDT');
   }
 
-  // Check if Chutes is configured
-  if (!chutesService.isConfigured()) {
-    return ctx.reply(
-      '❌ Chutes API is not configured. Please set CHUTES_API_KEY in your environment variables.'
-    );
-  }
-
   try {
-    const loadingMsg = await ctx.reply(`🔄 Analyzing real-time news for ${symbol}...`);
+    console.log(`[SCRAPE] [/news] request symbol=${symbol} user=${ctx.message.from.id}`);
+    const loadingMsg = await ctx.reply(`🔄 Scraping latest news + community posts for ${symbol}...`);
 
-    // Get real-time news from Chutes
-    const newsItems = await chutesService.searchCryptoNews(symbol, 10);
+    // Always use real scraped pipeline
+    const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+    console.log(
+      `[SCRAPE] [/news] result symbol=${symbol} articles=${result.traditionalNews.articles.length} reddit=${result.redditSentiment.posts.length} ai=${result.aiAnalysis ? 'yes' : 'no'}`
+    );
 
-    if (newsItems.length === 0) {
+    if (result.traditionalNews.articles.length === 0 && result.redditSentiment.posts.length === 0) {
       await ctx.deleteMessage(loadingMsg.message_id).catch(() => {});
-      return ctx.reply(`📰 No recent news found for ${symbol}`);
+      return ctx.reply(`📰 No recent scraped news/posts found for ${symbol}`);
     }
 
-    // Analyze news impact
-    const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
+    const articles = result.traditionalNews.articles;
+    const redditPosts = result.redditSentiment.posts;
+    const ai = result.aiAnalysis;
 
-    // Format response
-    const newsSection = `📰 LATEST NEWS for ${symbol}
+    // Format response from scraped data
+    const newsSection = `📰 SCRAPED NEWS for ${symbol}
 ━━━━━━━━━━━━━━━━━━━━━━━━━
 
-${newsItems
+${articles
   .slice(0, 5)
   .map(
     (item, idx) => `
 ${idx + 1}. ${item.title}
    🕒 ${new Date(item.publishedAt).toLocaleString()}
-   📝 ${item.content.substring(0, 150)}${item.content.length > 150 ? '...' : ''}
+   📝 ${item.summary.substring(0, 150)}${item.summary.length > 150 ? '...' : ''}
    🔗 ${item.url}
 `
   )
-  .join('\n')}`;
+  .join('\n')}
 
-    const analysisSection = `
+👥 REDDIT SIGNAL (${redditPosts.length} posts):
+${redditPosts
+  .slice(0, 3)
+  .map((p, idx) => `${idx + 1}. [r/${p.subreddit}] ${p.title.substring(0, 80)}... (↑${p.score})`)
+  .join('\n') || 'No relevant Reddit posts found.'}`;
+
+    const analysisSection = ai
+      ? `
 ━━━━━━━━━━━━━━━━━━━━━━━━━
-📊 NEWS SENTIMENT ANALYSIS
+🤖 AI ANALYSIS (from REAL scraped data)
 
-📊 Overall Sentiment: ${analysis.overallSentiment} ${
-      analysis.overallSentiment === 'BULLISH'
+📊 Overall Sentiment: ${ai.overallSentiment} ${
+      ai.overallSentiment === 'BULLISH'
         ? '🟢📈'
-        : analysis.overallSentiment === 'BEARISH'
+        : ai.overallSentiment === 'BEARISH'
           ? '🔴📉'
           : '🟡➡️'
     }
 
 🎯 Price Impact Prediction:
-Direction: ${analysis.marketMovement.direction} ${
-      analysis.marketMovement.direction === 'UP'
+Direction: ${ai.marketMovement.direction} ${
+      ai.marketMovement.direction === 'UP'
         ? '📈'
-        : analysis.marketMovement.direction === 'DOWN'
+        : ai.marketMovement.direction === 'DOWN'
           ? '📉'
           : '➡️'
     }
-Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
-Expected Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${analysis.marketMovement.expectedRange.high.toFixed(1)}%
+Confidence: ${ai.marketMovement.confidence.toFixed(1)}%
+Expected Range: ${ai.marketMovement.expectedRange.low.toFixed(1)} to ${ai.marketMovement.expectedRange.high.toFixed(1)}
 
 ⏰ TIMEFRAME PREDICTIONS:
-• 24H: ${analysis.impactPrediction.shortTerm}
-• 7D: ${analysis.impactPrediction.mediumTerm}
-• 30D: ${analysis.impactPrediction.longTerm}`;
+• 24H: ${ai.impactPrediction.shortTerm}
+• 7D: ${ai.impactPrediction.mediumTerm}
+• 30D: ${ai.impactPrediction.longTerm}`
+      : `
+━━━━━━━━━━━━━━━━━━━━━━━━━
+📊 BASE SENTIMENT (keyword model)
+
+News Sentiment: ${result.traditionalNews.sentiment}
+Reddit Sentiment: ${result.redditSentiment.label}
+Combined: ${result.combinedSentiment.label}
+Confidence: ${result.combinedSentiment.confidence.toFixed(1)}%
+
+💡 Tip: set CHUTES_API_KEY to enable deep AI analysis over scraped data.`;
 
     const factorsSection =
-      analysis.keyFactors.length > 0
+      ai && ai.keyFactors.length > 0
         ? `
 🔑 KEY FACTORS:
-${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}`
+${ai.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}`
         : '';
 
     // Send analysis
@@ -1812,10 +1829,16 @@ To enable advanced news analysis:
   // Process in background without blocking
   (async () => {
     try {
-      // Get latest news
-      const newsItems = await chutesService.searchCryptoNews(symbol, 10);
+      console.log(`[AI] [/pnews] request symbol=${symbol} user=${ctx.message.from.id}`);
+      // Get scraped news + AI analysis from real data
+      const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+      const newsItems = result.traditionalNews.articles;
+      const analysis = result.aiAnalysis;
+      console.log(
+        `[AI] [/pnews] result symbol=${symbol} articles=${newsItems.length} reddit=${result.redditSentiment.posts.length} ai=${analysis ? 'yes' : 'no'}`
+      );
 
-      if (newsItems.length === 0) {
+      if (newsItems.length === 0 && result.redditSentiment.posts.length === 0) {
         await ctx.reply(`❌ No recent news found for ${symbol}.
 
 Try:
@@ -1825,8 +1848,13 @@ Try:
         return;
       }
 
-      // Analyze impact
-      const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
+      if (!analysis) {
+        await ctx.reply(`❌ AI analysis not available for ${symbol} right now.
+
+💡 Scraping works, but CHUTES_API_KEY may be missing/invalid.
+Try /news ${symbol} for scraped sentiment.`);
+        return;
+      }
 
       // Add news to dashboard
       newsItems.slice(0, 5).forEach((item) => {
@@ -1834,7 +1862,7 @@ Try:
           symbol,
           title: item.title,
           sentiment: analysis.overallSentiment,
-          impact: item.impactLevel as 'HIGH' | 'MEDIUM' | 'LOW',
+          impact: 'MEDIUM',
           timestamp: new Date(),
         });
       });
@@ -1847,18 +1875,7 @@ Try:
 ${newsItems
   .slice(0, 5)
   .map((item, index) => {
-    const sentiment = item.sentimentScore > 0.3 ? '🟢' : item.sentimentScore < -0.3 ? '🔴' : '🟡';
-    const impact =
-      item.impactLevel === 'CRITICAL'
-        ? '🚨'
-        : item.impactLevel === 'HIGH'
-          ? '🔥'
-          : item.impactLevel === 'MEDIUM'
-            ? '📊'
-            : '📰';
-
-    return `${index + 1}. ${impact} ${sentiment} ${item.title.substring(0, 80)}...
-   Impact: ${item.impactLevel} | Sentiment: ${item.sentimentScore.toFixed(2)}
+    return `${index + 1}. 📰 ${item.title.substring(0, 80)}...
    Source: ${item.source}`;
   })
   .join('\n\n')}`;
@@ -1884,7 +1901,7 @@ Direction: ${analysis.marketMovement.direction} ${
             ? '📉'
             : '➡️'
       }
-Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
+Confidence: ${analysis.marketMovement.confidence.toFixed(1)}%
 Expected Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${analysis.marketMovement.expectedRange.high.toFixed(1)}%
 
 ⏰ TIMEFRAME PREDICTIONS:
@@ -1956,20 +1973,29 @@ bot.command('impact', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /impact BTCUSDT');
   }
 
-  if (!chutesService.isConfigured()) {
-    return ctx.reply(`❌ Chutes AI not configured. Use /pnews for setup instructions.`);
-  }
-
   try {
+    console.log(`[AI] [/impact] request symbol=${symbol} user=${ctx.message.from.id}`);
     ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
 
-    const newsItems = await chutesService.searchCryptoNews(symbol, 8);
+    const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+    const newsItems = result.traditionalNews.articles;
+    const analysis = result.aiAnalysis;
+    console.log(
+      `[AI] [/impact] result symbol=${symbol} articles=${newsItems.length} reddit=${result.redditSentiment.posts.length} ai=${analysis ? 'yes' : 'no'}`
+    );
 
-    if (newsItems.length === 0) {
+    if (newsItems.length === 0 && result.redditSentiment.posts.length === 0) {
       return ctx.reply(`❌ No recent impactful news found for ${symbol}`);
     }
 
-    const analysis = await chutesService.analyzeNewsImpact(symbol, newsItems);
+    if (!analysis) {
+      return ctx.reply(`⚡ QUICK IMPACT: ${symbol}
+
+📊 Combined Sentiment: ${result.combinedSentiment.label}
+Confidence: ${result.combinedSentiment.confidence.toFixed(1)}%
+
+💡 Tip: Configure CHUTES_API_KEY for AI-powered 24H/7D/30D impact prediction.`);
+    }
 
     const quickSummary = `⚡ QUICK IMPACT: ${symbol}
 
@@ -1985,14 +2011,14 @@ bot.command('impact', async (ctx) => {
 
 📈 Expected Move: ${analysis.marketMovement.direction}
 Range: ${analysis.marketMovement.expectedRange.low.toFixed(1)}% to ${analysis.marketMovement.expectedRange.high.toFixed(1)}%
-Confidence: ${(analysis.marketMovement.confidence * 100).toFixed(1)}%
+Confidence: ${analysis.marketMovement.confidence.toFixed(1)}%
 
 🔥 Top News Impact:
 ${newsItems
   .slice(0, 3)
   .map(
     (item, index) =>
-      `${index + 1}. ${item.impactLevel === 'HIGH' || item.impactLevel === 'CRITICAL' ? '🚨' : '📰'} ${item.title.substring(0, 60)}...`
+      `${index + 1}. 📰 ${item.title.substring(0, 60)}...`
   )
   .join('\n')}
 
@@ -2032,14 +2058,10 @@ bot.command('fullanalysis', async (ctx) => {
 
 Please wait 30-60 seconds...`);
 
-    // Run both analyses in parallel
+    // Run technical + scraped news analyses in parallel
     const [technicalResult, newsAnalysis] = await Promise.allSettled([
       comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
-      chutesService.isConfigured()
-        ? chutesService
-            .searchCryptoNews(symbol, 8)
-            .then((news) => chutesService.analyzeNewsImpact(symbol, news))
-        : null,
+      newsAnalyzer.analyzeComprehensiveNews(symbol).then((result) => result.aiAnalysis ?? null),
     ]);
 
     // Process technical analysis
@@ -2112,7 +2134,7 @@ Confidence: ${combinedConfidence.toFixed(1)}% ${
             ? '🔴'
             : '🟡'
       }
-• News Impact: ${news.marketMovement.direction} (${(news.marketMovement.confidence * 100).toFixed(1)}% confidence)
+• News Impact: ${news.marketMovement.direction} (${news.marketMovement.confidence.toFixed(1)}% confidence)
 • 24H Prediction: ${news.impactPrediction.shortTerm.substring(0, 100)}...
 • Key Factors: ${news.keyFactors.slice(0, 2).join(', ')}`;
     } else {
