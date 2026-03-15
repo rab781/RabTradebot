@@ -155,17 +155,35 @@ export class FeatureEngineeringService {
         }
 
         const features: FeatureSet[] = [];
-        const closes = data.map(d => d.close);
-        const highs = data.map(d => d.high);
-        const lows = data.map(d => d.low);
-        const opens = data.map(d => d.open);
-        const volumes = data.map(d => d.volume);
+        const len = data.length;
+
+        // ⚡ Bolt Optimization: Replace 5 O(N) .map() calls and closure overhead
+        // with a single pre-allocated O(N) loop for extracting OHLCV columns.
+        const closes = new Array(len);
+        const highs = new Array(len);
+        const lows = new Array(len);
+        const opens = new Array(len);
+        const volumes = new Array(len);
+
+        for (let i = 0; i < len; i++) {
+            const d = data[i];
+            closes[i] = d.close;
+            highs[i] = d.high;
+            lows[i] = d.low;
+            opens[i] = d.open;
+            volumes[i] = d.volume;
+        }
 
         // Pre-calculate indicators for all data points
         const indicators = this.calculateAllIndicators(data, closes, highs, lows, opens, volumes);
 
-        // Pre-calculate all returns (allReturns[i] = return for close[i+1] relative to close[i])
-        const allReturns = closes.slice(1).map((c, i) => (c - closes[i]) / closes[i]);
+        // ⚡ Bolt Optimization: Replace expensive .slice(1).map() which creates
+        // intermediate arrays with a single pre-allocated loop for returns.
+        // allReturns[i] corresponds to the return for close[i+1] relative to close[i]
+        const allReturns = new Array(len > 0 ? len - 1 : 0);
+        for (let i = 0; i < len - 1; i++) {
+            allReturns[i] = (closes[i + 1] - closes[i]) / closes[i];
+        }
 
         // Extract features for each candle (starting from index MIN_CANDLES_FOR_FEATURES to have enough history)
         for (let i = MIN_CANDLES_FOR_FEATURES; i < data.length; i++) {
