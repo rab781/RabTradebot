@@ -373,16 +373,44 @@ export class BacktestEngine {
 
         // Simple Sharpe ratio calculation (using daily returns)
         const dailyReturns = this.calculateDailyReturns(trades, data);
-        const avgDailyReturn = dailyReturns.reduce((sum, r) => sum + r, 0) / dailyReturns.length;
-        const stdDailyReturn = Math.sqrt(dailyReturns.reduce((sum, r) => sum + Math.pow(r - avgDailyReturn, 2), 0) / dailyReturns.length);
-        const sharpeRatio = stdDailyReturn !== 0 ? avgDailyReturn / stdDailyReturn : 0;
+        const dailyReturnsLen = dailyReturns.length;
 
-        // Simple Sortino ratio (downside deviation)
-        const downsideReturns = dailyReturns.filter(r => r < 0);
-        const downsideStd = downsideReturns.length > 0
-            ? Math.sqrt(downsideReturns.reduce((sum, r) => sum + Math.pow(r, 2), 0) / downsideReturns.length)
-            : 0;
-        const sortinoRatio = downsideStd !== 0 ? avgDailyReturn / downsideStd : 0;
+        let avgDailyReturn = 0;
+        let stdDailyReturn = 0;
+        let downsideStd = 0;
+        let sharpeRatio = 0;
+        let sortinoRatio = 0;
+
+        if (dailyReturnsLen > 0) {
+            // Calculate sum for average
+            let sumDailyReturns = 0;
+            let downsideSumSq = 0;
+            let downsideCount = 0;
+
+            for (let i = 0; i < dailyReturnsLen; i++) {
+                const r = dailyReturns[i];
+                sumDailyReturns += r;
+                if (r < 0) {
+                    downsideSumSq += r * r;
+                    downsideCount++;
+                }
+            }
+
+            avgDailyReturn = sumDailyReturns / dailyReturnsLen;
+
+            // Calculate standard deviation and sortino
+            let sumSqDiff = 0;
+            for (let i = 0; i < dailyReturnsLen; i++) {
+                const diff = dailyReturns[i] - avgDailyReturn;
+                sumSqDiff += diff * diff;
+            }
+
+            stdDailyReturn = Math.sqrt(sumSqDiff / dailyReturnsLen);
+            sharpeRatio = stdDailyReturn !== 0 ? avgDailyReturn / stdDailyReturn : 0;
+
+            downsideStd = downsideCount > 0 ? Math.sqrt(downsideSumSq / downsideCount) : 0;
+            sortinoRatio = downsideStd !== 0 ? avgDailyReturn / downsideStd : 0;
+        }
 
         // Calmar ratio (return / max drawdown)
         const calmarRatio = maxDrawdownPct !== 0 ? totalProfitPct / maxDrawdownPct : 0;

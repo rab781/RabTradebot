@@ -43,3 +43,7 @@
 ## 2025-05-25 - [Math.max/min spread operator stack overflow on large arrays]
 **Learning:** Using `Math.max(...array)` or `Math.min(...array)` on very large arrays (e.g., > 65,535 elements) throws a `RangeError: Maximum call stack size exceeded` because the V8 engine has a hard limit on the number of arguments passed to a function. In `DataManager.getDataSummary`, combining `flatMap` with `Math.max` on datasets of ~200k items caused crashes and enormous memory allocation overhead.
 **Action:** When finding min/max values in potentially large arrays (like historical datasets), always use a manual `for` loop to accumulate the min/max values linearly without spreading.
+
+## 2025-02-16 - [Optimize Engine Ratios]
+**Learning:** In hot loops such as `calculateDailyReturns` inside financial metric functions (`calculateResults` in `BacktestEngine` and `getCurrentResult` in `PaperTradingEngine`), calling multiple array methods like `.reduce()` or `.filter()` sequentially adds significant callback execution and memory allocation overhead. This is heavily magnified when backtesting over thousands of days or during iterative strategy optimization.
+**Action:** Always compute dependent variables like averages, standard deviations, and filtered downside sums inside unified O(N) `for` loops rather than using chained functional array methods. This applies across all statistical/financial loops in the codebase.

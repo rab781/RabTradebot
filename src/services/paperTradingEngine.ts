@@ -537,9 +537,28 @@ export class PaperTradingEngine {
 
         // Simple Sharpe ratio calculation
         const dailyReturns = this.calculateDailyReturns();
-        const avgDailyReturn = dailyReturns.reduce((sum, r) => sum + r, 0) / dailyReturns.length;
-        const stdDailyReturn = Math.sqrt(dailyReturns.reduce((sum, r) => sum + Math.pow(r - avgDailyReturn, 2), 0) / dailyReturns.length);
-        const sharpeRatio = stdDailyReturn !== 0 ? avgDailyReturn / stdDailyReturn : 0;
+        const dailyReturnsLen = dailyReturns.length;
+
+        let avgDailyReturn = 0;
+        let stdDailyReturn = 0;
+        let sharpeRatio = 0;
+
+        if (dailyReturnsLen > 0) {
+            let sumDailyReturns = 0;
+            for (let i = 0; i < dailyReturnsLen; i++) {
+                sumDailyReturns += dailyReturns[i];
+            }
+            avgDailyReturn = sumDailyReturns / dailyReturnsLen;
+
+            let sumSqDiff = 0;
+            for (let i = 0; i < dailyReturnsLen; i++) {
+                const diff = dailyReturns[i] - avgDailyReturn;
+                sumSqDiff += diff * diff;
+            }
+
+            stdDailyReturn = Math.sqrt(sumSqDiff / dailyReturnsLen);
+            sharpeRatio = stdDailyReturn !== 0 ? avgDailyReturn / stdDailyReturn : 0;
+        }
 
         return {
             balance: currentBalance,
