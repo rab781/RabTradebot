@@ -159,11 +159,11 @@ export class FeatureEngineeringService {
 
         // ⚡ Bolt Optimization: Replace 5 O(N) .map() calls and closure overhead
         // with a single pre-allocated O(N) loop for extracting OHLCV columns.
-        const closes = new Array(len);
-        const highs = new Array(len);
-        const lows = new Array(len);
-        const opens = new Array(len);
-        const volumes = new Array(len);
+        const closes = new Array<number>(len);
+        const highs = new Array<number>(len);
+        const lows = new Array<number>(len);
+        const opens = new Array<number>(len);
+        const volumes = new Array<number>(len);
 
         for (let i = 0; i < len; i++) {
             const d = data[i];
