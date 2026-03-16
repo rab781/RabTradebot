@@ -270,17 +270,17 @@ bot.command('signal', async (ctx) => {
     ctx.reply('🔄 Generating signal...');
     const signal = await signalGenerator.generateSignal(symbol);
 
-    // Add signal to dashboard
+    // Add signal to dashboard using structured data from SignalResult
     stateManager.addSignal({
       symbol,
-      action: signal.includes('BUY') ? 'BUY' : signal.includes('SELL') ? 'SELL' : 'HOLD',
-      price: 0, // Will be updated with actual price
-      confidence: 0.75, // Default confidence
+      action: signal.action,
+      price: signal.price,
+      confidence: signal.confidence,
       timestamp: new Date(),
       indicators: {},
     });
 
-    ctx.reply(signal);
+    ctx.reply(signal.text);
   } catch (error) {
     console.error(`Error generating signal for ${symbol}:`, error);
     ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);

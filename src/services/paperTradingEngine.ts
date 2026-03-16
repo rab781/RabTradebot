@@ -41,7 +41,7 @@ export class PaperTradingEngine {
     private config: PaperTradingConfig;
     private dataManager: DataManager;
     private userId?: string; // Track user for database integration
-    
+
     // Trading state
     private balance: number;
     private openTrades: Trade[] = [];
@@ -49,12 +49,12 @@ export class PaperTradingEngine {
     private positions: Position[] = [];
     private isRunning = false;
     private tradeIdCounter = 1;
-    
+
     // Performance tracking
     private performanceHistory: PerformanceMetric[] = [];
     private maxBalance = 0;
     private maxDrawdown = 0;
-    
+
     // Data and timing
     private currentDataIndex = 0;
     private historicalData: OHLCVCandle[] = [];
@@ -90,7 +90,7 @@ export class PaperTradingEngine {
         try {
             // Download recent historical data
             this.historicalData = await this.dataManager.getRecentData(symbol, timeframe, dataPoints);
-            
+
             if (this.historicalData.length < this.strategy.startupCandleCount) {
                 throw new Error(`Insufficient data: need at least ${this.strategy.startupCandleCount} candles`);
             }
@@ -103,8 +103,13 @@ export class PaperTradingEngine {
                 this.strategy.botStart();
             }
 
+            // Restore any persisted open paper positions from database
+            if (this.userId) {
+                await this.restoreStateFromDB(symbol);
+            }
+
             console.log(`Paper trading started successfully with ${this.historicalData.length} candles`);
-            
+
             // Start the main trading loop
             await this.runTradingLoop(symbol, timeframe);
 
@@ -119,10 +124,66 @@ export class PaperTradingEngine {
         console.log('Paper trading stopped');
     }
 
+    /**
+     * Reload open paper trades from the database into memory.
+     * Called on startup so positions are not lost after a bot restart.
+     */
+    private async restoreStateFromDB(symbol: string): Promise<void> {
+        if (!this.userId) return;
+
+        try {
+            const dbTrades = await db.getOpenPaperTrades(parseInt(this.userId), symbol);
+
+            if (dbTrades.length === 0) return;
+
+            console.log(`🔄 Restoring ${dbTrades.length} open paper trade(s) from database...`);
+
+            for (const dbTrade of dbTrades) {
+                const side: 'long' | 'short' = dbTrade.side === 'BUY' ? 'long' : 'short';
+                const stakeAmount = dbTrade.quantity * dbTrade.entryPrice;
+                const fee = dbTrade.fees ?? 0;
+
+                const trade: Trade = {
+                    id: uuidv4(),
+                    pair: dbTrade.symbol,
+                    side,
+                    isOpen: true,
+                    openRate: dbTrade.entryPrice,
+                    amount: dbTrade.quantity,
+                    stoplossRate: dbTrade.stopLoss ?? dbTrade.entryPrice * (side === 'long' ? 0.95 : 1.05),
+                    fee,
+                    openDate: dbTrade.entryTime,
+                    entryTag: 'RESTORED_FROM_DB'
+                };
+
+                const position: Position = {
+                    pair: dbTrade.symbol,
+                    side,
+                    amount: dbTrade.quantity,
+                    entryPrice: dbTrade.entryPrice,
+                    currentPrice: dbTrade.entryPrice,
+                    unrealizedPnl: 0,
+                    unrealizedPnlPct: 0,
+                    entryTime: dbTrade.entryTime,
+                    stoplossPrice: trade.stoplossRate
+                };
+
+                this.openTrades.push(trade);
+                this.positions.push(position);
+                this.balance -= (stakeAmount + fee);
+
+                console.log(`  ✔ Restored ${side} ${dbTrade.symbol} @ ${dbTrade.entryPrice}`);
+            }
+        } catch (error) {
+            console.error('Failed to restore paper trades from database:', error);
+            // Non-fatal — continue without restored state
+        }
+    }
+
     private async runTradingLoop(symbol: string, timeframe: string): Promise<void> {
         while (this.isRunning && this.currentDataIndex < this.historicalData.length) {
             const currentTime = Date.now();
-            
+
             // Rate limiting
             if (currentTime - this.lastUpdateTime < this.config.updateInterval) {
                 await this.sleep(this.config.updateInterval - (currentTime - this.lastUpdateTime));
@@ -130,7 +191,7 @@ export class PaperTradingEngine {
 
             await this.processIteration(symbol, timeframe);
             this.lastUpdateTime = Date.now();
-            
+
             // Move to next candle
             this.currentDataIndex++;
         }
@@ -270,8 +331,8 @@ export class PaperTradingEngine {
         enterTag: string,
         metadata: StrategyMetadata
     ): Promise<void> {
-        const stakeAmount = typeof this.strategy.stakeAmount === 'number' 
-            ? this.strategy.stakeAmount 
+        const stakeAmount = typeof this.strategy.stakeAmount === 'number'
+            ? this.strategy.stakeAmount
             : this.balance / this.config.maxOpenTrades;
 
         // Check if we have enough balance
@@ -345,7 +406,9 @@ export class PaperTradingEngine {
                     entryPrice: trade.openRate,
                     quantity: trade.amount,
                     stopLoss: trade.stoplossRate,
-                    fees: trade.fee
+                    fees: trade.fee,
+                    status: 'PAPER_OPEN',
+                    notes: 'PAPER_TRADE'
                 });
             } catch (error) {
                 console.error('Failed to save trade to database:', error);
@@ -365,7 +428,7 @@ export class PaperTradingEngine {
         const exitFee = (trade.amount * exitPrice) * this.config.feeClose;
         const grossProfit = this.calculateTradeProfit(trade, exitPrice);
         const netProfit = grossProfit - exitFee;
-        
+
         // Update trade
         trade.closeRate = exitPrice;
         trade.closeDate = candle.date;
@@ -385,7 +448,7 @@ export class PaperTradingEngine {
         this.closedTrades.push(trade);
 
         // Remove position
-        const positionIndex = this.positions.findIndex(p => 
+        const positionIndex = this.positions.findIndex(p =>
             p.pair === trade.pair && p.side === trade.side && p.entryTime.getTime() === trade.openDate.getTime()
         );
         if (positionIndex !== -1) {
@@ -400,7 +463,7 @@ export class PaperTradingEngine {
         // Update database if userId is set
         if (this.userId) {
             try {
-                const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate);
+                const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
                 if (dbTrade) {
                     await db.closeTrade(dbTrade.id, exitPrice, trade.profitPct || 0);
                 }
@@ -428,13 +491,13 @@ export class PaperTradingEngine {
     private updatePositions(currentPrice: number): void {
         for (const position of this.positions) {
             position.currentPrice = currentPrice;
-            
+
             if (position.side === 'long') {
                 position.unrealizedPnl = position.amount * (currentPrice - position.entryPrice);
             } else {
                 position.unrealizedPnl = position.amount * (position.entryPrice - currentPrice);
             }
-            
+
             position.unrealizedPnlPct = (position.unrealizedPnl / (position.amount * position.entryPrice)) * 100;
         }
 
@@ -448,7 +511,7 @@ export class PaperTradingEngine {
     private updatePerformanceMetrics(currentTime: Date): void {
         const totalUnrealizedPnl = this.positions.reduce((sum, pos) => sum + pos.unrealizedPnl, 0);
         const currentBalance = this.balance + totalUnrealizedPnl;
-        
+
         // Update max balance and drawdown
         if (currentBalance > this.maxBalance) {
             this.maxBalance = currentBalance;
@@ -478,7 +541,7 @@ export class PaperTradingEngine {
     private checkRoi(trade: Trade, currentTime: Date): boolean {
         const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / (1000 * 60); // minutes
         const currentProfitPct = trade.profitPct || 0;
-        
+
         // Use pre-computed sortedRoi for ~35x performance improvement during hot-path evaluation
         for (let i = 0; i < this.sortedRoi.length; i++) {
             const [timeThreshold, roiTarget] = this.sortedRoi[i];
@@ -488,7 +551,7 @@ export class PaperTradingEngine {
                 }
             }
         }
-        
+
         return false;
     }
 
@@ -530,7 +593,7 @@ export class PaperTradingEngine {
         const totalProfit = this.closedTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
         const totalUnrealizedPnl = this.positions.reduce((sum, pos) => sum + pos.unrealizedPnl, 0);
         const currentBalance = this.balance + totalUnrealizedPnl;
-        
+
         const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
         const avgProfit = totalTrades > 0 ? totalProfit / totalTrades : 0;
         const totalProfitPct = ((currentBalance - this.config.initialBalance) / this.config.initialBalance) * 100;

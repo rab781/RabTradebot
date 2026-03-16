@@ -11,8 +11,9 @@ let prisma: PrismaClient;
 
 export function getPrisma(): PrismaClient {
     if (!prisma) {
+        const dbUrl = process.env.DATABASE_URL || 'file:./prisma/dev.db';
         const adapter = new PrismaLibSql({
-            url: 'file:./prisma/dev.db',
+            url: dbUrl,
         });
 
         prisma = new PrismaClient({
@@ -105,13 +106,14 @@ export class DatabaseService {
         fees?: number;
         leverage?: number;
         notes?: string;
+        status?: string; // optional — defaults to 'OPEN'; use 'PAPER_OPEN' for paper trades
     }) {
         return await this.prisma.trade.create({
             data: {
                 ...trade,
                 strategyName: trade.strategyName || 'Manual',
                 entryTime: new Date(),
-                status: 'OPEN'
+                status: trade.status || 'OPEN'
             }
         });
     }
@@ -126,12 +128,14 @@ export class DatabaseService {
 
         if (!trade) throw new Error('Trade not found');
 
-        const profit = trade.side === 'LONG'
+        // side is stored as 'BUY'/'SELL' (from paper trading) or 'LONG'/'SHORT' (legacy)
+        const isLong = trade.side === 'BUY' || trade.side === 'LONG';
+        const profit = isLong
             ? (exitPrice - trade.entryPrice) * trade.quantity
             : (trade.entryPrice - exitPrice) * trade.quantity;
 
-        const calculatedProfitPct = profitPct !== undefined 
-            ? profitPct 
+        const calculatedProfitPct = profitPct !== undefined
+            ? profitPct
             : ((exitPrice - trade.entryPrice) / trade.entryPrice) * 100;
 
         return await this.prisma.trade.update({
@@ -149,12 +153,12 @@ export class DatabaseService {
     /**
      * Find open trade by criteria
      */
-    async findOpenTrade(userId: string, symbol: string, entryPrice: number) {
+    async findOpenTrade(userId: string, symbol: string, entryPrice: number, status?: string) {
         const trades = await this.prisma.trade.findMany({
             where: {
                 userId: parseInt(userId),
                 symbol,
-                status: 'OPEN',
+                status: status || 'OPEN',
                 entryPrice: {
                     gte: entryPrice * 0.999, // Allow small price variance
                     lte: entryPrice * 1.001
@@ -165,6 +169,20 @@ export class DatabaseService {
         });
 
         return trades.length > 0 ? trades[0] : null;
+    }
+
+    /**
+     * Get all open paper trading positions for a user
+     */
+    async getOpenPaperTrades(userId: number, symbol?: string) {
+        return await this.prisma.trade.findMany({
+            where: {
+                userId,
+                status: 'PAPER_OPEN',
+                ...(symbol && { symbol })
+            },
+            orderBy: { entryTime: 'asc' }
+        });
     }
 
     /**
@@ -298,11 +316,11 @@ export class DatabaseService {
         bestTrade?: number;
         worstTrade?: number;
     }) {
-        const avgProfit = backtest.profitableTrades > 0 
-            ? backtest.totalProfit / backtest.profitableTrades 
+        const avgProfit = backtest.profitableTrades > 0
+            ? backtest.totalProfit / backtest.profitableTrades
             : 0;
-        const avgLoss = backtest.lossTrades > 0 
-            ? (backtest.totalLoss || 0) / backtest.lossTrades 
+        const avgLoss = backtest.lossTrades > 0
+            ? (backtest.totalLoss || 0) / backtest.lossTrades
             : 0;
 
         return await this.saveStrategyMetrics({
@@ -427,7 +445,7 @@ export class DatabaseService {
      */
     async getUnverifiedPredictions(minAge: number = 3600000) { // 1 hour in ms
         const cutoffTime = new Date(Date.now() - minAge);
-        
+
         return await this.prisma.prediction.findMany({
             where: {
                 verificationTime: null,
@@ -446,13 +464,13 @@ export class DatabaseService {
         const where: any = {
             wasCorrect: { not: null }
         };
-        
+
         if (modelName) where.modelName = modelName;
         if (symbol) where.symbol = symbol;
         if (userId) where.userId = userId;
 
         const predictions = await this.prisma.prediction.findMany({ where });
-        
+
         if (predictions.length === 0) {
             return {
                 total: 0,
@@ -707,15 +725,15 @@ export class DatabaseService {
         await this.prisma.$transaction([
             // Keep trades for historical analysis
             // this.prisma.trade.deleteMany({ where: { createdAt: { lt: cutoffDate } } }),
-            
+
             // Cleanup old historical data cache
-            this.prisma.historicalData.deleteMany({ 
-                where: { createdAt: { lt: cutoffDate } } 
+            this.prisma.historicalData.deleteMany({
+                where: { createdAt: { lt: cutoffDate } }
             }),
-            
+
             // Cleanup old error logs
-            this.prisma.errorLog.deleteMany({ 
-                where: { createdAt: { lt: cutoffDate } } 
+            this.prisma.errorLog.deleteMany({
+                where: { createdAt: { lt: cutoffDate } }
             })
         ]);
     }

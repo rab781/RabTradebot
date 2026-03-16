@@ -2,7 +2,7 @@
 
 > **Target:** Dari 50/100 → 100/100 Full Quant Trading Bot  
 > **Estimasi Total:** ~8 Minggu  
-> **Last Updated:** 2025
+> **Last Updated:** 2026-03-17
 
 ---
 
@@ -10,7 +10,7 @@
 
 | Fase | Nama | Status | Bobot | Progress |
 |------|------|--------|-------|----------|
-| 0 | Critical Bug Fixes | ⏳ Pending | +2 pts | 0% |
+| 0 | Critical Bug Fixes | ✅ Done | +2 pts | 100% |
 | 1 | Real Order Execution | ⏳ Pending | +20 pts | 0% |
 | 2 | Realistic Paper Trading | ⏳ Pending | +8 pts | 0% |
 | 3 | Real-time WebSocket | ⏳ Pending | +7 pts | 0% |
@@ -27,42 +27,51 @@
 > **Estimasi:** 1 Hari  
 > **Prioritas:** 🔴 WAJIB DIKERJAKAN PERTAMA  
 > **Target Score:** 52 / 100
+> **Catatan audit repo (2026-03-17):** Beberapa item Fase 0 sudah terpenuhi di codebase saat ini. Checklist di bawah hanya disesuaikan dengan kondisi repo tanpa mengubah inti roadmap.
 
 ### Bugs Kritis
 
-- [ ] **[F0-1]** Pindahkan `@prisma/client` dari `devDependencies` ke `dependencies` di `package.json`
+- [x] **[F0-1]** Pindahkan `@prisma/client` dari `devDependencies` ke `dependencies` di `package.json`
   - File: `package.json`
-  - Dampak: Bot akan crash di production karena Prisma client tidak tersedia
+  - Status audit: sudah ada di `dependencies`
 
-- [ ] **[F0-2]** Tambahkan `url = env("DATABASE_URL")` ke `datasource db` di Prisma schema
+- [x] **[F0-2]** Tambahkan `url = env("DATABASE_URL")` ke `datasource db` di Prisma schema
   - File: `prisma/schema.prisma`
-  - Tambahkan baris: `url = env("DATABASE_URL")`
+  - Status audit: baris `url = env("DATABASE_URL")` sudah ada
 
-- [ ] **[F0-3]** Tambahkan `DATABASE_URL` ke file `.env`
-  - File: `.env`
-  - Isi: `DATABASE_URL="file:./prisma/dev.db"` (untuk development)
+- [x] **[F0-3]** Perbaiki `DATABASE_URL` di `.env` dan sambungkan ke `databaseService.ts`
+  - File: `.env`, `.env.example`, `src/services/databaseService.ts`
+  - **Sudah dikerjakan:** `.env` tidak punya `DATABASE_URL` sama sekali → ditambahkan `DATABASE_URL="file:./prisma/dev.db"`
+  - **Fix:** `getPrisma()` sekarang membaca `process.env.DATABASE_URL || 'file:./prisma/dev.db'`
+  - `DATABASE_URL` ditambahkan juga ke `.env.example` dengan komentar untuk production PostgreSQL
 
-- [ ] **[F0-4]** Perbaiki `SignalGenerator` agar menghasilkan structured signal output
-  - File: `src/services/signalGenerator.ts`
-  - Saat ini: hanya output string narasi
-  - Target: tambah return object `{ action: 'BUY'|'SELL'|'HOLD', price, stopLoss, takeProfit, confidence, reason }`
+- [x] **[F0-4]** Perbaiki `SignalGenerator` agar menghasilkan structured signal output
+  - File: `src/services/signalGenerator.ts`, `src/enhancedBot.ts`
+  - **Sudah dikerjakan:** ditambahkan interface `SignalResult { action, price, stopLoss, takeProfit, confidence, reason, text }`
+  - Return type diubah dari `Promise<string>` → `Promise<SignalResult>`; data struktural diambil langsung dari `newsAnalysis` (bukan parse teks)
+  - `enhancedBot.ts` diupdate: `signal.action`, `signal.price`, `signal.confidence` menggantikan substring parsing + hardcode 0.75
 
-- [ ] **[F0-5]** Hapus atau gunakan dependency `node-binance-api` yang tidak terpakai
+- [x] **[F0-5]** Hapus atau gunakan dependency `node-binance-api` yang tidak terpakai
   - File: `package.json`
-  - Pilihan: hapus dari dependencies, atau replace `node-binance-api` di `technicalAnalyzer.ts` secara konsisten
+  - Status audit: dependency `node-binance-api` sudah tidak ada di `package.json`
 
-- [ ] **[F0-6]** Persist state paper trading ke database saat setiap perubahan
-  - File: `src/services/paperTradingEngine.ts`
-  - Semua open positions harus disimpan ke tabel `Trade` dengan status `PAPER_OPEN`
-  - Baca kembali state dari DB saat class diinisialisasi ulang
+- [x] **[F0-6]** Persist state paper trading ke database saat setiap perubahan
+  - File: `src/services/paperTradingEngine.ts`, `src/services/databaseService.ts`
+  - **Sudah dikerjakan:**
+  - **Bug 1 fix:** `createTrade()` sekarang menyimpan dengan `status: 'PAPER_OPEN', notes: 'PAPER_TRADE'` agar bisa dibedakan dari live trade
+  - **Bug 2 fix:** `databaseService.closeTrade()` — profit direction cek diperluas ke `side === 'BUY' || side === 'LONG'` ✅
+  - **Bug 3 fix:** Method `restoreStateFromDB()` ditambahkan; dipanggil dari `start()` setelah `botStart()` — open positions di-load ulang dari DB ke memory saat restart
+  - `findOpenTrade()` dan `saveTrade()` di `databaseService.ts` diperluas dengan parameter `status` optional
+  - Method baru `getOpenPaperTrades(userId, symbol?)` ditambahkan ke `DatabaseService`
 
-- [ ] **[F0-7]** Downgrade `express` dari `^5.2.1` (beta) ke `^4.21.0` (stable)
+- [x] **[F0-7]** Downgrade `express` dari `^5.2.1` (beta) ke `^4.21.0` (stable)
   - File: `package.json`
-  - Express 5 masih beta dan tidak production-ready
+  - Status audit: repo sudah memakai Express 4.x stable
 
-- [ ] **[F0-8]** Jalankan `prisma generate` setelah fix schema
-  - Command: `npx prisma generate`
-  - Command: `npx prisma migrate dev --name fix_datasource_url`
+- [x] **[F0-8]** Jalankan `prisma generate` setelah fix schema
+  - Status audit: `npx prisma generate` sudah pernah dijalankan — `node_modules/.prisma/client/index.js` ada ✅
+  - Migrasi schema sudah ada di `prisma/migrations/` ✅
+  - Sisa pekerjaan terkait DB ada di **F0-3** (sambungkan `DATABASE_URL` ke service)
 
 ---
 
@@ -272,7 +281,8 @@
 
 ### 3.1 BinanceWebSocketService (File Baru)
 
-- [ ] **[F3-1]** Install dependency: `npm install ws @types/ws`
+- [x] **[F3-1]** Install dependency: `npm install ws @types/ws`
+  - Status audit: `ws` dan `@types/ws` sudah ada di `package.json`
 
 - [ ] **[F3-2]** Buat file `src/services/binanceWebSocketService.ts`
 
