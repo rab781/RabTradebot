@@ -180,7 +180,7 @@ export class FeatureEngineeringService {
         // ⚡ Bolt Optimization: Replace expensive .slice(1).map() which creates
         // intermediate arrays with a single pre-allocated loop for returns.
         // allReturns[i] corresponds to the return for close[i+1] relative to close[i]
-        const allReturns = new Array(len > 0 ? len - 1 : 0);
+        const allReturns: number[] = new Array<number>(len > 0 ? len - 1 : 0);
         for (let i = 0; i < len - 1; i++) {
             allReturns[i] = (closes[i + 1] - closes[i]) / closes[i];
         }
