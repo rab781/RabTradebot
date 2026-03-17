@@ -1,7 +1,7 @@
 # 🗺️ ROADMAP TODO — RabTradebot Quant Trading Bot
 
-> **Target:** Dari 50/100 → 100/100 Full Quant Trading Bot  
-> **Estimasi Total:** ~8 Minggu  
+> **Target:** Dari 50/100 → 100/100 Full Quant Trading Bot
+> **Estimasi Total:** ~8 Minggu
 > **Last Updated:** 2026-03-17
 
 ---
@@ -24,8 +24,8 @@
 
 ## ⚡ FASE 0 — Critical Bug Fixes
 
-> **Estimasi:** 1 Hari  
-> **Prioritas:** 🔴 WAJIB DIKERJAKAN PERTAMA  
+> **Estimasi:** 1 Hari
+> **Prioritas:** 🔴 WAJIB DIKERJAKAN PERTAMA
 > **Target Score:** 52 / 100
 > **Catatan audit repo (2026-03-17):** Beberapa item Fase 0 sudah terpenuhi di codebase saat ini. Checklist di bawah hanya disesuaikan dengan kondisi repo tanpa mengubah inti roadmap.
 
@@ -77,95 +77,95 @@
 
 ## 🔵 FASE 1 — Real Order Execution
 
-> **Estimasi:** 1–2 Minggu  
-> **Prioritas:** 🔴 Tertinggi — Core dari Quant Trading  
+> **Estimasi:** 1–2 Minggu
+> **Prioritas:** 🔴 Tertinggi — Core dari Quant Trading
 > **Target Score:** 70 / 100
 
 ### 1.1 BinanceOrderService (File Baru)
 
-- [ ] **[F1-1]** Buat file `src/services/binanceOrderService.ts`
+- [x] **[F1-1]** Buat file `src/services/binanceOrderService.ts`
 
-- [ ] **[F1-2]** Implementasi `placeMarketOrder(symbol, side, quantity)`
+- [x] **[F1-2]** Implementasi `placeMarketOrder(symbol, side, quantity)`
   - Endpoint: `POST /api/v3/order`
   - Parameter: `{ symbol, side, type: 'MARKET', quantity }`
   - Return: `{ orderId, status, executedQty, price }`
 
-- [ ] **[F1-3]** Implementasi `placeLimitOrder(symbol, side, quantity, price)`
+- [x] **[F1-3]** Implementasi `placeLimitOrder(symbol, side, quantity, price)`
   - Endpoint: `POST /api/v3/order`
   - Parameter: `{ symbol, side, type: 'LIMIT', quantity, price, timeInForce: 'GTC' }`
 
-- [ ] **[F1-4]** Implementasi `placeStopLossLimitOrder(symbol, side, quantity, stopPrice, limitPrice)`
+- [x] **[F1-4]** Implementasi `placeStopLossLimitOrder(symbol, side, quantity, stopPrice, limitPrice)`
   - Endpoint: `POST /api/v3/order`
   - Parameter: `{ type: 'STOP_LOSS_LIMIT', stopPrice, price, timeInForce: 'GTC' }`
 
-- [ ] **[F1-5]** Implementasi `placeTakeProfitLimitOrder(symbol, side, quantity, stopPrice, limitPrice)`
+- [x] **[F1-5]** Implementasi `placeTakeProfitLimitOrder(symbol, side, quantity, stopPrice, limitPrice)`
   - Endpoint: `POST /api/v3/order`
   - Parameter: `{ type: 'TAKE_PROFIT_LIMIT' }`
 
-- [ ] **[F1-6]** Implementasi `cancelOrder(symbol, orderId)`
+- [x] **[F1-6]** Implementasi `cancelOrder(symbol, orderId)`
   - Endpoint: `DELETE /api/v3/order`
 
-- [ ] **[F1-7]** Implementasi `cancelAllOpenOrders(symbol)`
+- [x] **[F1-7]** Implementasi `cancelAllOpenOrders(symbol)`
   - Endpoint: `DELETE /api/v3/openOrders`
 
-- [ ] **[F1-8]** Implementasi `getOpenOrders(symbol?)`
+- [x] **[F1-8]** Implementasi `getOpenOrders(symbol?)`
   - Endpoint: `GET /api/v3/openOrders`
 
-- [ ] **[F1-9]** Implementasi `getOrderStatus(symbol, orderId)`
+- [x] **[F1-9]** Implementasi `getOrderStatus(symbol, orderId)`
   - Endpoint: `GET /api/v3/order`
 
-- [ ] **[F1-10]** Implementasi `getCurrentPrice(symbol)`
+- [x] **[F1-10]** Implementasi `getCurrentPrice(symbol)`
   - Endpoint: `GET /api/v3/ticker/price`
   - Ini untuk polling cepat sebelum WebSocket tersedia (Fase 3)
 
-- [ ] **[F1-11]** Implementasi `getAccountBalance()`
+- [x] **[F1-11]** Implementasi `getAccountBalance()`
   - Endpoint: `GET /api/v3/account`
   - Return hanya non-zero balances
 
-- [ ] **[F1-12]** Implementasi `getSymbolInfo(symbol)`
+- [x] **[F1-12]** Implementasi `getSymbolInfo(symbol)`
   - Endpoint: `GET /api/v3/exchangeInfo`
   - Return: `{ minQty, maxQty, stepSize, minNotional, tickSize }`
   - Dipakai untuk validasi order sebelum dikirim
 
-- [ ] **[F1-13]** Implementasi `roundToStepSize(quantity, stepSize)` — helper function
+- [x] **[F1-13]** Implementasi `roundToStepSize(quantity, stepSize)` — helper function
   - Binance menolak order jika quantity tidak mengikuti `stepSize` exact
   - Contoh: stepSize=0.001, quantity=0.0015123 → 0.001
 
-- [ ] **[F1-14]** Tambah rate limiter di `BinanceOrderService`
+- [x] **[F1-14]** Tambah rate limiter di `BinanceOrderService`
   - Max 1200 request/menit (weight-based)
   - Setiap request catat weight-nya berdasarkan tipe endpoint
   - Jika mendekati limit → auto throttle
 
-- [ ] **[F1-15]** Tambah retry logic dengan exponential backoff
+- [x] **[F1-15]** Tambah retry logic dengan exponential backoff
   - Retry 3x untuk error `429` (rate limit) dan `5xx` (server error)
   - Delay: 1s, 2s, 4s
   - Jangan retry untuk error `-2010` (insufficient balance) atau `-1121` (invalid symbol)
 
 ### 1.2 RealTradingEngine (File Baru)
 
-- [ ] **[F1-16]** Buat file `src/services/realTradingEngine.ts`
+- [x] **[F1-16]** Buat file `src/services/realTradingEngine.ts`
 
-- [ ] **[F1-17]** Implementasi `executeEntry(signal, riskParams)`
+- [x] **[F1-17]** Implementasi `executeEntry(signal, riskParams)`
   - Hitung `quantity` berdasarkan `riskParams.riskPerTrade` dan `stopLoss` distance
   - Panggil `binanceOrderService.roundToStepSize()` sebelum kirim
   - Kirim market order via `binanceOrderService.placeMarketOrder()`
   - Simpan trade ke DB dengan `orderId` Binance
   - Kirim konfirmasi ke Telegram user
 
-- [ ] **[F1-18]** Implementasi `executeExit(tradeId, reason)`
+- [x] **[F1-18]** Implementasi `executeExit(tradeId, reason)`
   - Fetch trade dari DB
   - Cancel semua pending orders terkait trade ini
   - Kirim market order sisi berlawanan
   - Update trade di DB: `exitPrice`, `exitTime`, `profit`, `status: CLOSED`
   - Kirim laporan profit/loss ke Telegram user
 
-- [ ] **[F1-19]** Implementasi position sizing via Kelly Criterion
+- [x] **[F1-19]** Implementasi position sizing via Kelly Criterion
   - Formula: `f = (edge * odds - (1 - edge)) / odds`
   - Edge = win rate dari backtest terbaru
   - Batasi dengan `maxPositionSize` dari OpenClawConfig
   - Minimum position = `minPositionSize`
 
-- [ ] **[F1-20]** Validasi sebelum eksekusi order
+- [x] **[F1-20]** Validasi sebelum eksekusi order
   - Cek saldo cukup (`getAccountBalance()`)
   - Cek jumlah open trades tidak melebihi `maxOpenTrades`
   - Cek simbol valid (`getSymbolInfo()`)
@@ -173,42 +173,42 @@
 
 ### 1.3 Risk Management Loop (File Baru)
 
-- [ ] **[F1-21]** Buat file `src/services/riskMonitorLoop.ts`
+- [x] **[F1-21]** Buat file `src/services/riskMonitorLoop.ts`
 
-- [ ] **[F1-22]** Implementasi main monitoring loop (polling REST, 5 detik interval)
+- [x] **[F1-22]** Implementasi main monitoring loop (polling REST, 5 detik interval)
   - Fetch semua open trades dari DB
   - Untuk setiap trade: fetch current price
   - Cek stop loss, take profit, trailing stop
   - Jika triggered → panggil `realTradingEngine.executeExit()`
 
-- [ ] **[F1-23]** Implementasi trailing stop logic
+- [x] **[F1-23]** Implementasi trailing stop logic
   - Track `highestPrice` sejak entry untuk LONG, `lowestPrice` untuk SHORT
   - Hitung trailing stop berdasarkan `trailingStopPositive` dari strategy config
   - Update `stoplossRate` di DB setiap kali harga baru lebih menguntungkan
 
-- [ ] **[F1-24]** Implementasi portfolio-level circuit breaker
+- [x] **[F1-24]** Implementasi portfolio-level circuit breaker
   - Jika total account drawdown > threshold (default 15%) → stop semua trading otomatis
   - Kirim alert darurat ke Telegram admin
   - Semua open positions di-close dengan market order
 
-- [ ] **[F1-25]** Tambah `riskMonitorLoop.start()` dan `stop()` di bot startup/shutdown
+- [x] **[F1-25]** Tambah `riskMonitorLoop.start()` dan `stop()` di bot startup/shutdown
 
 ### 1.4 Integrasi ke Bot Telegram
 
-- [ ] **[F1-26]** Tambah command `/livetrade start <symbol>` di `enhancedBot.ts`
+- [x] **[F1-26]** Tambah command `/livetrade start <symbol>` di `enhancedBot.ts`
   - Gunakan `OpenClawStrategy` sebagai default
   - Konfirmasi dari user sebelum mulai (karena uang nyata)
   - Tampilkan disclaimer risiko
 
-- [ ] **[F1-27]** Tambah command `/livetrade stop` di `enhancedBot.ts`
+- [x] **[F1-27]** Tambah command `/livetrade stop` di `enhancedBot.ts`
 
-- [ ] **[F1-28]** Tambah command `/liveportfolio` — lihat posisi live + unrealized PnL
+- [x] **[F1-28]** Tambah command `/liveportfolio` — lihat posisi live + unrealized PnL
 
-- [ ] **[F1-29]** Tambah command `/orders` — lihat open orders di Binance real-time
+- [x] **[F1-29]** Tambah command `/orders` — lihat open orders di Binance real-time
 
-- [ ] **[F1-30]** Tambah command `/cancelorder <orderId>` — cancel order spesifik
+- [x] **[F1-30]** Tambah command `/cancelorder <orderId>` — cancel order spesifik
 
-- [ ] **[F1-31]** Tambah notifikasi otomatis saat:
+- [x] **[F1-31]** Tambah notifikasi otomatis saat:
   - Order tereksekusi (entry/exit)
   - Stop loss terpicu
   - Take profit tercapai
@@ -216,17 +216,18 @@
 
 ### 1.5 Testing Fase 1
 
-- [ ] **[F1-32]** Buat `scripts/test-order-service.ts` — test semua fungsi order dengan Testnet Binance
+- [x] **[F1-32]** Buat `scripts/test-order-service.ts` — test semua fungsi order dengan Testnet Binance
 - [ ] **[F1-33]** Daftarkan akun di Binance Testnet: `https://testnet.binance.vision`
-- [ ] **[F1-34]** Tambah `BINANCE_TESTNET=true` dan `BINANCE_TESTNET_URL` ke `.env`
-- [ ] **[F1-35]** Test full flow: signal → entry order → risk monitor → exit order
+  - Catatan: langkah manual di luar codebase
+- [x] **[F1-34]** Tambah `BINANCE_TESTNET=true` dan `BINANCE_TESTNET_URL` ke `.env.example` (dan gunakan di `.env` runtime)
+- [x] **[F1-35]** Test full flow: signal → entry order → risk monitor → exit order
 
 ---
 
 ## 🟡 FASE 2 — Paper Trading yang Realistis
 
-> **Estimasi:** 3–5 Hari  
-> **Prioritas:** 🟡 Menengah  
+> **Estimasi:** 3–5 Hari
+> **Prioritas:** 🟡 Menengah
 > **Target Score:** 78 / 100
 
 ### 2.1 Slippage Modeling
@@ -275,8 +276,8 @@
 
 ## 🟠 FASE 3 — Real-time Data dengan WebSocket
 
-> **Estimasi:** 3–5 Hari  
-> **Prioritas:** 🟡 Menengah  
+> **Estimasi:** 3–5 Hari
+> **Prioritas:** 🟡 Menengah
 > **Target Score:** 85 / 100
 
 ### 3.1 BinanceWebSocketService (File Baru)
@@ -339,8 +340,8 @@
 
 ## 🔴 FASE 4 — ML Pipeline Improvement
 
-> **Estimasi:** 1–2 Minggu  
-> **Prioritas:** 🟡 Menengah — Meningkatkan Edge  
+> **Estimasi:** 1–2 Minggu
+> **Prioritas:** 🟡 Menengah — Meningkatkan Edge
 > **Target Score:** 93 / 100
 
 ### 4.1 Walk-Forward Validation
@@ -421,8 +422,8 @@
 
 ## 🟣 FASE 5 — Strategy Optimization yang Robust
 
-> **Estimasi:** 1 Minggu  
-> **Prioritas:** 🟢 Menengah-Rendah  
+> **Estimasi:** 1 Minggu
+> **Prioritas:** 🟢 Menengah-Rendah
 > **Target Score:** 97 / 100
 
 ### 5.1 Walk-Forward Optimization (WFO)
@@ -480,8 +481,8 @@
 
 ## ⚫ FASE 6 — Production Infrastructure
 
-> **Estimasi:** 1 Minggu  
-> **Prioritas:** 🟢 Menengah-Rendah  
+> **Estimasi:** 1 Minggu
+> **Prioritas:** 🟢 Menengah-Rendah
 > **Target Score:** 100 / 100
 
 ### 6.1 Migrasi Database
@@ -770,5 +771,5 @@ Fase 6 (Infrastructure) ◄─── Bisa dimulai kapan saja, tapi idealnya sete
 
 ---
 
-*Dokumen ini adalah living document — update status setiap task saat selesai dikerjakan.*  
+*Dokumen ini adalah living document — update status setiap task saat selesai dikerjakan.*
 *Legend: ⏳ Pending | 🔄 In Progress | ✅ Done | ❌ Cancelled | ⏸️ Blocked*

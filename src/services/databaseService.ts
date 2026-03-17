@@ -62,6 +62,15 @@ export class DatabaseService {
     }
 
     /**
+     * Get user by internal database ID
+     */
+    async getUserById(userId: number) {
+        return await this.prisma.user.findUnique({
+            where: { id: userId }
+        });
+    }
+
+    /**
      * Update user preferences
      */
     async setUserPreference(userId: number, key: string, value: string) {
@@ -106,6 +115,7 @@ export class DatabaseService {
         fees?: number;
         leverage?: number;
         notes?: string;
+        tags?: string;
         status?: string; // optional — defaults to 'OPEN'; use 'PAPER_OPEN' for paper trades
     }) {
         return await this.prisma.trade.create({
@@ -121,7 +131,16 @@ export class DatabaseService {
     /**
      * Close a trade
      */
-    async closeTrade(tradeId: string, exitPrice: number, profitPct?: number) {
+    async closeTrade(
+        tradeId: string,
+        exitPrice: number,
+        profitPct?: number,
+        options?: {
+            status?: string;
+            notes?: string;
+            maxDrawdown?: number;
+        }
+    ) {
         const trade = await this.prisma.trade.findUnique({
             where: { id: tradeId }
         });
@@ -143,10 +162,62 @@ export class DatabaseService {
             data: {
                 exitPrice,
                 exitTime: new Date(),
-                status: 'CLOSED',
+                status: options?.status || 'CLOSED',
                 profit,
-                profitPct: calculatedProfitPct
+                profitPct: calculatedProfitPct,
+                ...(options?.notes && { notes: options.notes }),
+                ...(options?.maxDrawdown !== undefined && { maxDrawdown: options.maxDrawdown })
             }
+        });
+    }
+
+    /**
+     * Fetch a trade by ID
+     */
+    async getTradeById(tradeId: string) {
+        return await this.prisma.trade.findUnique({
+            where: { id: tradeId }
+        });
+    }
+
+    /**
+     * Get open live trades (status OPEN/LIVE_OPEN)
+     */
+    async getOpenLiveTrades(userId?: number, symbol?: string) {
+        return await this.prisma.trade.findMany({
+            where: {
+                status: { in: ['OPEN', 'LIVE_OPEN'] },
+                ...(userId !== undefined && { userId }),
+                ...(symbol && { symbol })
+            },
+            orderBy: { entryTime: 'asc' }
+        });
+    }
+
+    /**
+     * Count open live trades for a user
+     */
+    async countOpenLiveTrades(userId: number) {
+        return await this.prisma.trade.count({
+            where: {
+                userId,
+                status: { in: ['OPEN', 'LIVE_OPEN'] }
+            }
+        });
+    }
+
+    /**
+     * Update stop loss and optional metadata for a trade
+     */
+    async updateTradeRisk(tradeId: string, data: {
+        stopLoss?: number;
+        takeProfit?: number;
+        notes?: string;
+        tags?: string;
+    }) {
+        return await this.prisma.trade.update({
+            where: { id: tradeId },
+            data
         });
     }
 

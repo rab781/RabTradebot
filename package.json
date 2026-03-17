@@ -13,6 +13,7 @@
     "rebuild": "npm run clean && npm run build",
     "test-chutes": "ts-node scripts/test-chutes.ts",
     "test-chutes-api": "ts-node scripts/test-chutes-api.ts",
+    "test-order-service": "ts-node scripts/test-order-service.ts",
     "lint": "eslint . --ext .ts",
     "format": "prettier --write \"src/**/*.ts\"",
     "test": "jest"

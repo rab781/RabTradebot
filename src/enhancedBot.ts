@@ -21,6 +21,9 @@ import { SimpleGRUModel } from './ml/simpleGRUModel';
 import { FeatureEngineeringService } from './services/featureEngineering';
 import { PublicCryptoService } from './services/publicCryptoService';
 import { BinanceService } from './services/binanceService';
+import { binanceOrderService } from './services/binanceOrderService';
+import { realTradingEngine, RiskParams } from './services/realTradingEngine';
+import { riskMonitorLoop } from './services/riskMonitorLoop';
 import { OHLCVCandle } from './types/dataframe';
 
 import { ImageChartService } from './services/imageChartService';
@@ -92,6 +95,14 @@ const userSessions = new Map<
   number,
   {
     paperTrading?: PaperTradingEngine;
+    liveTrading?: {
+      active: boolean;
+      symbol: string;
+      strategy: IStrategy;
+      userDbId: number;
+      timer?: NodeJS.Timeout;
+      startedAt: Date;
+    };
     lastBacktest?: any;
     strategy?: IStrategy;
   }
@@ -116,6 +127,77 @@ async function ensureUser(ctx: any) {
 
   const user = await db.getOrCreateUser(telegramId, userData);
   return user;
+}
+
+function stopLiveTradingSession(session: {
+  active: boolean;
+  symbol: string;
+  strategy: IStrategy;
+  userDbId: number;
+  timer?: NodeJS.Timeout;
+  startedAt: Date;
+}) {
+  session.active = false;
+  if (session.timer) {
+    clearInterval(session.timer);
+    session.timer = undefined;
+  }
+}
+
+const notifyByDbUserId = async (message: string, dbUserId?: number): Promise<void> => {
+  if (!dbUserId) return;
+  const user = await db.getUserById(dbUserId);
+  if (!user) return;
+  await bot.telegram.sendMessage(Number(user.telegramId), message);
+};
+
+realTradingEngine.setNotifier(async (message, dbUserId) => {
+  try {
+    await notifyByDbUserId(message, dbUserId);
+  } catch (error) {
+    console.error('Live notifier error:', error);
+  }
+});
+
+riskMonitorLoop.setNotifier(async (message, dbUserId) => {
+  try {
+    await notifyByDbUserId(message, dbUserId);
+  } catch (error) {
+    console.error('Risk monitor notifier error:', error);
+  }
+});
+
+async function executeLiveSignal(userDbId: number, symbol: string, strategyToUse: IStrategy): Promise<void> {
+  const openTrades = await db.getOpenLiveTrades(userDbId, symbol);
+  if (openTrades.length > 0) {
+    return;
+  }
+
+  const signal = await signalGenerator.generateSignal(symbol);
+  if (signal.action === 'HOLD') {
+    return;
+  }
+
+  const stats = await db.getUserTradeStats(userDbId, symbol);
+  const historicalWinRate = stats.totalTrades > 0 ? stats.winRate / 100 : 0.52;
+
+  const riskParams: RiskParams = {
+    riskPerTrade: parseFloat(process.env.LIVE_RISK_PER_TRADE || '0.01'),
+    maxPositionSize: parseFloat(process.env.LIVE_MAX_POSITION_SIZE || '0.15'),
+    minPositionSize: parseFloat(process.env.LIVE_MIN_POSITION_SIZE || '0.01'),
+    maxOpenTrades: strategyToUse.maxOpenTrades,
+    stopLossPctFallback: Math.abs(strategyToUse.stoploss || -0.03),
+    expectedWinRate: historicalWinRate,
+    rewardRiskRatio: parseFloat(process.env.LIVE_RR_RATIO || '2'),
+  };
+
+  await realTradingEngine.executeEntry({
+    userId: userDbId,
+    symbol,
+    signal,
+    strategy: strategyToUse,
+    riskParams,
+  });
 }
 
 // Start command
@@ -148,6 +230,8 @@ This bot now includes powerful freqtrade-inspired features:
 🎯 ADVANCED TRADING:
 /backtest [symbol] [days] - Run strategy backtest
 /papertrade [symbol] - Start paper trading
+/livetrade start [symbol] confirm - Start live trading (real funds)
+/livetrade stop - Stop live trading
 /stoptrading - Stop paper trading
 /portfolio - View paper trading portfolio
 /performance - View trading performance
@@ -162,6 +246,9 @@ This bot now includes powerful freqtrade-inspired features:
 
 🔧 STATUS CHECKS:
 /apistatus - Check Binance API connectivity & auth
+/orders [symbol] - View open Binance orders
+/cancelorder <orderId> [symbol] - Cancel live order
+/liveportfolio - View non-zero balances + open orders
 /pstatus - Check Chutes AI configuration
 /mlstatus - Check ML model status
 
@@ -202,9 +289,14 @@ bot.command('help', (ctx) => {
 /backtest [symbol] [days] - Run strategy backtest
    Example: /backtest BTCUSDT 30
 /papertrade [symbol] - Start paper trading simulation
+/livetrade start [symbol] confirm - Start live trading (real funds)
+/livetrade stop - Stop live trading
 /stoptrading - Stop current paper trading session
 /portfolio - View current positions and balance
 /performance - Detailed performance metrics
+/orders [symbol] - View open Binance orders
+/cancelorder <orderId> [symbol] - Cancel live order
+/liveportfolio - View non-zero balances + open orders
 
 🔹 STRATEGY & OPTIMIZATION:
 /optimize [symbol] [days] - Optimize strategy parameters
@@ -221,7 +313,7 @@ bot.command('help', (ctx) => {
 /alerts - List your active price alerts
 /delalert [symbol] - Delete price alert
 
-� 📊 ANALYTICS & PERFORMANCE:
+📊 ANALYTICS & PERFORMANCE:
 /stats - Your trading statistics & ML performance
 /mlstats [symbol] - ML prediction accuracy stats
 /strategystats [symbol] - Compare strategy performance
@@ -2253,6 +2345,266 @@ bot.command('apistatus', async (ctx) => {
   return;
 });
 
+// ============================================================================
+// LIVE ORDER COMMANDS (FASE 1)
+// ============================================================================
+
+bot.command('orders', async (ctx) => {
+  try {
+    if (!binanceOrderService.isConfigured()) {
+      return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
+    }
+
+    const symbolArg = ctx.message.text.split(' ')[1]?.toUpperCase();
+    const loadingMsg = await ctx.reply('🔄 Fetching open orders from Binance...');
+
+    const orders = await binanceOrderService.getOpenOrders(symbolArg);
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
+    if (orders.length === 0) {
+      return ctx.reply(`✅ Tidak ada open order${symbolArg ? ` untuk ${symbolArg}` : ''}.`);
+    }
+
+    const preview = orders.slice(0, 15);
+    let message = `📋 Open Orders${symbolArg ? ` (${symbolArg})` : ''}\n\n`;
+
+    for (const order of preview) {
+      message += `• #${order.orderId} ${order.symbol} ${order.side} ${order.type}\n`;
+      message += `  Qty: ${order.executedQty}/${order.origQty} | Price: ${order.price}\n`;
+      message += `  Status: ${order.status}\n\n`;
+    }
+
+    if (orders.length > preview.length) {
+      message += `...dan ${orders.length - preview.length} order lainnya.`;
+    }
+
+    return ctx.reply(message.trim());
+  } catch (error) {
+    console.error('orders command error:', error);
+    return ctx.reply(`❌ Gagal ambil open orders: ${(error as Error).message}`);
+  }
+});
+
+bot.command('cancelorder', async (ctx) => {
+  try {
+    if (!binanceOrderService.isConfigured()) {
+      return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
+    }
+
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length === 0) {
+      return ctx.reply('Usage:\n/cancelorder <orderId> [symbol]\nContoh: /cancelorder 123456 BTCUSDT');
+    }
+
+    const orderId = Number(args[0]);
+    if (!Number.isFinite(orderId)) {
+      return ctx.reply('❌ orderId tidak valid. Contoh: /cancelorder 123456 BTCUSDT');
+    }
+
+    let symbol = args[1]?.toUpperCase();
+    if (!symbol) {
+      const allOpen = await binanceOrderService.getOpenOrders();
+      const targetOrder = allOpen.find((o) => o.orderId === orderId);
+      if (!targetOrder) {
+        return ctx.reply('❌ Order tidak ditemukan di open orders. Tambahkan symbol jika order baru saja berubah status.');
+      }
+      symbol = targetOrder.symbol;
+    }
+
+    const loadingMsg = await ctx.reply(`🔄 Cancelling order #${orderId} (${symbol})...`);
+    const result = await binanceOrderService.cancelOrder(symbol, orderId);
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
+    return ctx.reply(`✅ Order berhasil dibatalkan.\nSymbol: ${symbol}\nOrder ID: ${orderId}\nStatus: ${(result.status as string) || 'CANCELED'}`);
+  } catch (error) {
+    console.error('cancelorder command error:', error);
+    return ctx.reply(`❌ Gagal cancel order: ${(error as Error).message}`);
+  }
+});
+
+bot.command('liveportfolio', async (ctx) => {
+  try {
+    if (!binanceOrderService.isConfigured()) {
+      return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
+    }
+
+    const loadingMsg = await ctx.reply('🔄 Fetching live portfolio...');
+
+    const [balances, openOrders] = await Promise.all([
+      binanceOrderService.getAccountBalance(),
+      binanceOrderService.getOpenOrders(),
+    ]);
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
+    if (balances.length === 0) {
+      return ctx.reply('📭 Tidak ada balance non-zero pada akun Binance saat ini.');
+    }
+
+    const topBalances = balances.slice(0, 20);
+    let message = `💼 Live Portfolio (Binance)\n\n`;
+    message += `📌 Open Orders: ${openOrders.length}\n\n`;
+    message += `🪙 Non-zero Balances:\n`;
+
+    for (const b of topBalances) {
+      message += `• ${b.asset}: free=${b.free}, locked=${b.locked}\n`;
+    }
+
+    if (balances.length > topBalances.length) {
+      message += `\n...dan ${balances.length - topBalances.length} asset lainnya.`;
+    }
+
+    return ctx.reply(message.trim());
+  } catch (error) {
+    console.error('liveportfolio command error:', error);
+    return ctx.reply(`❌ Gagal ambil live portfolio: ${(error as Error).message}`);
+  }
+});
+
+bot.command('livetrade', async (ctx) => {
+  const args = ctx.message.text.split(' ').slice(1);
+  const action = (args[0] || '').toLowerCase();
+  const session = getUserSession(ctx.message.from.id);
+
+  if (!action || !['start', 'stop'].includes(action)) {
+    return ctx.reply(
+      'Usage:\n/livetrade start <symbol> confirm\n/livetrade stop\n\nContoh: /livetrade start BTCUSDT confirm'
+    );
+  }
+
+  if (!binanceOrderService.isConfigured()) {
+    return ctx.reply('❌ Live trading butuh BINANCE_API_KEY dan BINANCE_API_SECRET.');
+  }
+
+  if (action === 'stop') {
+    if (!session.liveTrading || !session.liveTrading.active) {
+      return ctx.reply('❌ Tidak ada sesi live trading aktif.');
+    }
+
+    stopLiveTradingSession(session.liveTrading);
+    const elapsedMs = Date.now() - session.liveTrading.startedAt.getTime();
+    const elapsedMin = (elapsedMs / 60000).toFixed(1);
+    session.liveTrading = undefined;
+
+    return ctx.reply(`🛑 Live trading dihentikan.\nDurasi sesi: ${elapsedMin} menit.`);
+  }
+
+  const symbol = (args[1] || '').toUpperCase();
+  const confirmation = (args[2] || '').toLowerCase();
+
+  if (!symbol) {
+    return ctx.reply('❌ Symbol wajib diisi. Contoh: /livetrade start BTCUSDT confirm');
+  }
+
+  if (confirmation !== 'confirm') {
+    return ctx.reply(
+      `⚠️ LIVE TRADING menggunakan dana riil.\n` +
+        `Untuk konfirmasi, jalankan ulang:\n/livetrade start ${symbol} confirm`
+    );
+  }
+
+  if (session.liveTrading && session.liveTrading.active) {
+    return ctx.reply(`❌ Live trading sudah aktif untuk ${session.liveTrading.symbol}. Gunakan /livetrade stop dulu.`);
+  }
+
+  try {
+    const user = await ensureUser(ctx);
+    if (!user) {
+      return ctx.reply('❌ Gagal menyiapkan user session.');
+    }
+
+    await binanceOrderService.getSymbolInfo(symbol);
+    await binanceOrderService.getCurrentPrice(symbol);
+
+    const strategyToUse = openClawStrategy;
+    const signalIntervalMs = parseInt(process.env.LIVE_SIGNAL_INTERVAL_MS || '300000', 10);
+
+    session.liveTrading = {
+      active: true,
+      symbol,
+      strategy: strategyToUse,
+      userDbId: user.id,
+      startedAt: new Date(),
+    };
+
+    await riskMonitorLoop.start();
+
+    const runSignal = async () => {
+      if (!session.liveTrading || !session.liveTrading.active) {
+        return;
+      }
+
+      try {
+        await executeLiveSignal(user.id, symbol, strategyToUse);
+      } catch (error) {
+        await db.logError({
+          level: 'ERROR',
+          source: 'livetrade_loop',
+          message: `Live signal execution failed: ${(error as Error).message}`,
+          stackTrace: (error as Error).stack,
+          userId: user.id,
+          symbol,
+        });
+        await notifyByDbUserId(
+          `❌ Live trading error untuk ${symbol}: ${(error as Error).message}\nSesi tetap berjalan, cek log jika error berulang.`,
+          user.id,
+        );
+      }
+    };
+
+    await runSignal();
+    session.liveTrading.timer = setInterval(() => {
+      runSignal().catch((error) => {
+        console.error('livetrade interval error:', error);
+      });
+    }, signalIntervalMs);
+
+    return ctx.reply(
+      `✅ Live trading aktif untuk ${symbol}\n` +
+        `Strategy: ${strategyToUse.name}\n` +
+        `Signal interval: ${(signalIntervalMs / 1000).toFixed(0)} detik\n\n` +
+        `Gunakan /livetrade stop untuk menghentikan.`
+    );
+  } catch (error) {
+    console.error('livetrade start error:', error);
+    await db.logError({
+      level: 'ERROR',
+      source: 'livetrade_command',
+      message: `Failed to start live trading: ${(error as Error).message}`,
+      stackTrace: (error as Error).stack,
+      symbol,
+    });
+
+    const userId = ctx.message?.from?.id;
+    if (userId) {
+      const user = await db.getOrCreateUser(userId, {
+        username: ctx.message.from.username,
+        firstName: ctx.message.from.first_name,
+        lastName: ctx.message.from.last_name,
+      });
+      if (user) {
+        await notifyByDbUserId(`❌ Gagal start live trading ${symbol}: ${(error as Error).message}`, user.id);
+      }
+    }
+
+    return ctx.reply(`❌ Gagal start live trading: ${(error as Error).message}`);
+  }
+});
+
 // Volume analysis command
 bot.command('volume', async (ctx) => {
   const symbol = ctx.message.text.split(' ')[1]?.toUpperCase();
@@ -2737,6 +3089,9 @@ bot
     console.log('🎯 Ready to receive commands...');
     console.log('💡 Send /start to see available commands');
     console.log('🔍 Prediction verification service active');
+    riskMonitorLoop.start().catch((error) => {
+      console.error('❌ Failed to start risk monitor loop:', error);
+    });
   })
   .catch((error) => {
     console.error('❌ Failed to start bot:', error);
@@ -2746,6 +3101,12 @@ bot
 // Enable graceful stop
 process.once('SIGINT', () => {
   console.log('🛑 Received SIGINT, stopping bot...');
+  for (const session of userSessions.values()) {
+    if (session.liveTrading?.active) {
+      stopLiveTradingSession(session.liveTrading);
+    }
+  }
+  riskMonitorLoop.stop();
   predictionVerifier.stop();
   bot.stop('SIGINT');
   db.disconnect();
@@ -2754,6 +3115,12 @@ process.once('SIGINT', () => {
 
 process.once('SIGTERM', () => {
   console.log('🛑 Received SIGTERM, stopping bot...');
+  for (const session of userSessions.values()) {
+    if (session.liveTrading?.active) {
+      stopLiveTradingSession(session.liveTrading);
+    }
+  }
+  riskMonitorLoop.stop();
   predictionVerifier.stop();
   bot.stop('SIGTERM');
   db.disconnect();
