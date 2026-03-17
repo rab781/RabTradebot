@@ -1,4 +1,4 @@
-import { Telegraf } from 'telegraf';
+import { Telegraf, Markup } from 'telegraf';
 import { config } from 'dotenv';
 import { TechnicalAnalyzer } from './services/technicalAnalyzer';
 import { NewsAnalyzer } from './services/newsAnalyzer';
@@ -129,6 +129,52 @@ async function ensureUser(ctx: any) {
   return user;
 }
 
+const ACTIVE_SYMBOL_PREF_KEY = 'active_symbol';
+const DEFAULT_ACTIVE_SYMBOL = 'BTCUSDT';
+const COMMON_QUOTES = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'BTC', 'ETH'];
+
+function normalizeSymbolInput(rawInput: string): string {
+  const cleaned = rawInput.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  if (!cleaned) {
+    throw new Error('Symbol kosong');
+  }
+
+  const hasKnownQuote = COMMON_QUOTES.some((quote) => cleaned.endsWith(quote));
+  const normalized = hasKnownQuote ? cleaned : `${cleaned}USDT`;
+
+  if (!/^[A-Z0-9]{5,20}$/.test(normalized)) {
+    throw new Error('Format symbol tidak valid');
+  }
+
+  return normalized;
+}
+
+async function getActiveSymbol(userId: number): Promise<string> {
+  const pref = await db.getUserPreference(userId, ACTIVE_SYMBOL_PREF_KEY);
+  return (pref || DEFAULT_ACTIVE_SYMBOL).toUpperCase();
+}
+
+async function setActiveSymbol(userId: number, symbol: string): Promise<void> {
+  await db.setUserPreference(userId, ACTIVE_SYMBOL_PREF_KEY, symbol.toUpperCase());
+}
+
+function buildFeatureMenu(symbol: string) {
+  return Markup.keyboard([
+    [`/analyze ${symbol}`, `/signal ${symbol}`, `/fullanalysis ${symbol}`],
+    [`/openclaw ${symbol}`, `/mlpredict ${symbol}`, `/chart ${symbol} 1h`],
+    [`/pnews ${symbol}`, `/impact ${symbol}`, `/news ${symbol}`],
+    [`/papertrade ${symbol}`, `/stoptrading`, `/portfolio`],
+    [`/livetrade start ${symbol} confirm`, `/livetrade stop`],
+    [`/orders ${symbol}`, `/liveportfolio`, `/performance`],
+    [`/backtest ${symbol} 30`, `/optimize ${symbol} 60`],
+    [`/download ${symbol} 30`, `/datainfo ${symbol}`, `/volume ${symbol}`],
+    [`/sr ${symbol}`, `/strategies`, `/apistatus`],
+    ['/menu', '/help'],
+  ])
+    .resize()
+    .oneTime(false);
+}
+
 function stopLiveTradingSession(session: {
   active: boolean;
   symbol: string;
@@ -200,6 +246,90 @@ async function executeLiveSignal(userDbId: number, symbol: string, strategyToUse
   });
 }
 
+bot.command('coin', async (ctx) => {
+  const input = ctx.message.text.split(' ')[1];
+
+  if (!input) {
+    return ctx.reply('Gunakan: /coin BTCUSDT atau /coin BTC');
+  }
+
+  try {
+    const user = await ensureUser(ctx);
+    if (!user) {
+      return ctx.reply('❌ Gagal menyiapkan user session.');
+    }
+
+    const symbol = normalizeSymbolInput(input);
+    await setActiveSymbol(user.id, symbol);
+
+    return ctx.reply(
+      `✅ Coin aktif diset ke ${symbol}\nSekarang tinggal tap menu fitur tanpa ngetik ulang symbol.`,
+      buildFeatureMenu(symbol),
+    );
+  } catch (error) {
+    return ctx.reply(`❌ Gagal set coin: ${(error as Error).message}`);
+  }
+});
+
+bot.command('menu', async (ctx) => {
+  try {
+    const user = await ensureUser(ctx);
+    if (!user) {
+      return ctx.reply('❌ Gagal menyiapkan user session.');
+    }
+
+    const provided = ctx.message.text.split(' ')[1];
+    if (provided) {
+      const normalized = normalizeSymbolInput(provided);
+      await setActiveSymbol(user.id, normalized);
+    }
+
+    const activeSymbol = await getActiveSymbol(user.id);
+
+    return ctx.reply(
+      `📌 Menu fitur aktif\nCoin: ${activeSymbol}\n\n` +
+        `Tips:\n` +
+        `• Ganti coin: /coin BTC atau /coin ETHUSDT\n` +
+        `• Buka ulang menu: /menu`,
+      buildFeatureMenu(activeSymbol),
+    );
+  } catch (error) {
+    return ctx.reply(`❌ Gagal membuka menu: ${(error as Error).message}`);
+  }
+});
+
+bot.command('go', async (ctx) => {
+  const user = await ensureUser(ctx);
+  if (!user) {
+    return ctx.reply('❌ Gagal menyiapkan user session.');
+  }
+
+  const activeSymbol = await getActiveSymbol(user.id);
+  return ctx.reply(`🚀 Quick menu untuk ${activeSymbol}`, buildFeatureMenu(activeSymbol));
+});
+
+bot.hears(/^[A-Za-z]{2,5}(USDT|USDC|BUSD|FDUSD|BTC|ETH)?$/i, async (ctx) => {
+  // Allow quick symbol input without command, e.g. "BTC" or "ETHUSDT"
+  if (!ctx.message || !('text' in ctx.message)) return;
+  const text = ctx.message.text.trim();
+  if (text.startsWith('/')) return;
+
+  const reserved = new Set(['START', 'HELP', 'MENU']);
+  const upper = text.toUpperCase();
+  if (reserved.has(upper)) return;
+
+  try {
+    const user = await ensureUser(ctx);
+    if (!user) return;
+
+    const symbol = normalizeSymbolInput(text);
+    await setActiveSymbol(user.id, symbol);
+    await ctx.reply(`✅ Coin aktif: ${symbol}`, buildFeatureMenu(symbol));
+  } catch {
+    // Ignore non-symbol casual messages
+  }
+});
+
 // Start command
 bot.command('start', async (ctx) => {
   // Ensure user exists in database
@@ -251,6 +381,11 @@ This bot now includes powerful freqtrade-inspired features:
 /liveportfolio - View non-zero balances + open orders
 /pstatus - Check Chutes AI configuration
 /mlstatus - Check ML model status
+
+⚡ QUICK MENU (NEW):
+/coin BTCUSDT - Set coin aktif sekali
+/menu - Tampilkan keyboard semua fitur pakai coin aktif
+/go - Quick open menu
 
 Use /help for detailed command descriptions.`);
 });
@@ -307,6 +442,12 @@ bot.command('help', (ctx) => {
 /download [symbol] [days] - Download historical data
    Example: /download BTCUSDT 90
 /datainfo [symbol] - Check data quality and summary
+
+⚡ QUICK MENU (NEW):
+/coin [symbol] - Set coin aktif (contoh: /coin BTC)
+/menu [optional-symbol] - Buka keyboard fitur dengan coin aktif
+/go - Quick open menu
+Tip: setelah set coin, cukup tap tombol command tanpa ngetik ulang symbol.
 
 🔹 PRICE ALERTS:
 /alert [symbol] [price] [above/below] - Set price alert
