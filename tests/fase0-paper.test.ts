@@ -176,8 +176,8 @@ describe('F0-6: createTrade() saves trade with status PAPER_OPEN', () => {
 
 // ── closeTrade queries with PAPER_OPEN ────────────────────────────────────────
 
-describe('F0-6: closeTrade() queries DB with status PAPER_OPEN', () => {
-    it('passes PAPER_OPEN as status arg to findOpenTrade', async () => {
+describe('F0-6: closeTrade() passes dbId to db.closeTrade', () => {
+    it('passes dbId to closeTrade if dbId is available, skipping findOpenTrade', async () => {
         // minimalRoi { '0': 0 } means any profit immediately exits
         const quickExitStrategy: IStrategy = {
             ...entryStrategy,
@@ -194,16 +194,13 @@ describe('F0-6: closeTrade() queries DB with status PAPER_OPEN', () => {
             makeCandle(50300, new Date('2026-01-01T00:15:00Z')),
         ];
         dm.getRecentData.mockResolvedValue(extendedCandles);
+        (db.saveTrade as jest.Mock).mockResolvedValue({ id: 'mock_db_trade_id' });
 
         await engine.start('BTCUSDT', '5m');
 
-        // findOpenTrade should have been called with 'PAPER_OPEN' as the 4th arg
-        expect(db.findOpenTrade).toHaveBeenCalledWith(
-            expect.any(String),    // userId
-            'BTCUSDT',
-            expect.any(Number),    // entry price
-            'PAPER_OPEN',
-        );
+        // findOpenTrade should NOT have been called because dbId is present
+        expect(db.findOpenTrade).not.toHaveBeenCalled();
+        expect(db.closeTrade).toHaveBeenCalledWith('mock_db_trade_id', expect.any(Number), expect.any(Number));
     });
 });
 
