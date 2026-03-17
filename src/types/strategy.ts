@@ -6,18 +6,18 @@ export interface IStrategy {
     version: string;
     timeframe: string;
     canShort: boolean;
-    
+
     // Risk management
     stoploss: number; // Negative value, e.g., -0.05 for 5% stop loss
     minimalRoi: { [key: string]: number }; // Time-based ROI targets
     trailingStop: boolean;
     trailingStopPositive?: number;
     trailingStopPositiveOffset?: number;
-    
+
     // Position sizing
     stakeAmount: number | 'unlimited';
     maxOpenTrades: number;
-    
+
     // Strategy configuration
     startupCandleCount: number;
     processOnlyNewCandles: boolean;
@@ -25,12 +25,12 @@ export interface IStrategy {
     exitProfitOnly: boolean;
     exitProfitOffset: number;
     ignoreRoiIfEntrySignal: boolean;
-    
+
     // Required strategy methods
     populateIndicators(dataframe: DataFrame, metadata: StrategyMetadata): DataFrame;
     populateEntryTrend(dataframe: DataFrame, metadata: StrategyMetadata): DataFrame;
     populateExitTrend(dataframe: DataFrame, metadata: StrategyMetadata): DataFrame;
-    
+
     // Optional callbacks
     customStoploss?(trade: Trade, currentTime: Date, currentRate: number, currentProfit: number): number | null;
     customExitPrice?(pair: string, trade: Trade, currentTime: Date, proposedRate: number, currentProfit: number): number;
@@ -64,6 +64,11 @@ export interface Trade {
     exitReason?: string;
     entryTag?: string;
     exitTag?: string;
+    // Slippage tracking (Fase 2)
+    entrySlippage?: number; // actual entry price vs nominal (e.g., 0.0015 = 0.15%)
+    exitSlippage?: number;  // actual exit price vs nominal
+    actualEntryPrice?: number; // nominal was openRate, actual fills at this
+    actualExitPrice?: number;
 }
 
 export interface StrategyResult {

@@ -22,6 +22,8 @@ jest.mock('../src/services/databaseService', () => ({
         closeTrade: jest.fn(),
         findOpenTrade: jest.fn(),
         getOpenPaperTrades: jest.fn(),
+        setUserPreference: jest.fn(),
+        updateTradeRisk: jest.fn(),
         logError: jest.fn(),
     },
 }));
@@ -125,6 +127,8 @@ beforeEach(() => {
     (db.saveTrade as jest.Mock).mockResolvedValue({ id: 'db-trade-1' });
     (db.closeTrade as jest.Mock).mockResolvedValue({});
     (db.findOpenTrade as jest.Mock).mockResolvedValue(null);
+    (db.setUserPreference as jest.Mock).mockResolvedValue({});
+    (db.updateTradeRisk as jest.Mock).mockResolvedValue({});
     (db.logError as jest.Mock).mockResolvedValue({});
 });
 
@@ -143,6 +147,39 @@ describe('F0-6: createTrade() saves trade with status PAPER_OPEN', () => {
                 status: 'PAPER_OPEN',
                 notes: 'PAPER_TRADE',
             }),
+        );
+    });
+
+    it('updates risk metadata for open paper trades during position updates', async () => {
+        (db.saveTrade as jest.Mock).mockResolvedValue({ id: 'db-trade-1' });
+
+        const engine = new PaperTradingEngine(entryStrategy, baseConfig, '42');
+        const dm = getDataManagerMock();
+        dm.getRecentData.mockResolvedValue(CANDLES);
+
+        await engine.start('BTCUSDT', '5m');
+
+        expect(db.updateTradeRisk).toHaveBeenCalledWith(
+            'db-trade-1',
+            expect.objectContaining({
+                stopLoss: expect.any(Number),
+            }),
+        );
+    });
+
+    it('persists performance snapshots periodically to user preference', async () => {
+        const engine = new PaperTradingEngine(entryStrategy, baseConfig, '42');
+        const dm = getDataManagerMock();
+        dm.getRecentData.mockResolvedValue(CANDLES);
+
+        (engine as any).performancePersistEvery = 1;
+
+        await engine.start('BTCUSDT', '5m');
+
+        expect(db.setUserPreference).toHaveBeenCalledWith(
+            42,
+            'paper_performance_history_v1',
+            expect.any(String),
         );
     });
 
@@ -176,8 +213,8 @@ describe('F0-6: createTrade() saves trade with status PAPER_OPEN', () => {
 
 // ── closeTrade queries with PAPER_OPEN ────────────────────────────────────────
 
-describe('F0-6: closeTrade() queries DB with status PAPER_OPEN', () => {
-    it('passes PAPER_OPEN as status arg to findOpenTrade', async () => {
+describe('F0-6: closeTrade() updates DB for paper open trades', () => {
+    it('closes using saved db trade id (or falls back to PAPER_OPEN lookup)', async () => {
         // minimalRoi { '0': 0 } means any profit immediately exits
         const quickExitStrategy: IStrategy = {
             ...entryStrategy,
@@ -191,18 +228,17 @@ describe('F0-6: closeTrade() queries DB with status PAPER_OPEN', () => {
         // 4 candles so loop runs twice: enter on candle[2], exit on candle[3]
         const extendedCandles = [
             ...CANDLES,
-            makeCandle(50300, new Date('2026-01-01T00:15:00Z')),
+            makeCandle(50600, new Date('2026-01-01T00:15:00Z')),
         ];
         dm.getRecentData.mockResolvedValue(extendedCandles);
 
         await engine.start('BTCUSDT', '5m');
 
-        // findOpenTrade should have been called with 'PAPER_OPEN' as the 4th arg
-        expect(db.findOpenTrade).toHaveBeenCalledWith(
-            expect.any(String),    // userId
-            'BTCUSDT',
-            expect.any(Number),    // entry price
-            'PAPER_OPEN',
+        // Primary path: close uses known db id from saveTrade
+        expect(db.closeTrade).toHaveBeenCalledWith(
+            'db-trade-1',
+            expect.any(Number),
+            expect.any(Number),
         );
     });
 });

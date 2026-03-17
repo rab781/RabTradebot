@@ -26,6 +26,10 @@ export interface PaperTradingResult {
     positions: Position[];
     recentTrades: Trade[];
     performance: PerformanceMetric[];
+    // Slippage tracking (Fase 2)
+    totalSlippageCost?: number; // Total cost from slippage across all trades
+    totalSpreadCost?: number; // Total cost from bid/ask spread
+    profitWithoutSlippage?: number; // P&L if slippage didn't exist
 }
 
 export interface PerformanceMetric {
@@ -34,6 +38,14 @@ export interface PerformanceMetric {
     totalProfit: number;
     openPositions: number;
     drawdown: number;
+}
+
+interface PendingPartialEntry {
+    pair: string;
+    side: 'long' | 'short';
+    remainingQuantity: number;
+    enterTag: string;
+    createdAt: Date;
 }
 
 export class PaperTradingEngine {
@@ -47,6 +59,8 @@ export class PaperTradingEngine {
     private openTrades: Trade[] = [];
     private closedTrades: Trade[] = [];
     private positions: Position[] = [];
+    private pendingPartialEntries: PendingPartialEntry[] = [];
+    private paperTradeDbIds: Map<string, string> = new Map();
     private isRunning = false;
     private tradeIdCounter = 1;
 
@@ -54,6 +68,11 @@ export class PaperTradingEngine {
     private performanceHistory: PerformanceMetric[] = [];
     private maxBalance = 0;
     private maxDrawdown = 0;
+    private performancePersistEvery = 10;
+
+    // Slippage tracking (Fase 2)
+    private totalSlippageCost = 0;
+    private totalSpreadCost = 0;
 
     // Data and timing
     private currentDataIndex = 0;
@@ -170,6 +189,7 @@ export class PaperTradingEngine {
 
                 this.openTrades.push(trade);
                 this.positions.push(position);
+                this.paperTradeDbIds.set(trade.id, dbTrade.id);
                 this.balance -= (stakeAmount + fee);
 
                 console.log(`  ✔ Restored ${side} ${dbTrade.symbol} @ ${dbTrade.entryPrice}`);
@@ -237,12 +257,15 @@ export class PaperTradingEngine {
             // Process exits first
             await this.processExits(exitData, currentCandle, metadata);
 
+            // Process pending partial entries before fresh signals
+            await this.processPendingPartialEntries(currentCandle, metadata);
+
             // Process entries
             await this.processEntries(entryData, currentCandle, metadata);
 
             // Update positions and performance
-            this.updatePositions(currentPrice);
-            this.updatePerformanceMetrics(currentTime);
+            await this.updatePositions(currentPrice);
+            await this.updatePerformanceMetrics(currentTime);
 
         } catch (error) {
             console.error(`Error processing iteration at ${currentTime}:`, error);
@@ -257,6 +280,10 @@ export class PaperTradingEngine {
             const trade = this.openTrades[i];
             let shouldExit = false;
             let exitReason = '';
+
+            // Recompute current PnL before checking exit conditions.
+            trade.profit = this.calculateTradeProfit(trade, currentPrice);
+            trade.profitPct = (trade.profit / (trade.amount * (trade.actualEntryPrice || trade.openRate))) * 100;
 
             // Check exit signals
             const exitLong = (exitData.exit_long as number[])[currentIndex];
@@ -342,8 +369,50 @@ export class PaperTradingEngine {
         }
 
         const entryPrice = candle.close;
-        const amount = stakeAmount / entryPrice;
-        const fee = stakeAmount * this.config.feeOpen;
+        const requestedAmount = stakeAmount / entryPrice;
+
+        // F2-6/F2-7: Use average recent volume to constrain executable size.
+        const avgVolume20 = this.calculateAverageVolume20();
+        const liquidityData = this.applyLiquidityConstraint(requestedAmount, avgVolume20);
+        if (liquidityData.filledQuantity <= 0) {
+            console.log(`Liquidity too low to open ${metadata.pair}: requested ${requestedAmount}, max ${liquidityData.maxFillQuantity}`);
+            return;
+        }
+
+        if (liquidityData.isPartialFill) {
+            console.log(`Partial fill for ${metadata.pair}: requested ${requestedAmount.toFixed(6)}, filled ${liquidityData.filledQuantity.toFixed(6)}`);
+        }
+
+        const amount = liquidityData.filledQuantity;
+
+        if (liquidityData.isPartialFill && liquidityData.unfilledQuantity > 0) {
+            this.pendingPartialEntries.push({
+                pair: metadata.pair,
+                side,
+                remainingQuantity: liquidityData.unfilledQuantity,
+                enterTag,
+                createdAt: candle.date
+            });
+        }
+
+        // F2-4/F2-5: Apply bid/ask spread before slippage.
+        const spreadData = this.applySpread(entryPrice, side, metadata.pair);
+        const spreadAdjustedEntryPrice = spreadData.adjustedPrice;
+        const spreadCost = Math.abs(spreadAdjustedEntryPrice - entryPrice) * amount;
+        this.totalSpreadCost += spreadCost;
+
+        // F2-2: Calculate slippage on top of spread-adjusted price.
+        const slippageData = this.calculateSlippage(spreadAdjustedEntryPrice, side, amount, avgVolume20);
+        const actualEntryPrice = slippageData.fillPrice;
+        const slippageCost = Math.abs(actualEntryPrice - spreadAdjustedEntryPrice) * amount;
+        this.totalSlippageCost += slippageCost;
+        const entryNotional = amount * actualEntryPrice;
+        const fee = entryNotional * this.config.feeOpen;
+
+        if ((entryNotional + fee) > this.balance * 0.95) {
+            console.log(`Insufficient balance for partial/new fill: ${entryNotional + fee} > ${this.balance * 0.95}`);
+            return;
+        }
 
         // Confirm entry if callback exists
         let confirmEntry = true;
@@ -352,7 +421,7 @@ export class PaperTradingEngine {
                 metadata.pair,
                 'market',
                 amount,
-                entryPrice,
+                actualEntryPrice,
                 candle.date
             );
         }
@@ -362,27 +431,29 @@ export class PaperTradingEngine {
             return;
         }
 
-        // Create trade
+        // Create trade with slippage tracking (Fase 2)
         const trade: Trade = {
             id: uuidv4(),
             pair: metadata.pair,
             isOpen: true,
             side: side,
             amount: amount,
-            openRate: entryPrice,
+            openRate: entryPrice, // Nominal entry price (for reference)
+            actualEntryPrice: actualEntryPrice, // Actual fill price with slippage
             openDate: candle.date,
             fee: fee,
             entryTag: enterTag,
-            stoplossRate: entryPrice * (1 + this.strategy.stoploss * (side === 'long' ? 1 : -1))
+            entrySlippage: slippageData.totalSlippage, // Store slippage percentage
+            stoplossRate: actualEntryPrice * (1 + this.strategy.stoploss * (side === 'long' ? 1 : -1))
         };
 
-        // Create position
+        // Create position (using actual entry price with slippage)
         const position: Position = {
             pair: metadata.pair,
             side: side,
             amount: amount,
-            entryPrice: entryPrice,
-            currentPrice: entryPrice,
+            entryPrice: actualEntryPrice, // Use actual fill price with slippage
+            currentPrice: actualEntryPrice,
             unrealizedPnl: 0,
             unrealizedPnlPct: 0,
             entryTime: candle.date,
@@ -391,7 +462,7 @@ export class PaperTradingEngine {
 
         this.openTrades.push(trade);
         this.positions.push(position);
-        this.balance -= (stakeAmount + fee);
+        this.balance -= (entryNotional + fee);
 
         console.log(`📈 Opened ${side} trade for ${metadata.pair} at ${entryPrice} (${enterTag})`);
         console.log(`💰 Remaining balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
@@ -399,7 +470,7 @@ export class PaperTradingEngine {
         // Save to database if userId is set
         if (this.userId) {
             try {
-                await db.saveTrade({
+                const savedTrade = await db.saveTrade({
                     userId: parseInt(this.userId),
                     symbol: trade.pair,
                     side: side === 'long' ? 'BUY' : 'SELL',
@@ -410,6 +481,7 @@ export class PaperTradingEngine {
                     status: 'PAPER_OPEN',
                     notes: 'PAPER_TRADE'
                 });
+                this.paperTradeDbIds.set(trade.id, savedTrade.id);
             } catch (error) {
                 console.error('Failed to save trade to database:', error);
                 await db.logError({
@@ -423,22 +495,150 @@ export class PaperTradingEngine {
         }
     }
 
+    private async processPendingPartialEntries(candle: OHLCVCandle, metadata: StrategyMetadata): Promise<void> {
+        if (this.pendingPartialEntries.length === 0) {
+            return;
+        }
+
+        for (let i = this.pendingPartialEntries.length - 1; i >= 0; i--) {
+            if (this.openTrades.length >= this.config.maxOpenTrades) {
+                break;
+            }
+
+            const pending = this.pendingPartialEntries[i];
+            if (pending.pair !== metadata.pair || pending.remainingQuantity <= 0) {
+                continue;
+            }
+
+            const avgVolume20 = this.calculateAverageVolume20();
+            const liquidityData = this.applyLiquidityConstraint(pending.remainingQuantity, avgVolume20);
+            if (liquidityData.filledQuantity <= 0) {
+                continue;
+            }
+
+            const amount = liquidityData.filledQuantity;
+            const entryPrice = candle.close;
+            const spreadData = this.applySpread(entryPrice, pending.side, pending.pair);
+            const spreadAdjustedEntryPrice = spreadData.adjustedPrice;
+            const spreadCost = Math.abs(spreadAdjustedEntryPrice - entryPrice) * amount;
+            this.totalSpreadCost += spreadCost;
+
+            const slippageData = this.calculateSlippage(spreadAdjustedEntryPrice, pending.side, amount, avgVolume20);
+            const actualEntryPrice = slippageData.fillPrice;
+            const slippageCost = Math.abs(actualEntryPrice - spreadAdjustedEntryPrice) * amount;
+            this.totalSlippageCost += slippageCost;
+
+            const entryNotional = amount * actualEntryPrice;
+            const fee = entryNotional * this.config.feeOpen;
+
+            if ((entryNotional + fee) > this.balance * 0.95) {
+                continue;
+            }
+
+            const trade: Trade = {
+                id: uuidv4(),
+                pair: pending.pair,
+                isOpen: true,
+                side: pending.side,
+                amount: amount,
+                openRate: entryPrice,
+                actualEntryPrice: actualEntryPrice,
+                openDate: candle.date,
+                fee: fee,
+                entryTag: `${pending.enterTag}_PARTIAL`,
+                entrySlippage: slippageData.totalSlippage,
+                stoplossRate: actualEntryPrice * (1 + this.strategy.stoploss * (pending.side === 'long' ? 1 : -1))
+            };
+
+            const position: Position = {
+                pair: pending.pair,
+                side: pending.side,
+                amount: amount,
+                entryPrice: actualEntryPrice,
+                currentPrice: actualEntryPrice,
+                unrealizedPnl: 0,
+                unrealizedPnlPct: 0,
+                entryTime: candle.date,
+                stoplossPrice: trade.stoplossRate
+            };
+
+            this.openTrades.push(trade);
+            this.positions.push(position);
+            this.balance -= (entryNotional + fee);
+
+            pending.remainingQuantity = Math.max(0, pending.remainingQuantity - amount);
+            if (pending.remainingQuantity <= 0) {
+                this.pendingPartialEntries.splice(i, 1);
+            }
+
+            console.log(`📈 Filled pending partial ${pending.side} ${pending.pair}: ${amount.toFixed(6)} at ${entryPrice}`);
+            console.log(`💰 Remaining balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
+
+            if (this.userId) {
+                try {
+                    const savedTrade = await db.saveTrade({
+                        userId: parseInt(this.userId),
+                        symbol: trade.pair,
+                        side: trade.side === 'long' ? 'BUY' : 'SELL',
+                        entryPrice: trade.openRate,
+                        quantity: trade.amount,
+                        stopLoss: trade.stoplossRate,
+                        fees: trade.fee,
+                        status: 'PAPER_OPEN',
+                        notes: 'PAPER_TRADE'
+                    });
+                    this.paperTradeDbIds.set(trade.id, savedTrade.id);
+                } catch (error) {
+                    console.error('Failed to save pending partial fill to database:', error);
+                }
+            }
+        }
+    }
+
     private async closeTrade(trade: Trade, candle: OHLCVCandle, exitReason: string): Promise<void> {
         const exitPrice = candle.close;
-        const exitFee = (trade.amount * exitPrice) * this.config.feeClose;
-        const grossProfit = this.calculateTradeProfit(trade, exitPrice);
+
+        // F2-6/F2-7: Calculate avgVolume20 and constrain executable exit size.
+        const avgVolume20 = this.calculateAverageVolume20();
+        const liquidityData = this.applyLiquidityConstraint(trade.amount, avgVolume20);
+        if (liquidityData.filledQuantity <= 0) {
+            console.log(`Liquidity too low to close ${trade.pair}: requested ${trade.amount}, max ${liquidityData.maxFillQuantity}`);
+            return;
+        }
+
+        if (liquidityData.isPartialFill) {
+            console.log(`Partial exit fill for ${trade.pair}: requested ${trade.amount.toFixed(6)}, filled ${liquidityData.filledQuantity.toFixed(6)}. Remaining position stays open.`);
+            return;
+        }
+
+        // F2-2: Calculate slippage for exit fill price (opposite direction to entry)
+        const exitSide = trade.side === 'long' ? 'short' : 'long'; // Closing position requires opposite order
+        const spreadData = this.applySpread(exitPrice, exitSide, trade.pair);
+        const spreadAdjustedExitPrice = spreadData.adjustedPrice;
+        const spreadCost = Math.abs(spreadAdjustedExitPrice - exitPrice) * trade.amount;
+        this.totalSpreadCost += spreadCost;
+
+        const slippageData = this.calculateSlippage(spreadAdjustedExitPrice, exitSide, trade.amount, avgVolume20);
+        const actualExitPrice = slippageData.fillPrice;
+        const exitSlippageCost = Math.abs(actualExitPrice - spreadAdjustedExitPrice) * trade.amount;
+        this.totalSlippageCost += exitSlippageCost;
+
+        const exitFee = (trade.amount * actualExitPrice) * this.config.feeClose;
+        const grossProfit = this.calculateTradeProfit(trade, actualExitPrice);
         const netProfit = grossProfit - exitFee;
 
-        // Update trade
-        trade.closeRate = exitPrice;
+        // Update trade with slippage fields (Fase 2)
+        trade.closeRate = exitPrice; // Nominal exit price (for reference)
+        trade.actualExitPrice = actualExitPrice; // Actual fill price with slippage
+        trade.exitSlippage = slippageData.totalSlippage; // Store slippage percentage
         trade.closeDate = candle.date;
         trade.isOpen = false;
         trade.exitReason = exitReason;
         trade.profit = netProfit;
-        trade.profitPct = (netProfit / (trade.amount * trade.openRate)) * 100;
+        trade.profitPct = (netProfit / (trade.amount * (trade.actualEntryPrice || trade.openRate))) * 100;
 
-        // Update balance
-        this.balance += (trade.amount * exitPrice) - exitFee;
+        // Update balance using actual exit price with slippage
+        this.balance += (trade.amount * actualExitPrice) - exitFee;
 
         // Move trade to closed trades
         const tradeIndex = this.openTrades.findIndex(t => t.id === trade.id);
@@ -456,16 +656,22 @@ export class PaperTradingEngine {
         }
 
         const profitEmoji = netProfit >= 0 ? '💚' : '💔';
-        console.log(`${profitEmoji} Closed ${trade.side} trade for ${trade.pair} at ${exitPrice}`);
+        console.log(`${profitEmoji} Closed ${trade.side} trade for ${trade.pair} at ${actualExitPrice}`);
         console.log(`   Profit: ${netProfit.toFixed(2)} (${trade.profitPct?.toFixed(2)}%) | Reason: ${exitReason}`);
         console.log(`💰 Current balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
 
         // Update database if userId is set
         if (this.userId) {
             try {
-                const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
-                if (dbTrade) {
-                    await db.closeTrade(dbTrade.id, exitPrice, trade.profitPct || 0);
+                const knownDbTradeId = this.paperTradeDbIds.get(trade.id);
+                if (knownDbTradeId) {
+                    await db.closeTrade(knownDbTradeId, actualExitPrice, trade.profitPct || 0);
+                    this.paperTradeDbIds.delete(trade.id);
+                } else {
+                    const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
+                    if (dbTrade) {
+                        await db.closeTrade(dbTrade.id, actualExitPrice, trade.profitPct || 0);
+                    }
                 }
             } catch (error) {
                 console.error('Failed to update trade in database:', error);
@@ -481,14 +687,149 @@ export class PaperTradingEngine {
     }
 
     private calculateTradeProfit(trade: Trade, currentPrice: number): number {
+        const entryPrice = trade.actualEntryPrice || trade.openRate;
         if (trade.side === 'long') {
-            return trade.amount * (currentPrice - trade.openRate);
+            return trade.amount * (currentPrice - entryPrice);
         } else {
-            return trade.amount * (trade.openRate - currentPrice);
+            return trade.amount * (entryPrice - currentPrice);
         }
     }
 
-    private updatePositions(currentPrice: number): void {
+    private async syncOpenTradeRiskToDB(trade: Trade): Promise<void> {
+        if (!this.userId) {
+            return;
+        }
+
+        try {
+            if (typeof (db as unknown as { updateTradeRisk?: unknown }).updateTradeRisk !== 'function') {
+                return;
+            }
+
+            let dbTradeId = this.paperTradeDbIds.get(trade.id);
+
+            if (!dbTradeId) {
+                const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
+                if (!dbTrade) {
+                    return;
+                }
+
+                dbTradeId = dbTrade.id;
+                this.paperTradeDbIds.set(trade.id, dbTradeId);
+            }
+
+            await db.updateTradeRisk(dbTradeId, {
+                stopLoss: trade.stoplossRate,
+                notes: `PAPER_UNREALIZED_PNL=${(trade.profit || 0).toFixed(8)}`
+            });
+        } catch (error) {
+            console.error('Failed to sync paper trade risk to database:', error);
+        }
+    }
+
+    private calculateAverageVolume20(): number {
+        const startIdx = Math.max(0, this.currentDataIndex - 20);
+        const last20Candles = this.historicalData.slice(startIdx, this.currentDataIndex);
+        if (last20Candles.length === 0) {
+            return 1;
+        }
+
+        return last20Candles.reduce((sum, candle) => sum + candle.volume, 0) / last20Candles.length;
+    }
+
+    private getSpreadRate(pair: string): number {
+        const normalizedPair = pair.toUpperCase();
+        if (normalizedPair === 'BTCUSDT') {
+            return 0.0001;
+        }
+
+        if (normalizedPair === 'ETHUSDT' || normalizedPair === 'BNBUSDT') {
+            return 0.00015;
+        }
+
+        const largeCapAltcoins = ['SOLUSDT', 'XRPUSDT', 'ADAUSDT', 'DOGEUSDT', 'MATICUSDT', 'LINKUSDT', 'AVAXUSDT', 'DOTUSDT', 'LTCUSDT', 'TRXUSDT'];
+        if (largeCapAltcoins.includes(normalizedPair)) {
+            return 0.0003;
+        }
+
+        return 0.001;
+    }
+
+    private applySpread(price: number, side: 'long' | 'short', pair: string): {
+        spreadRate: number;
+        adjustedPrice: number;
+    } {
+        const spreadRate = this.getSpreadRate(pair);
+        const halfSpread = spreadRate / 2;
+        const adjustedPrice = side === 'long'
+            ? price * (1 + halfSpread)
+            : price * (1 - halfSpread);
+
+        return {
+            spreadRate,
+            adjustedPrice
+        };
+    }
+
+    private applyLiquidityConstraint(quantity: number, avgVolume20: number): {
+        maxFillQuantity: number;
+        filledQuantity: number;
+        unfilledQuantity: number;
+        isPartialFill: boolean;
+    } {
+        const maxFillQuantity = Math.max(avgVolume20 * 0.01, 0);
+        const filledQuantity = Math.min(quantity, maxFillQuantity);
+        const unfilledQuantity = Math.max(0, quantity - filledQuantity);
+
+        return {
+            maxFillQuantity,
+            filledQuantity,
+            unfilledQuantity,
+            isPartialFill: unfilledQuantity > 0
+        };
+    }
+
+    /**
+     * F2-1: Calculate slippage based on volume impact and random component
+     * Formula:
+     *   - volumeImpact = (quantity / avgVolume20) * 0.001  (0.1% per 1x average volume)
+     *   - randomComponent = ±0.05% gaussian noise
+     *   - totalSlippage = volumeImpact + randomComponent
+     *
+     * For fills:
+     *   - BUY (long entry / short exit): fillPrice = price * (1 + slippage)
+     *   - SELL (short entry / long exit): fillPrice = price * (1 - slippage)
+     */
+    private calculateSlippage(price: number, side: 'long' | 'short', quantity: number, avgVolume20: number): {
+        volumeImpact: number;
+        randomComponent: number;
+        totalSlippage: number;
+        fillPrice: number;
+    } {
+        // Volume impact: 0.1% per 1x average volume
+        const volumeImpact = Math.max(0, (quantity / Math.max(avgVolume20, 1)) * 0.001);
+
+        // Random component: ±0.05% as gaussian noise (simplified: random ±0.05%)
+        const randomComponent = (Math.random() - 0.5) * 0.001; // ±0.05%
+
+        // Total slippage magnitude
+        const totalSlippage = volumeImpact + randomComponent;
+
+        // Directional fill:
+        // - long side represents buy-side execution (worse fill is higher price)
+        // - short side represents sell-side execution (worse fill is lower price)
+        const fillPrice = side === 'long'
+            ? price * (1 + totalSlippage)
+            : price * (1 - totalSlippage);
+
+        return {
+            volumeImpact,
+            randomComponent,
+            totalSlippage,
+            fillPrice
+        };
+    }
+
+    private async updatePositions(currentPrice: number): Promise<void> {
         for (const position of this.positions) {
             position.currentPrice = currentPrice;
 
@@ -501,14 +842,39 @@ export class PaperTradingEngine {
             position.unrealizedPnlPct = (position.unrealizedPnl / (position.amount * position.entryPrice)) * 100;
         }
 
-        // Update trade profits
+        // Update trade profits and persist risk state for open paper trades
         for (const trade of this.openTrades) {
             trade.profit = this.calculateTradeProfit(trade, currentPrice);
-            trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
+            trade.profitPct = (trade.profit / (trade.amount * (trade.actualEntryPrice || trade.openRate))) * 100;
+            await this.syncOpenTradeRiskToDB(trade);
         }
     }
 
-    private updatePerformanceMetrics(currentTime: Date): void {
+    private async persistPerformanceSnapshotToDB(): Promise<void> {
+        if (!this.userId || this.performanceHistory.length === 0) {
+            return;
+        }
+
+        try {
+            const compactHistory = this.performanceHistory.slice(-200).map(metric => ({
+                t: metric.timestamp.toISOString(),
+                b: metric.balance,
+                p: metric.totalProfit,
+                o: metric.openPositions,
+                d: metric.drawdown
+            }));
+
+            await db.setUserPreference(
+                parseInt(this.userId),
+                'paper_performance_history_v1',
+                JSON.stringify(compactHistory)
+            );
+        } catch (error) {
+            console.error('Failed to persist paper performance history:', error);
+        }
+    }
+
+    private async updatePerformanceMetrics(currentTime: Date): Promise<void> {
         const totalUnrealizedPnl = this.positions.reduce((sum, pos) => sum + pos.unrealizedPnl, 0);
         const currentBalance = this.balance + totalUnrealizedPnl;
 
@@ -535,6 +901,10 @@ export class PaperTradingEngine {
         // Limit history size
         if (this.performanceHistory.length > 1000) {
             this.performanceHistory = this.performanceHistory.slice(-1000);
+        }
+
+        if (this.performanceHistory.length % this.performancePersistEvery === 0) {
+            await this.persistPerformanceSnapshotToDB();
         }
     }
 
@@ -593,6 +963,7 @@ export class PaperTradingEngine {
         const totalProfit = this.closedTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
         const totalUnrealizedPnl = this.positions.reduce((sum, pos) => sum + pos.unrealizedPnl, 0);
         const currentBalance = this.balance + totalUnrealizedPnl;
+        const realizedAndUnrealizedProfit = totalProfit + totalUnrealizedPnl;
 
         const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
         const avgProfit = totalTrades > 0 ? totalProfit / totalTrades : 0;
@@ -627,7 +998,7 @@ export class PaperTradingEngine {
             balance: currentBalance,
             totalTrades: totalTrades,
             openTrades: this.openTrades.length,
-            totalProfit: totalProfit + totalUnrealizedPnl,
+            totalProfit: realizedAndUnrealizedProfit,
             totalProfitPct: totalProfitPct,
             winRate: winRate,
             avgProfit: avgProfit,
@@ -635,7 +1006,10 @@ export class PaperTradingEngine {
             sharpeRatio: sharpeRatio,
             positions: [...this.positions],
             recentTrades: this.closedTrades.slice(-10),
-            performance: [...this.performanceHistory]
+            performance: [...this.performanceHistory],
+            totalSlippageCost: this.totalSlippageCost,
+            totalSpreadCost: this.totalSpreadCost,
+            profitWithoutSlippage: realizedAndUnrealizedProfit + this.totalSlippageCost + this.totalSpreadCost
         };
     }
 

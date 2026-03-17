@@ -672,7 +672,10 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const ptSession = getUserSession(telegramId);
       if (!ptSession.paperTrading) { await ctx.reply('❌ No paper trading session.'); break; }
       const r = ptSession.paperTrading.getCurrentResult();
-      await ctx.reply(`📈 Performance\n\nBalance: $${r.balance.toFixed(2)}\nTotal P&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win Rate: ${r.winRate.toFixed(1)}%\nSharpe: ${r.sharpeRatio.toFixed(3)} | Max DD: $${r.maxDrawdown.toFixed(2)}`);
+      const slippageCost = r.totalSlippageCost || 0;
+      const spreadCost = r.totalSpreadCost || 0;
+      const noFrictionProfit = r.profitWithoutSlippage || r.totalProfit;
+      await ctx.reply(`📈 Performance\n\nBalance: $${r.balance.toFixed(2)}\nTotal P&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nNo-Friction P&L: $${noFrictionProfit.toFixed(2)}\nSlippage Cost: $${slippageCost.toFixed(2)}\nSpread Cost: $${spreadCost.toFixed(2)}\nTrades: ${r.totalTrades} | Win Rate: ${r.winRate.toFixed(1)}%\nSharpe: ${r.sharpeRatio.toFixed(3)} | Max DD: $${r.maxDrawdown.toFixed(2)}`);
       break;
     }
     case 'strategies': {
@@ -1657,7 +1660,7 @@ Sharpe Ratio: ${result.sharpeRatio.toFixed(3)}
 });
 
 // Performance command
-bot.command('performance', (ctx) => {
+bot.command('performance', async (ctx) => {
   const session = getUserSession(ctx.message.from.id);
 
   if (!session.paperTrading) {
@@ -1681,6 +1684,11 @@ Open Trades: ${result.openTrades}
 Win Rate: ${result.winRate.toFixed(1)}%
 Avg Profit per Trade: $${result.avgProfit.toFixed(2)}
 
+💸 EXECUTION COSTS:
+Slippage Cost: $${(result.totalSlippageCost || 0).toFixed(2)}
+Spread Cost: $${(result.totalSpreadCost || 0).toFixed(2)}
+P&L Without Friction: $${(result.profitWithoutSlippage || result.totalProfit).toFixed(2)}
+
 📈 RISK METRICS:
 Sharpe Ratio: ${result.sharpeRatio.toFixed(3)}
 Recovery Factor: ${(result.maxDrawdown > 0 ? result.totalProfit / result.maxDrawdown : 0).toFixed(2)}
@@ -1695,7 +1703,22 @@ ${result.recentTrades
   .join('\n')}
     `;
 
-  ctx.reply(message);
+  try {
+    const equityData = result.performance.map((metric) => ({
+      timestamp: metric.timestamp,
+      balance: metric.balance
+    }));
+
+    const equityChart = await imageChartService.generateEquityCurveChart('Paper Trading', equityData);
+    await ctx.replyWithPhoto(
+      { source: equityChart.buffer },
+      { caption: '📉 Equity Curve (Paper Trading)' }
+    );
+  } catch (error) {
+    console.error('Failed to generate/send equity curve chart:', error);
+  }
+
+  await ctx.reply(message);
 
   return;
 });

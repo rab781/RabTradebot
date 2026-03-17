@@ -9,6 +9,11 @@ export interface ImageChartConfig {
     backgroundColor?: string;
 }
 
+export interface EquityPoint {
+    timestamp: Date | number;
+    balance: number;
+}
+
 interface SwingPoint {
     index: number;
     type: 'HH' | 'HL' | 'LH' | 'LL';
@@ -560,6 +565,96 @@ export class ImageChartService {
         } catch (error: any) {
             console.error('Error generating chart:', error.message);
             throw new Error('Failed to generate chart image');
+        }
+    }
+
+    async generateEquityCurveChart(
+        title: string,
+        data: EquityPoint[]
+    ): Promise<{ buffer: Buffer; minBalance: number; maxBalance: number; changePct: number }> {
+        if (data.length === 0) {
+            throw new Error('No equity data available');
+        }
+
+        const normalized = data.map((point) => ({
+            timestamp: point.timestamp instanceof Date ? point.timestamp : new Date(point.timestamp),
+            balance: point.balance
+        }));
+
+        const limited = normalized.slice(-200);
+        const startBalance = limited[0].balance;
+        const endBalance = limited[limited.length - 1].balance;
+        const minBalance = Math.min(...limited.map((p) => p.balance));
+        const maxBalance = Math.max(...limited.map((p) => p.balance));
+        const changePct = startBalance !== 0 ? ((endBalance - startBalance) / startBalance) * 100 : 0;
+        const lineColor = changePct >= 0 ? '#0ecb81' : '#f6465d';
+        const fillColor = changePct >= 0 ? 'rgba(14, 203, 129, 0.15)' : 'rgba(246, 70, 93, 0.15)';
+        const sign = changePct >= 0 ? '+' : '';
+
+        const labels = limited.map((point, i) => {
+            if (i % 20 === 0 || i === limited.length - 1) {
+                return this.formatDate(point.timestamp.getTime());
+            }
+            return '';
+        });
+
+        const padding = Math.max((maxBalance - minBalance) * 0.1, maxBalance * 0.002);
+        const chartMin = Math.max(0, minBalance - padding);
+        const chartMax = maxBalance + padding;
+
+        const configuration: ChartConfiguration = {
+            type: 'line',
+            data: {
+                labels,
+                datasets: [
+                    {
+                        label: 'Equity Curve',
+                        data: limited.map((p) => p.balance),
+                        borderColor: lineColor,
+                        backgroundColor: fillColor,
+                        borderWidth: 2,
+                        fill: true,
+                        pointRadius: 0,
+                        tension: 0.2
+                    }
+                ]
+            },
+            options: {
+                responsive: false,
+                animation: false,
+                plugins: {
+                    title: {
+                        display: true,
+                        text: `${title} | Equity Curve (${sign}${changePct.toFixed(2)}%)`,
+                        color: lineColor,
+                        font: { size: 16, weight: 'bold' }
+                    },
+                    legend: { display: false }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#888', maxRotation: 45, autoSkip: false },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                    },
+                    y: {
+                        min: chartMin,
+                        max: chartMax,
+                        ticks: {
+                            color: '#888',
+                            callback: (value) => `$${Number(value).toFixed(2)}`
+                        },
+                        grid: { color: 'rgba(255, 255, 255, 0.05)' }
+                    }
+                }
+            }
+        };
+
+        try {
+            const imageBuffer = await this.chartJSNodeCanvas.renderToBuffer(configuration);
+            return { buffer: imageBuffer, minBalance, maxBalance, changePct };
+        } catch (error: any) {
+            console.error('Error generating equity curve chart:', error.message);
+            throw new Error('Failed to generate equity curve chart');
         }
     }
 }
