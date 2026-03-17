@@ -158,21 +158,138 @@ async function setActiveSymbol(userId: number, symbol: string): Promise<void> {
   await db.setUserPreference(userId, ACTIVE_SYMBOL_PREF_KEY, symbol.toUpperCase());
 }
 
-function buildFeatureMenu(symbol: string) {
-  return Markup.keyboard([
-    [`/analyze ${symbol}`, `/signal ${symbol}`, `/fullanalysis ${symbol}`],
-    [`/openclaw ${symbol}`, `/mlpredict ${symbol}`, `/chart ${symbol} 1h`],
-    [`/pnews ${symbol}`, `/impact ${symbol}`, `/news ${symbol}`],
-    [`/papertrade ${symbol}`, `/stoptrading`, `/portfolio`],
-    [`/livetrade start ${symbol} confirm`, `/livetrade stop`],
-    [`/orders ${symbol}`, `/liveportfolio`, `/performance`],
-    [`/backtest ${symbol} 30`, `/optimize ${symbol} 60`],
-    [`/download ${symbol} 30`, `/datainfo ${symbol}`, `/volume ${symbol}`],
-    [`/sr ${symbol}`, `/strategies`, `/apistatus`],
-    ['/menu', '/help'],
-  ])
-    .resize()
-    .oneTime(false);
+// ── INLINE KEYBOARD MENU SYSTEM ──────────────────────────────────────────────
+
+async function ensureUserFromCallback(ctx: any) {
+  const from = ctx.from;
+  if (!from) return null;
+  return db.getOrCreateUser(from.id, {
+    username: from.username,
+    firstName: from.first_name,
+    lastName: from.last_name,
+  });
+}
+
+function buildMainMenuInline(symbol: string) {
+  return Markup.inlineKeyboard([
+    [
+      Markup.button.callback('📊 Analysis', 'cat:analysis'),
+      Markup.button.callback('📰 News', 'cat:news'),
+      Markup.button.callback('📈 Sim', 'cat:sim'),
+    ],
+    [
+      Markup.button.callback('💰 Live', 'cat:live'),
+      Markup.button.callback('🗂 Orders', 'cat:orders'),
+      Markup.button.callback('🧪 Backtest', 'cat:backtest'),
+    ],
+    [
+      Markup.button.callback('⚙️ System', 'cat:data'),
+      Markup.button.callback(`🪙 ${symbol}`, 'coin:prompt'),
+      Markup.button.callback('❓ Help', 'run:help'),
+    ],
+  ]);
+}
+
+function buildCategoryMenuInline(symbol: string, category: string) {
+  const back = [
+    Markup.button.callback('🏠 Home', 'home'),
+    Markup.button.callback(`🪙 ${symbol}`, 'coin:prompt'),
+  ];
+
+  switch (category) {
+    case 'analysis':
+      return Markup.inlineKeyboard([
+        [
+          Markup.button.callback('📊 Signal', 'run:signal'),
+          Markup.button.callback('🔬 Analyze', 'run:analyze'),
+          Markup.button.callback('🌐 Full Analysis', 'run:fullanalysis'),
+        ],
+        [
+          Markup.button.callback('🦅 OpenClaw', 'run:openclaw'),
+          Markup.button.callback('🧠 ML Predict', 'run:mlpredict'),
+          Markup.button.callback('📈 Chart 1h', 'run:chart'),
+        ],
+        [
+          Markup.button.callback('📦 Volume', 'run:volume'),
+          Markup.button.callback('⚡ S/R Levels', 'run:sr'),
+        ],
+        back,
+      ]);
+    case 'news':
+      return Markup.inlineKeyboard([
+        [
+          Markup.button.callback('🤖 AI News', 'run:pnews'),
+          Markup.button.callback('⚡ Impact', 'run:impact'),
+          Markup.button.callback('📰 Basic News', 'run:news'),
+        ],
+        [Markup.button.callback('🌐 Full Analysis', 'run:fullanalysis')],
+        back,
+      ]);
+    case 'sim':
+      return Markup.inlineKeyboard([
+        [
+          Markup.button.callback('▶️ Start Paper', 'run:papertrade'),
+          Markup.button.callback('⏹ Stop Trading', 'run:stoptrading'),
+        ],
+        [
+          Markup.button.callback('💼 Portfolio', 'run:portfolio'),
+          Markup.button.callback('📈 Performance', 'run:performance'),
+          Markup.button.callback('🗂 Strategies', 'run:strategies'),
+        ],
+        back,
+      ]);
+    case 'live':
+      return Markup.inlineKeyboard([
+        [
+          Markup.button.callback('🚀 Start Live Trade', 'run:livestart'),
+          Markup.button.callback('⛔ Stop Live', 'run:livestop'),
+        ],
+        [Markup.button.callback('💼 Live Portfolio', 'run:liveportfolio')],
+        back,
+      ]);
+    case 'orders':
+      return Markup.inlineKeyboard([
+        [
+          Markup.button.callback('📋 Open Orders', 'run:orders'),
+          Markup.button.callback('💼 Live Portfolio', 'run:liveportfolio'),
+        ],
+        back,
+      ]);
+    case 'backtest':
+      return Markup.inlineKeyboard([
+        [
+          Markup.button.callback('🧪 Backtest 30d', 'run:backtest'),
+          Markup.button.callback('🔧 Optimize 60d', 'run:optimize'),
+        ],
+        [
+          Markup.button.callback('⬇️ Download Data', 'run:download'),
+          Markup.button.callback('📊 Data Info', 'run:datainfo'),
+        ],
+        back,
+      ]);
+    default: // 'data'
+      return Markup.inlineKeyboard([
+        [
+          Markup.button.callback('🌐 API Status', 'run:apistatus'),
+          Markup.button.callback('🤖 AI Status', 'run:pstatus'),
+          Markup.button.callback('🧠 ML Status', 'run:mlstatus'),
+        ],
+        [
+          Markup.button.callback('⬇️ Download Data', 'run:download'),
+          Markup.button.callback('📊 Data Info', 'run:datainfo'),
+        ],
+        back,
+      ]);
+  }
+}
+
+async function replyMainMenu(ctx: any, userId: number, title?: string) {
+  const activeSymbol = await getActiveSymbol(userId);
+  const header = title || '📌 Main Menu';
+  return ctx.reply(
+    `${header} — Coin: ${activeSymbol}\nPilih kategori:`,
+    buildMainMenuInline(activeSymbol),
+  );
 }
 
 function stopLiveTradingSession(session: {
@@ -250,21 +367,23 @@ bot.command('coin', async (ctx) => {
   const input = ctx.message.text.split(' ')[1];
 
   if (!input) {
-    return ctx.reply('Gunakan: /coin BTCUSDT atau /coin BTC');
+    const user = await ensureUser(ctx);
+    if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
+    const symbol = await getActiveSymbol(user.id);
+    return ctx.reply(
+      `🪙 Coin aktif: ${symbol}\nGanti: /coin BTC atau /coin ETHUSDT`,
+      buildMainMenuInline(symbol),
+    );
   }
 
   try {
     const user = await ensureUser(ctx);
-    if (!user) {
-      return ctx.reply('❌ Gagal menyiapkan user session.');
-    }
-
+    if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
     const symbol = normalizeSymbolInput(input);
     await setActiveSymbol(user.id, symbol);
-
     return ctx.reply(
-      `✅ Coin aktif diset ke ${symbol}\nSekarang tinggal tap menu fitur tanpa ngetik ulang symbol.`,
-      buildFeatureMenu(symbol),
+      `✅ Coin aktif: ${symbol}\nTap kategori untuk aksi:`,
+      buildMainMenuInline(symbol),
     );
   } catch (error) {
     return ctx.reply(`❌ Gagal set coin: ${(error as Error).message}`);
@@ -274,25 +393,13 @@ bot.command('coin', async (ctx) => {
 bot.command('menu', async (ctx) => {
   try {
     const user = await ensureUser(ctx);
-    if (!user) {
-      return ctx.reply('❌ Gagal menyiapkan user session.');
-    }
-
+    if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
     const provided = ctx.message.text.split(' ')[1];
     if (provided) {
       const normalized = normalizeSymbolInput(provided);
       await setActiveSymbol(user.id, normalized);
     }
-
-    const activeSymbol = await getActiveSymbol(user.id);
-
-    return ctx.reply(
-      `📌 Menu fitur aktif\nCoin: ${activeSymbol}\n\n` +
-        `Tips:\n` +
-        `• Ganti coin: /coin BTC atau /coin ETHUSDT\n` +
-        `• Buka ulang menu: /menu`,
-      buildFeatureMenu(activeSymbol),
-    );
+    return replyMainMenu(ctx, user.id);
   } catch (error) {
     return ctx.reply(`❌ Gagal membuka menu: ${(error as Error).message}`);
   }
@@ -300,16 +407,386 @@ bot.command('menu', async (ctx) => {
 
 bot.command('go', async (ctx) => {
   const user = await ensureUser(ctx);
-  if (!user) {
-    return ctx.reply('❌ Gagal menyiapkan user session.');
-  }
-
-  const activeSymbol = await getActiveSymbol(user.id);
-  return ctx.reply(`🚀 Quick menu untuk ${activeSymbol}`, buildFeatureMenu(activeSymbol));
+  if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
+  return replyMainMenu(ctx, user.id, '🚀 Quick Menu');
 });
 
+// ── INLINE NAVIGATION ACTIONS ─────────────────────────────────────────────────
+
+bot.action('home', async (ctx) => {
+  await ctx.answerCbQuery();
+  const user = await ensureUserFromCallback(ctx);
+  if (!user) return;
+  const symbol = await getActiveSymbol(user.id);
+  await ctx.editMessageText(
+    `📌 Main Menu — Coin: ${symbol}\nPilih kategori:`,
+    buildMainMenuInline(symbol),
+  );
+});
+
+bot.action(/^cat:(.+)$/, async (ctx) => {
+  await ctx.answerCbQuery();
+  const category = ctx.match[1];
+  const user = await ensureUserFromCallback(ctx);
+  if (!user) return;
+  const symbol = await getActiveSymbol(user.id);
+  const labels: Record<string, string> = {
+    analysis: '📊 Analysis',
+    news: '📰 News',
+    sim: '📈 Trading Sim',
+    live: '💰 Live Trading',
+    orders: '🗂 Orders & Portfolio',
+    backtest: '🧪 Backtest & Optimize',
+    data: '⚙️ Data & System',
+  };
+  await ctx.editMessageText(
+    `${labels[category] || category} — Coin: ${symbol}\nPilih aksi:`,
+    buildCategoryMenuInline(symbol, category),
+  );
+});
+
+bot.action('coin:prompt', async (ctx) => {
+  await ctx.answerCbQuery('Ketik /coin SYMBOL untuk ganti coin aktif');
+  await ctx.reply('🪙 Ganti coin aktif:\nKetik /coin BTC atau /coin ETHUSDT');
+});
+
+bot.action(/^run:(.+)$/, async (ctx) => {
+  const action = ctx.match![1];
+  const user = await ensureUserFromCallback(ctx);
+  if (!user) {
+    await ctx.answerCbQuery('❌ Session error');
+    return;
+  }
+  const telegramId = ctx.from!.id;
+  const symbol = await getActiveSymbol(user.id);
+  const chatId = ctx.chat?.id;
+  if (!chatId) { await ctx.answerCbQuery(); return; }
+  await ctx.answerCbQuery(`⏳ ${symbol}...`);
+  stateManager.incrementCommandCount();
+  try {
+    await handleInlineRun(ctx, action, symbol, chatId, telegramId, user.id);
+  } catch (error) {
+    await ctx.reply(`❌ Error: ${(error as Error).message}`);
+  }
+});
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+async function handleInlineRun(ctx: any, action: string, symbol: string, chatId: number, telegramId: number, dbUserId: number) {
+  switch (action) {
+    case 'signal': {
+      await ctx.reply(`🔄 Generating signal for ${symbol}...`);
+      const signal = await signalGenerator.generateSignal(symbol);
+      stateManager.addSignal({ symbol, action: signal.action, price: signal.price, confidence: signal.confidence, timestamp: new Date(), indicators: {} });
+      await ctx.reply(signal.text);
+      break;
+    }
+    case 'volume': {
+      await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
+      const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      await ctx.reply(`📊 Volume Analysis — ${symbol}\n\n${analysis}`);
+      break;
+    }
+    case 'sr': {
+      await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
+      const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      await ctx.reply(`🎯 Support/Resistance — ${symbol}\n\n${analysis}`);
+      break;
+    }
+    case 'openclaw': {
+      const loading = await ctx.reply(`🦅 Running OpenClaw for ${symbol}...`);
+      const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
+      if (candles.length < 100) { await ctx.reply('❌ Insufficient data'); break; }
+      const ocCandles: OHLCVCandle[] = candles.map((c: any) => ({
+        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
+      }));
+      const df: any = {
+        open: ocCandles.map(c => c.open), high: ocCandles.map(c => c.high),
+        low: ocCandles.map(c => c.low), close: ocCandles.map(c => c.close),
+        volume: ocCandles.map(c => c.volume), date: ocCandles.map(c => c.date),
+      };
+      const meta = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
+      openClawStrategy.populateIndicators(df, meta);
+      openClawStrategy.populateEntryTrend(df, meta);
+      const getCol = (col: string, idx: number, def: any = 0) =>
+        Array.isArray(df[col]) ? (df[col][idx] ?? def) : def;
+      const lastIdx = df.close.length - 1;
+      const eLong = getCol('enter_long', lastIdx, 0);
+      const eShort = getCol('enter_short', lastIdx, 0);
+      const eTag = getCol('enter_tag', lastIdx, '');
+      const rsi = getCol('rsi', lastIdx, 50);
+      const macdH = getCol('macd_histogram', lastIdx, 0);
+      const adx = getCol('adx', lastIdx, 20);
+      const bbPct = getCol('bb_percentb', lastIdx, 0.5);
+      const sig = eLong === 1 ? '🟢 LONG' : eShort === 1 ? '🔴 SHORT' : '⚪ NEUTRAL';
+      const tag = eLong === 1 ? eTag.replace('_long', '').toUpperCase() : eShort === 1 ? eTag.replace('_short', '').toUpperCase() : 'No signal';
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      await ctx.reply(
+        `🦅 OPENCLAW — ${symbol}\n\n${sig} | ${tag}\n💰 $${df.close[lastIdx].toLocaleString()}\n\nRSI: ${rsi.toFixed(2)} | MACD: ${macdH > 0 ? '+' : ''}${macdH.toFixed(2)} | ADX: ${adx.toFixed(2)} | BB%B: ${bbPct.toFixed(2)}\n\n⚙️ OpenClawStrategy v${openClawStrategy.version}`,
+      );
+      break;
+    }
+    case 'mlpredict': {
+      const loading = await ctx.reply(`🧠 ML Predict for ${symbol}...`);
+      if (!mlModelLoaded) {
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
+        const fs = require('fs');
+        if (fs.existsSync(mlModelPath)) {
+          await mlModel.loadModel(mlModelPath);
+          mlModelLoaded = true;
+        } else {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+          await ctx.reply('❌ ML model not found. Train first with /trainmodel');
+          break;
+        }
+      }
+      const mlCandles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
+      if (mlCandles.length < 100) {
+        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        await ctx.reply('❌ Insufficient data'); break;
+      }
+      const mlOhlcv: OHLCVCandle[] = mlCandles.map((c: any) => ({
+        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
+      }));
+      const features = featureService.extractFeatures(mlOhlcv, symbol);
+      if (features.length < 20) {
+        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        await ctx.reply('❌ Insufficient features'); break;
+      }
+      const prediction = await mlModel.predict(features);
+      const currentPrice = mlOhlcv[mlOhlcv.length - 1].close;
+      const direction = prediction.direction > 0 ? 'UP 📈' : 'DOWN 📉';
+      const mlEmoji = prediction.confidence > 0.4 ? (prediction.direction > 0 ? '🟢' : '🔴') : prediction.confidence > 0.2 ? '🟡' : '⚪';
+      const rec = prediction.confidence > 0.4 ? (prediction.direction > 0 ? 'BUY' : 'SELL') : prediction.confidence > 0.2 ? 'WATCH' : 'HOLD';
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      await ctx.reply(
+        `🧠 ML PREDICT — ${symbol}\n\n${mlEmoji} ${rec} | ${direction}\nConfidence: ${(prediction.confidence * 100).toFixed(1)}%\nExpected: ${prediction.priceChange > 0 ? '+' : ''}${prediction.priceChange.toFixed(2)}%\nPrice: $${currentPrice.toLocaleString()}`,
+      );
+      break;
+    }
+    case 'chart': {
+      await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
+      const chartData = await dataManager.getRecentData(symbol, '1h', 100);
+      if (!chartData || chartData.length === 0) { await ctx.reply(`❌ No data for ${symbol}`); break; }
+      const mapped = chartData.map(d => ({ t: d.timestamp, o: d.open, h: d.high, l: d.low, c: d.close, v: d.volume }));
+      const chartResult = await imageChartService.generateCandlestickChart(symbol, '1h', mapped as any);
+      const patternInfo = chartResult.patterns.length > 0
+        ? `\nPatterns: ${chartResult.patterns.map((p: any) => p.name).join(', ')}`
+        : '';
+      await bot.telegram.sendPhoto(chatId, { source: chartResult.buffer }, { caption: `📈 ${symbol} 1h Chart${patternInfo}` });
+      break;
+    }
+    case 'analyze': {
+      const loading = await ctx.reply(`🔄 Analyzing ${symbol}... (30-60s)`);
+      const result = await comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      await ctx.reply(
+        `📊 ANALYZE — ${symbol}\n\nPrice: $${result.currentPrice.toFixed(2)}\nTrend: ${result.technical.trend.toUpperCase()} (${(result.technical.strength * 100).toFixed(1)}%)\nRSI: ${result.technical.rsi.toFixed(1)} ${result.technical.rsi < 30 ? '🟢' : result.technical.rsi > 70 ? '🔴' : '🟡'}\nMACD: ${result.technical.macd.signal.toUpperCase()}\n\nSupport: $${result.technical.supportResistance.support.toFixed(2)}\nResistance: $${result.technical.supportResistance.resistance.toFixed(2)}\n\n⏰ 1H: ${result.timeframes['1h'].trend} | 4H: ${result.timeframes['4h'].trend} | 1D: ${result.timeframes['1d'].trend}`,
+      );
+      break;
+    }
+    case 'fullanalysis': {
+      const loading = await ctx.reply(`🔄 Full analysis for ${symbol}...`);
+      const [techRes, newsRes] = await Promise.allSettled([
+        comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
+        newsAnalyzer.analyzeComprehensiveNews(symbol).then(r => r.aiAnalysis ?? null),
+      ]);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      if (techRes.status === 'rejected') { await ctx.reply(`❌ Analysis failed`); break; }
+      const t = techRes.value;
+      const n = newsRes.status === 'fulfilled' ? newsRes.value : null;
+      const newsLine = n
+        ? `\n📰 News: ${n.overallSentiment} | ${n.marketMovement.direction} (${n.marketMovement.confidence.toFixed(1)}%)`
+        : '\n📰 News: N/A';
+      await ctx.reply(
+        `🌐 FULL ANALYSIS — ${symbol}\n\nPrice: $${t.currentPrice.toFixed(2)}\nTrend: ${t.technical.trend.toUpperCase()} (${(t.technical.strength * 100).toFixed(1)}%)\nRSI: ${t.technical.rsi.toFixed(1)} | MACD: ${t.technical.macd.signal.toUpperCase()}\n\n1H: ${t.timeframes['1h'].signal} | 4H: ${t.timeframes['4h'].signal} | 1D: ${t.timeframes['1d'].signal}${newsLine}\n\nAction: ${t.recommendation.action.toUpperCase()} | Conf: ${t.recommendation.confidence.toFixed(1)}%`,
+      );
+      break;
+    }
+    case 'pnews': {
+      if (!chutesService.isConfigured()) { await ctx.reply('❌ Chutes AI not configured. Add CHUTES_API_KEY to .env'); break; }
+      const loading = await ctx.reply(`🔄 AI news analysis for ${symbol}... (2-3 min)`);
+      (async () => {
+        try {
+          const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+          const articles = result.traditionalNews.articles;
+          const ai = result.aiAnalysis;
+          if (!ai) { await ctx.reply('❌ AI analysis not available (check CHUTES_API_KEY)'); return; }
+          const sent = ai.overallSentiment === 'BULLISH' ? '🟢 BULLISH' : ai.overallSentiment === 'BEARISH' ? '🔴 BEARISH' : '🟡 NEUTRAL';
+          const dir = ai.marketMovement.direction === 'UP' ? '📈' : ai.marketMovement.direction === 'DOWN' ? '📉' : '➡️';
+          const headlines = articles.slice(0, 3).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 70)}...`).join('\n');
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+          await ctx.reply(`🤖 AI NEWS — ${symbol}\n\n${sent}\n${dir} ${ai.marketMovement.direction} | Conf: ${ai.marketMovement.confidence.toFixed(1)}%\nRange: ${ai.marketMovement.expectedRange.low.toFixed(1)}% ~ ${ai.marketMovement.expectedRange.high.toFixed(1)}%\n\n24H: ${ai.impactPrediction.shortTerm}\n\nTop News:\n${headlines}`);
+        } catch (e: any) { await ctx.reply(`❌ News error: ${e.message}`); }
+      })();
+      break;
+    }
+    case 'impact': {
+      await ctx.reply(`🔄 Quick impact for ${symbol}...`);
+      const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+      const ai = result.aiAnalysis;
+      if (!ai) { await ctx.reply(`⚡ IMPACT — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\nConf: ${result.combinedSentiment.confidence.toFixed(1)}%`); break; }
+      const sent = ai.overallSentiment === 'BULLISH' ? '🟢' : ai.overallSentiment === 'BEARISH' ? '🔴' : '🟡';
+      await ctx.reply(`⚡ IMPACT — ${symbol}\n\n${sent} ${ai.overallSentiment}\n24H: ${ai.impactPrediction.shortTerm}\nExpected: ${ai.marketMovement.direction} ${ai.marketMovement.expectedRange.low.toFixed(1)}~${ai.marketMovement.expectedRange.high.toFixed(1)}%\nConf: ${ai.marketMovement.confidence.toFixed(1)}%`);
+      break;
+    }
+    case 'news': {
+      await ctx.reply(`🔄 Basic news for ${symbol}...`);
+      const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+      const articles = result.traditionalNews.articles;
+      if (articles.length === 0) { await ctx.reply(`❌ No news found for ${symbol}`); break; }
+      const headlines = articles.slice(0, 5).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 80)}...`).join('\n');
+      await ctx.reply(`📰 NEWS — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\n\n${headlines}`);
+      break;
+    }
+    case 'papertrade': {
+      const ptSession = getUserSession(telegramId);
+      if (ptSession.paperTrading?.isActive()) { await ctx.reply('📈 Paper trading already active.\nUse /stoptrading to stop.'); break; }
+      const ptConfig: PaperTradingConfig = { initialBalance: 1000, maxOpenTrades: 3, feeOpen: 0.001, feeClose: 0.001, stakeCurrency: 'USDT', updateInterval: 5000 };
+      const paperEngine = new PaperTradingEngine(strategy, ptConfig, String(dbUserId));
+      ptSession.paperTrading = paperEngine;
+      await paperEngine.start(symbol, '5m', 500);
+      await ctx.reply(`✅ Paper trading started — ${symbol}\n💰 Balance: $1000 | Strategy: ${strategy.name}\n\nUse 💼 Portfolio to monitor.`);
+      break;
+    }
+    case 'stoptrading': {
+      const ptSession = getUserSession(telegramId);
+      if (!ptSession.paperTrading?.isActive()) { await ctx.reply('❌ No active paper trading session.'); break; }
+      ptSession.paperTrading.stop();
+      const r = ptSession.paperTrading.getCurrentResult();
+      await ctx.reply(`⏹ Paper trading stopped.\n\n💰 Final: $${r.balance.toFixed(2)}\nP&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win: ${r.winRate.toFixed(1)}%`);
+      break;
+    }
+    case 'portfolio': {
+      const ptSession = getUserSession(telegramId);
+      if (!ptSession.paperTrading) { await ctx.reply('❌ No paper trading session. Use ▶️ Start Paper to begin.'); break; }
+      const r = ptSession.paperTrading.getCurrentResult();
+      const posLines = r.positions.length > 0
+        ? r.positions.map((p: any) => `${p.side.toUpperCase()} ${p.pair}: $${(p.unrealizedPnl || 0).toFixed(2)}`).join('\n')
+        : 'No open positions';
+      await ctx.reply(`💼 Portfolio\n\nBalance: $${r.balance.toFixed(2)}\nP&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win: ${r.winRate.toFixed(1)}%\n\nPositions:\n${posLines}`);
+      break;
+    }
+    case 'performance': {
+      const ptSession = getUserSession(telegramId);
+      if (!ptSession.paperTrading) { await ctx.reply('❌ No paper trading session.'); break; }
+      const r = ptSession.paperTrading.getCurrentResult();
+      await ctx.reply(`📈 Performance\n\nBalance: $${r.balance.toFixed(2)}\nTotal P&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win Rate: ${r.winRate.toFixed(1)}%\nSharpe: ${r.sharpeRatio.toFixed(3)} | Max DD: $${r.maxDrawdown.toFixed(2)}`);
+      break;
+    }
+    case 'strategies': {
+      await ctx.reply(`🗂 Available Strategies\n\n🦅 OpenClawStrategy v${openClawStrategy.version} (active)\n- Timeframe: 1h | Long/Short\n- Indicators: RSI, MACD, EMA, ADX, BB, ATR\n\n🎯 SampleStrategy v1.0.0\n- Timeframe: 5m\n- Indicators: RSI, MACD, BB, EMA\n\n💡 Use /optimize SYMBOL 60 to find best params!`);
+      break;
+    }
+    case 'apistatus': {
+      const loading = await ctx.reply('🔄 Checking Binance API...');
+      const status = await binanceService.getFullHealthStatus();
+      const report = binanceService.formatHealthReport(status);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      await ctx.reply(report);
+      break;
+    }
+    case 'pstatus': {
+      const configured = chutesService.isConfigured();
+      await ctx.reply(`🤖 Chutes AI: ${configured ? '✅ Configured & Ready\n/pnews SYMBOL — Full AI news\n/impact SYMBOL — Quick impact' : '❌ Not configured\nAdd CHUTES_API_KEY to .env'}`);
+      break;
+    }
+    case 'mlstatus': {
+      await ctx.reply(`🧠 ML Model: ${mlModelLoaded ? `✅ Loaded\n/mlpredict ${symbol} — Get prediction` : '⚠️ Not loaded\nUse /trainmodel to train first'}`);
+      break;
+    }
+    case 'liveportfolio': {
+      if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
+      const loading = await ctx.reply('🔄 Fetching live portfolio...');
+      const [balances, openOrders] = await Promise.all([binanceOrderService.getAccountBalance(), binanceOrderService.getOpenOrders()]);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      if (balances.length === 0) { await ctx.reply('📭 No non-zero balances.'); break; }
+      const balLines = balances.slice(0, 15).map((b: any) => `• ${b.asset}: ${b.free} (locked: ${b.locked})`).join('\n');
+      await ctx.reply(`💼 Live Portfolio\nOpen Orders: ${openOrders.length}\n\nBalances:\n${balLines}`);
+      break;
+    }
+    case 'orders': {
+      if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
+      const loading = await ctx.reply('🔄 Fetching open orders...');
+      const orders = await binanceOrderService.getOpenOrders(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      if (orders.length === 0) { await ctx.reply(`✅ No open orders for ${symbol}.`); break; }
+      const lines = orders.slice(0, 15).map((o: any) => `#${o.orderId} ${o.side} ${o.type}: ${o.executedQty}/${o.origQty} @ ${o.price}`).join('\n');
+      await ctx.reply(`📋 Open Orders — ${symbol}\n\n${lines}`);
+      break;
+    }
+    case 'backtest': {
+      await ctx.reply(`💡 Run full backtest:\n/backtest ${symbol} 30`);
+      break;
+    }
+    case 'optimize': {
+      await ctx.reply(`💡 Run optimization:\n/optimize ${symbol} 60`);
+      break;
+    }
+    case 'download': {
+      await ctx.reply(`💡 Download historical data:\n/download ${symbol} 30`);
+      break;
+    }
+    case 'datainfo': {
+      await ctx.reply(`🔄 Checking data for ${symbol}...`);
+      const recentData = await dataManager.getRecentData(symbol, '5m', 100);
+      const summary = dataManager.getDataSummary(recentData);
+      const quality = dataManager.validateDataQuality(recentData);
+      const lastClose = recentData[recentData.length - 1]?.close ?? 0;
+      await ctx.reply(`📊 Data Info — ${symbol}\n\nLatest: $${lastClose.toFixed(2)}\nRange: $${summary.priceRange.min.toFixed(2)} - $${summary.priceRange.max.toFixed(2)}\nQuality: ${quality.isValid ? '✅ Valid' : '❌ Issues'} | Gaps: ${quality.gaps.length}`);
+      break;
+    }
+    case 'livestart': {
+      await ctx.reply(
+        `🚀 Live Trading — ${symbol}\n\n⚠️ This uses REAL funds!\n\nConfirm:`,
+        Markup.inlineKeyboard([
+          [Markup.button.callback(`✅ Confirm Start (${symbol})`, 'run:livestart_confirm')],
+          [Markup.button.callback('❌ Cancel', 'home')],
+        ]),
+      );
+      break;
+    }
+    case 'livestart_confirm': {
+      const liveSession = getUserSession(telegramId);
+      if (liveSession.liveTrading?.active) { await ctx.reply(`❌ Live trading already active for ${liveSession.liveTrading.symbol}.`); break; }
+      if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
+      const strategyToUse = openClawStrategy;
+      const intervalMs = parseInt(process.env.LIVE_SIGNAL_INTERVAL_MS || '300000', 10);
+      liveSession.liveTrading = { active: true, symbol, strategy: strategyToUse, userDbId: dbUserId, startedAt: new Date() };
+      await riskMonitorLoop.start();
+      const runSig = async () => {
+        if (!liveSession.liveTrading?.active) return;
+        try { await executeLiveSignal(dbUserId, symbol, strategyToUse); } catch (_) { /* logged by callee */ }
+      };
+      await runSig();
+      liveSession.liveTrading.timer = setInterval(() => { runSig().catch(console.error); }, intervalMs);
+      await ctx.reply(`✅ Live trading started — ${symbol}\nStrategy: ${strategyToUse.name}\nInterval: ${(intervalMs / 1000).toFixed(0)}s\n\nUse ⛔ Stop Live to stop.`);
+      break;
+    }
+    case 'livestop': {
+      const liveSession = getUserSession(telegramId);
+      if (!liveSession.liveTrading?.active) { await ctx.reply('❌ No active live trading session.'); break; }
+      stopLiveTradingSession(liveSession.liveTrading);
+      liveSession.liveTrading = undefined;
+      await ctx.reply('✅ Live trading stopped.');
+      break;
+    }
+    case 'help': {
+      await ctx.reply(`❓ Quick Help\n\n/coin BTC — Set active coin\n/menu — Open menu\n/signal BTCUSDT — Trading signal\n/analyze BTCUSDT — Full analysis\n/papertrade BTCUSDT — Paper trading\n/backtest BTCUSDT 30 — Backtest\n/help — Full command list`);
+      const activeSymbol = await getActiveSymbol(dbUserId);
+      await ctx.reply(`📌 Menu — Coin: ${activeSymbol}`, buildMainMenuInline(activeSymbol));
+      break;
+    }
+    default: {
+      await ctx.reply(`❓ Unknown action: ${action}`);
+    }
+  }
+}
+
+// ── QUICK COIN INPUT ──────────────────────────────────────────────────────────
+
 bot.hears(/^[A-Za-z]{2,5}(USDT|USDC|BUSD|FDUSD|BTC|ETH)?$/i, async (ctx) => {
-  // Allow quick symbol input without command, e.g. "BTC" or "ETHUSDT"
   if (!ctx.message || !('text' in ctx.message)) return;
   const text = ctx.message.text.trim();
   if (text.startsWith('/')) return;
@@ -321,10 +798,12 @@ bot.hears(/^[A-Za-z]{2,5}(USDT|USDC|BUSD|FDUSD|BTC|ETH)?$/i, async (ctx) => {
   try {
     const user = await ensureUser(ctx);
     if (!user) return;
-
     const symbol = normalizeSymbolInput(text);
     await setActiveSymbol(user.id, symbol);
-    await ctx.reply(`✅ Coin aktif: ${symbol}`, buildFeatureMenu(symbol));
+    await ctx.reply(
+      `✅ Coin aktif: ${symbol}\nTap kategori untuk aksi:`,
+      buildMainMenuInline(symbol),
+    );
   } catch {
     // Ignore non-symbol casual messages
   }
