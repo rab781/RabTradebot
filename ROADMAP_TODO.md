@@ -17,8 +17,11 @@
 | 4 | ML Pipeline Improvement | ⏳ Pending | +8 pts | 0% |
 | 5 | Strategy Optimization | ⏳ Pending | +4 pts | 0% |
 | 6 | Production Infrastructure | ⏳ Pending | +3 pts | 0% |
+| 7 | Multi-Agent LLM Intelligence | ⏳ Pending | +10 pts | 0% |
 
 **Scorecard Saat Ini: 78 / 100** ✅ (Fase 0 + Fase 1 + Fase 2 complete)
+
+> **Note:** Fase 7 menambah dimensi baru sistem (LLM-based multi-agent reasoning). Total target nilai naik dari 100 → ~110/100 (bonus tier).
 
 ---
 
@@ -605,6 +608,134 @@
 
 ---
 
+## 🤖 FASE 7 — Multi-Agent LLM Intelligence
+
+> **Estimasi:** 1–2 Minggu
+> **Prioritas:** 🟡 Menengah — High-Impact untuk Edge Signal Quality
+> **Target Score:** Bonus +10 pts (110/100)
+> **Referensi:** [TauricResearch/TradingAgents](https://github.com/TauricResearch/TradingAgents) — framework Multi-Agent LLM trading dari paper arXiv:2412.20138
+> **LLM Provider:** Chutes AI (`CHUTES_API_KEY` sudah ada di `.env`) — gunakan model Qwen, Kimi, atau model lain yang tersedia
+> **Note:** Fase ini berdiri sendiri, tidak memblokir Fase 1–6. Bisa dikerjakan paralel dengan Fase 3+.
+
+### 7.1 Infrastruktur LLM Agent (Foundation)
+
+- [ ] **[F7-1]** Buat file `src/services/ai/llmClient.ts` — wrapper adapter untuk Chutes AI
+  - Konfigurasi base URL, API key (`CHUTES_API_KEY`) dari `.env`
+  - Method: `chat(messages, model, temperature)` → return string
+  - Support multi-model: Qwen 3, Kimi, dan model Chutes AI lainnya
+  - Sertakan retry logic dan timeout (max 30 detik per request)
+
+- [ ] **[F7-2]** Buat file `src/services/ai/promptTemplates.ts` — kumpulan prompt yang digunakan oleh seluruh LLM agent
+  - Template: `TECHNICAL_ANALYST_PROMPT`, `SENTIMENT_ANALYST_PROMPT`, `NEWS_ANALYST_PROMPT`
+  - Template: `BULLISH_RESEARCHER_PROMPT`, `BEARISH_RESEARCHER_PROMPT`, `TRADER_AGENT_PROMPT`
+  - Setiap prompt menerima variabel konteks (harga, indikator, berita, dll.) via `{}'` placeholder
+
+- [ ] **[F7-3]** Buat file `src/services/ai/agentContext.ts` — interface dan tipe data yang dibagikan antar agent
+  - Interface `AgentMessage { role: string, content: string }`
+  - Interface `MarketContext { symbol, currentPrice, indicators, recentNews, mlSignal, taSignal }`
+  - Interface `AgentDecision { action: 'BUY'|'SELL'|'HOLD', confidence: number, reasoning: string }`
+
+### 7.2 Analyst Team (LLM Paralel)
+
+- [ ] **[F7-4]** Buat file `src/services/ai/analysts/technicalAnalystAgent.ts`
+  - Input: `MarketContext` (harga, RSI, MACD, BB, ATR, signal dari TA strategy)
+  - Kirim ke LLM: deskripsikan kondisi indikator saat ini, minta interpretasi dan outlook
+  - Output: `{ analysis: string, bias: 'bullish'|'bearish'|'neutral', confidence: number }`
+
+- [ ] **[F7-5]** Buat file `src/services/ai/analysts/sentimentAnalystAgent.ts`
+  - Input: feed berita/sentimen terkini (dari `newsAnalysis` di `signalGenerator.ts`)
+  - Minta LLM: ekstrak sentimen pasar secara kuantitatif (skor -1 hingga +1)
+  - Output: `{ sentimentScore: number, summary: string, topDrivers: string[] }`
+
+- [ ] **[F7-6]** Buat file `src/services/ai/analysts/newsAnalystAgent.ts`
+  - Input: headline kripto terbaru (gunakan data yang sudah ada dari Chutes/LLM di `signalGenerator.ts`)
+  - Minta LLM: identifikasi event macro yang bisa mempengaruhi harga dalam 1–4 jam ke depan
+  - Output: `{ impact: 'high'|'medium'|'low', direction: 'positive'|'negative'|'neutral', summary: string }`
+
+- [ ] **[F7-7]** Buat file `src/services/ai/analysts/mlInterpretationAgent.ts`
+  - Input: raw output dari `SimpleGRUModel` (softmax probabilities, confidence)
+  - Minta LLM: interpretasikan prediksi model dalam bahasa natural
+  - Output: `{ interpretation: string, agreement: boolean }` (agent setuju/tidak dengan ML model)
+
+### 7.3 Researcher Team (LLM Debate)
+
+- [ ] **[F7-8]** Buat file `src/services/ai/researchers/bullishResearcherAgent.ts`
+  - Input: output ringkasan dari seluruh Analyst (TA, Sentiment, News, ML)
+  - Tugasnya: **argumen kenapa harus BUY** — cari fakta dari analis yang mendukung long position
+  - Output: `{ argument: string, strength: 1-10, keyPoints: string[] }`
+
+- [ ] **[F7-9]** Buat file `src/services/ai/researchers/bearishResearcherAgent.ts`
+  - Input: sama dengan Bullish Researcher
+  - Tugasnya: **argumen kenapa harus SELL atau HOLD** — cari fakta yang mendukung posisi defensif
+  - Output: `{ argument: string, strength: 1-10, keyPoints: string[] }`
+
+- [ ] **[F7-10]** Implementasi `debateRound(bullishArg, bearishArg, rounds)` di `src/services/ai/researchers/debateOrchestrator.ts`
+  - Jalankan N putaran debat (default: `maxDebateRounds = 1` untuk efisiensi biaya)
+  - Setiap putaran: masing-masing pihak merespons argumen pihak lain
+  - Output setelah semua putaran: `{ winnerBias: 'bullish'|'bearish'|'neutral', finalSummary: string }`
+
+### 7.4 Trader & Portfolio Manager
+
+- [ ] **[F7-11]** Buat file `src/services/ai/traderAgent.ts`
+  - Input: ringkasan debat dari `debateOrchestrator` + konteks portofolio saat ini (saldo, open trades)
+  - Tugasnya: konversi debat menjadi proposal trading yang konkret
+  - Output: `{ action: 'BUY'|'SELL'|'HOLD', suggestedSize: number, suggestedSL: number, suggestedTP: number, reasoning: string }`
+
+- [ ] **[F7-12]** Buat file `src/services/ai/portfolioManagerAgent.ts`
+  - Input: proposal dari `traderAgent` + status risiko dari `riskMonitorLoop`
+  - Tugasnya: **approve atau reject** proposal — periksa apakah proposalnya konsisten dengan risk parameters
+  - Jika approved: forward ke `realTradingEngine` atau `paperTradingEngine`
+  - Jika rejected: kirim penjelasan ke Telegram
+  - Output: `{ decision: 'APPROVED'|'REJECTED', reason: string }`
+
+### 7.5 Orkestrasi Multi-Agent Pipeline
+
+- [ ] **[F7-13]** Buat file `src/services/ai/multiAgentOrchestrator.ts` — entry point seluruh pipeline
+  - Method: `runAnalysis(symbol, marketContext)` → return `AgentDecision`
+  - Urutan eksekusi:
+    1. Jalankan **4 Analyst** secara paralel (`Promise.all`) untuk efisiensi
+    2. Kumpulkan hasil → susun ringkasan
+    3. Jalankan **Bullish & Bearish Researcher** secara paralel
+    4. Jalankan `debateRound()`
+    5. Jalankan **Trader Agent**
+    6. Jalankan **Portfolio Manager** (final gate)
+  - Catat total waktu eksekusi dan biaya estimasi token ke log
+
+- [ ] **[F7-14]** Integrasikan `multiAgentOrchestrator` ke `signalGenerator.ts`
+  - Tambah flag `USE_MULTI_AGENT=true` di `.env`
+  - Jika `true`: gunakan output dari Multi-Agent Orchestrator sebagai sinyal utama
+  - Jika `false`: fallback ke GRU + TA rule-based seperti sebelumnya (backward-compatible)
+
+### 7.6 Persistensi & Observability
+
+- [ ] **[F7-15]** Simpan setiap sesi analisis multi-agent ke database
+  - Buat tabel `AgentAnalysisLog` di Prisma schema: `id, symbol, timestamp, analystOutputs (JSON), debateSummary, finalDecision, executionTimeMs`
+
+- [ ] **[F7-16]** Tambah command `/agentanalysis <symbol>` di `enhancedBot.ts`
+  - Trigger satu sesi analisis langsung dari Telegram
+  - Tampilkan ringkasan tiap agent: Technical Bias, Sentiment Score, News Impact, ML Interpretation
+  - Tampilkan hasil debat dan keputusan akhir Portfolio Manager
+  - *Note:* Command ini tidak langsung eksekusi order — hanya tampilkan analisis untuk review manual
+
+- [ ] **[F7-17]** Tambah command `/agentlog <N>` — tampilkan N sesi analisis terakhir dari database
+  - Tampilkan: timestamp, symbol, final decision, apakah dikonfirmasi jadi order
+
+- [ ] **[F7-18]** Evaluasi dan catat akurasi keputusan Multi-Agent secara berkala
+  - Bandingkan prediksi agent dengan hasil aktual harga (24 jam setelah sinyal)
+  - Simpan ke `AgentAnalysisLog.actualOutcome: 'correct'|'incorrect'`
+  - Tampilkan winrate agent di command `/mlstats`
+
+### 7.7 Konfigurasi untuk Chutes AI
+
+- [ ] **[F7-19]** Tambah environment variables Fase 7 ke `.env.example`:
+  - `USE_MULTI_AGENT` — toggle fitur (true/false)
+  - `CHUTES_MODEL_DEEP` — model untuk reasoning berat (misal: `qwen3-70b`, default: `Qwen/Qwen3-235B-A22B`)
+  - `CHUTES_MODEL_QUICK` — model untuk tugas cepat (misal: `Qwen/Qwen3-30B-A3B`)
+  - `MAX_DEBATE_ROUNDS` — jumlah putaran debat LLM (default: 1)
+  - `AGENT_TIMEOUT_MS` — batas waktu per LLM call (default: 30000)
+
+---
+
 ## 📝 APPENDIX A — File Baru yang Perlu Dibuat
 
 | File | Fase | Deskripsi |
@@ -626,6 +757,19 @@
 | `tests/riskMonitorLoop.test.ts` | F6 | Unit test risk monitor |
 | `tests/featureEngineering.test.ts` | F6 | Unit test feature engineering |
 | `tests/backtestEngine.test.ts` | F6 | Unit test backtest engine |
+| `src/services/ai/llmClient.ts` | F7 | Wrapper adapter untuk Chutes AI |
+| `src/services/ai/promptTemplates.ts` | F7 | Template prompt seluruh LLM agent |
+| `src/services/ai/agentContext.ts` | F7 | Interface dan tipe data antar agent |
+| `src/services/ai/analysts/technicalAnalystAgent.ts` | F7 | Agent: Technical Analysis LLM |
+| `src/services/ai/analysts/sentimentAnalystAgent.ts` | F7 | Agent: Sentiment Analysis LLM |
+| `src/services/ai/analysts/newsAnalystAgent.ts` | F7 | Agent: News Impact LLM |
+| `src/services/ai/analysts/mlInterpretationAgent.ts` | F7 | Agent: Interpretasi output ML |
+| `src/services/ai/researchers/bullishResearcherAgent.ts` | F7 | Agent: Argumen Bullish |
+| `src/services/ai/researchers/bearishResearcherAgent.ts` | F7 | Agent: Argumen Bearish |
+| `src/services/ai/researchers/debateOrchestrator.ts` | F7 | Orkestrasi debat antar peneliti |
+| `src/services/ai/traderAgent.ts` | F7 | Agent: konversi debat jadi proposal trade |
+| `src/services/ai/portfolioManagerAgent.ts` | F7 | Agent: approve/reject proposal |
+| `src/services/ai/multiAgentOrchestrator.ts` | F7 | Entry point seluruh pipeline multi-agent |
 
 ---
 
@@ -646,6 +790,9 @@
 | `src/enhancedBot.ts` | F1,F3 | Tambah commands baru (livetrade, orders, subscribe) |
 | `src/webServer.ts` | F6 | Tambah `/health` endpoint |
 | `scripts/production-training.ts` | F4 | Proper train/val/test split, WFV |
+| `src/services/signalGenerator.ts` | F7 | Integrasi output multi-agent sebagai sinyal utama |
+| `src/enhancedBot.ts` | F7 | Tambah command `/agentanalysis`, `/agentlog` |
+| `prisma/schema.prisma` | F7 | Tambah tabel `AgentAnalysisLog` |
 
 ---
 
@@ -678,6 +825,13 @@ MAX_ACCOUNT_DRAWDOWN=0.15                        # 15% max drawdown sebelum circ
 MAX_OPEN_TRADES=3
 DEFAULT_RISK_PER_TRADE=0.01                      # 1% risk per trade
 
+# Multi-Agent LLM (Fase 7)                        # BARU
+USE_MULTI_AGENT=false                            # Toggle fitur multi-agent (true|false)
+CHUTES_MODEL_DEEP=Qwen/Qwen3-235B-A22B          # Model untuk reasoning berat
+CHUTES_MODEL_QUICK=Qwen/Qwen3-30B-A3B           # Model untuk tugas cepat
+MAX_DEBATE_ROUNDS=1                              # Jumlah putaran debat LLM
+AGENT_TIMEOUT_MS=30000                           # Timeout per LLM call
+
 # Logging
 LOG_LEVEL=info                                   # debug | info | warn | error
 NODE_ENV=production
@@ -707,6 +861,10 @@ Fase 4 (ML Pipeline) ◄─── Bisa dikerjakan paralel dengan Fase 2 & 3
 Fase 5 (Strategy Optimizer) ◄─── Butuh Fase 4 selesai dulu
 
 Fase 6 (Infrastructure) ◄─── Bisa dimulai kapan saja, tapi idealnya setelah Fase 1-5
+
+Fase 7 (Multi-Agent LLM) ◄─── Bisa dikerjakan PARALEL sejak Fase 3 selesai
+    │
+    └──► Integrasi ke signalGenerator.ts (bergantung Fase 1 & 2 selesai ✅)
 ```
 
 ---
@@ -743,6 +901,13 @@ Fase 6 (Infrastructure) ◄─── Bisa dimulai kapan saja, tapi idealnya sete
 - [ ] Bayesian optimizer menemukan parameter yang sama baiknya dengan grid search dalam 1/5 jumlah evaluasi
 - [ ] Monte Carlo test menunjukkan strategi positif dalam > 80% simulasi
 
+### Fase 7 ✅ Done jika:
+- [ ] `multiAgentOrchestrator.runAnalysis()` berhasil menghasilkan keputusan BUY/SELL/HOLD dalam < 60 detik
+- [ ] Keempat analyst agent berjalan paralel dan hasilnya terkumpul sebelum debat dimulai
+- [ ] Command `/agentanalysis BTCUSDT` berfungsi dari Telegram dan menampilkan ringkasan semua agent
+- [ ] Toggle `USE_MULTI_AGENT=false` memastikan fallback ke GRU + TA rule-based berjalan normal
+- [ ] Akurasi agent tercatat dan bisa dilihat di `/mlstats` setelah minimal 20 analisis
+
 ### Fase 6 ✅ Done jika:
 - [ ] Bot berjalan stabil di VPS selama 72 jam tanpa restart manual
 - [ ] Coverage test mencapai minimal 80%
@@ -767,7 +932,8 @@ Fase 6 (Infrastructure) ◄─── Bisa dimulai kapan saja, tapi idealnya sete
 | Database & Logging | 7/10 | 9/10 |
 | Testing & Coverage | 2/10 | 8/10 |
 | Infrastructure | 2/10 | 9/10 |
-| **TOTAL** | **54/120** | **105/120** ≈ **100/100** |
+| Multi-Agent LLM | 0/10 | 9/10 |
+| **TOTAL** | **54/130** | **114/130** ≈ **110/100** (Bonus Tier) |
 
 ---
 
