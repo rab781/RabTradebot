@@ -153,8 +153,7 @@ export class PaperTradingEngine {
                     stoplossRate: dbTrade.stopLoss ?? dbTrade.entryPrice * (side === 'long' ? 0.95 : 1.05),
                     fee,
                     openDate: dbTrade.entryTime,
-                    entryTag: 'RESTORED_FROM_DB',
-                    dbId: dbTrade.id
+                    entryTag: 'RESTORED_FROM_DB'
                 };
 
                 const position: Position = {
@@ -302,7 +301,6 @@ export class PaperTradingEngine {
                 }
             }
         }
-
     }
 
     private async processEntries(entryData: DataFrame, candle: OHLCVCandle, metadata: StrategyMetadata): Promise<void> {
@@ -401,7 +399,7 @@ export class PaperTradingEngine {
         // Save to database if userId is set
         if (this.userId) {
             try {
-                const dbTrade = await db.saveTrade({
+                await db.saveTrade({
                     userId: parseInt(this.userId),
                     symbol: trade.pair,
                     side: side === 'long' ? 'BUY' : 'SELL',
@@ -412,7 +410,6 @@ export class PaperTradingEngine {
                     status: 'PAPER_OPEN',
                     notes: 'PAPER_TRADE'
                 });
-                trade.dbId = dbTrade.id;
             } catch (error) {
                 console.error('Failed to save trade to database:', error);
                 await db.logError({
@@ -466,14 +463,9 @@ export class PaperTradingEngine {
         // Update database if userId is set
         if (this.userId) {
             try {
-                if (trade.dbId) {
-                    await db.closeTrade(trade.dbId, exitPrice, trade.profitPct || 0);
-                } else {
-                    const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
-                    if (dbTrade) {
-                        await db.closeTrade(dbTrade.id, exitPrice, trade.profitPct || 0);
-                        trade.dbId = dbTrade.id; // cache for any future reference
-                    }
+                const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
+                if (dbTrade) {
+                    await db.closeTrade(dbTrade.id, exitPrice, trade.profitPct || 0);
                 }
             } catch (error) {
                 console.error('Failed to update trade in database:', error);

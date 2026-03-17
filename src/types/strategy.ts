@@ -64,7 +64,6 @@ export interface Trade {
     exitReason?: string;
     entryTag?: string;
     exitTag?: string;
-    dbId?: string; // Database ID to avoid N+1 lookups when closing paper trades
 }
 
 export interface StrategyResult {
