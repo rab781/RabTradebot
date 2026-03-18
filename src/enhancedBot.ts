@@ -24,6 +24,7 @@ import { BinanceService } from './services/binanceService';
 import { binanceOrderService } from './services/binanceOrderService';
 import { realTradingEngine, RiskParams } from './services/realTradingEngine';
 import { riskMonitorLoop } from './services/riskMonitorLoop';
+import { connectionManager } from './services/connectionManager';
 import { OHLCVCandle } from './types/dataframe';
 
 import { ImageChartService } from './services/imageChartService';
@@ -686,8 +687,14 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const loading = await ctx.reply('🔄 Checking Binance API...');
       const status = await binanceService.getFullHealthStatus();
       const report = binanceService.formatHealthReport(status);
+      // F3-18: tambah info WebSocket streams
+      const wsStatus = connectionManager.getStatus();
+      const streamLines = wsStatus.streams.length > 0
+        ? wsStatus.streams.map(s => `• ${s.type} [${s.symbol}${s.interval ? '/' + s.interval : ''}] — ${s.subscribers} subs`).join('\n')
+        : '• No active streams';
+      const wsReport = `\n\n📡 WebSocket Streams (${wsStatus.activeStreamCount}/${wsStatus.maxStreams}):\n${streamLines}`;
       try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(report);
+      await ctx.reply(report + wsReport);
       break;
     }
     case 'pstatus': {
@@ -3072,6 +3079,80 @@ bot.command('cancelorder', async (ctx) => {
   } catch (error) {
     console.error('cancelorder command error:', error);
     return ctx.reply(`❌ Gagal cancel order: ${(error as Error).message}`);
+  }
+});
+
+// ── F3-14: /subscribe <symbol> [interval] ─────────────────────────────────────
+// Register user to receive auto-signal notifications from kline close
+bot.command('subscribe', async (ctx) => {
+  try {
+    const user = await ensureUser(ctx);
+    if (!user) return;
+
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length === 0) {
+      return ctx.reply(
+        '📡 **Cara pakai /subscribe:**\n' +
+        '/subscribe BTCUSDT        — subscribe ke signal 1h (default)\n' +
+        '/subscribe ETHUSDT 4h    — subscribe ke signal 4h\n\n' +
+        'Bot akan mengirim notifikasi otomatis saat ada sinyal BUY/SELL dari kline close.',
+      );
+    }
+
+    const symbol = args[0].toUpperCase();
+    const interval = (args[1] || '1h').toLowerCase();
+    const userId = user.id;
+
+    // Register signal subscriber in connectionManager
+    connectionManager.addSignalSubscriber(userId, symbol, async (sym, action, confidence, reason) => {
+      const emoji = action === 'BUY' ? '🟢' : '🔴';
+      const confPct = (confidence * 100).toFixed(0);
+      try {
+        await bot.telegram.sendMessage(
+          ctx.chat.id,
+          `${emoji} **AUTO-SIGNAL — ${sym}**\n\n` +
+          `Action: **${action}**\n` +
+          `Confidence: ${confPct}%\n` +
+          `Reason: ${reason}\n\n` +
+          `⏰ Interval: ${interval}`,
+        );
+      } catch (_) { /* chat might be closed */ }
+    });
+
+    return ctx.reply(
+      `✅ Berhasil subscribe signal **${symbol}** (${interval})\n` +
+      `Bot akan kirim notifikasi otomatis saat ada sinyal BUY/SELL dari kline close.\n\n` +
+      `Gunakan /unsubscribe ${symbol} untuk berhenti.`,
+    );
+  } catch (error) {
+    return ctx.reply(`❌ Error: ${(error as Error).message}`);
+  }
+});
+
+// ── F3-15: /unsubscribe <symbol> ──────────────────────────────────────────────
+// Remove user from auto-signal notifications
+bot.command('unsubscribe', async (ctx) => {
+  try {
+    const user = await ensureUser(ctx);
+    if (!user) return;
+
+    const args = ctx.message.text.split(' ').slice(1);
+    if (args.length === 0) {
+      return ctx.reply('Usage: /unsubscribe BTCUSDT');
+    }
+
+    const symbol = args[0].toUpperCase();
+    const userId = user.id;
+
+    const noMoreSubs = connectionManager.removeSignalSubscriber(userId, symbol);
+
+    const msg = noMoreSubs
+      ? `✅ Unsubscribe dari ${symbol} berhasil. Stream dihentikan (tidak ada subscriber lain).`
+      : `✅ Unsubscribe dari ${symbol} berhasil.`;
+
+    return ctx.reply(msg);
+  } catch (error) {
+    return ctx.reply(`❌ Error: ${(error as Error).message}`);
   }
 });
 

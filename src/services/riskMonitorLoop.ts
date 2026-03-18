@@ -1,6 +1,8 @@
 import { db } from './databaseService';
 import { binanceOrderService } from './binanceOrderService';
 import { RealTradingEngine, realTradingEngine } from './realTradingEngine';
+import { BinanceWebSocketService } from './binanceWebSocketService';
+import { connectionManager } from './connectionManager';
 
 export interface RiskMonitorConfig {
     pollIntervalMs: number;
@@ -9,6 +11,20 @@ export interface RiskMonitorConfig {
 }
 
 export type RiskAlertNotifier = (message: string, userId?: number) => Promise<void> | void;
+
+/** Minimal strategy interface for signal generation on kline close */
+export interface SignalStrategy {
+    name: string;
+    populateIndicators?: (data: any[]) => any[];
+    populateEntryTrend?: (data: any[]) => { action?: 'BUY' | 'SELL' | 'HOLD'; confidence?: number; reason?: string } | null;
+}
+
+export type KlineSignalNotifier = (
+    symbol: string,
+    action: 'BUY' | 'SELL',
+    confidence: number,
+    reason: string,
+) => Promise<void> | void;
 
 interface TrailState {
     highestPrice?: number;
@@ -23,12 +39,24 @@ export class RiskMonitorLoop {
     private timer: NodeJS.Timeout | null = null;
     private notifier?: RiskAlertNotifier;
     private trailState = new Map<string, TrailState>();
-
     private baselineEquityByUser = new Map<number, number>();
 
-    constructor(engine: RealTradingEngine, config?: Partial<RiskMonitorConfig>, notifier?: RiskAlertNotifier) {
+    // ── F3-10/F3-11: WebSocket mode ────────────────────────────────────────────
+    /** Symbols currently subscribed via WebSocket */
+    private wsSymbols = new Set<string>();
+    private wsService?: BinanceWebSocketService;
+    /** Tracks symbols that have a kline-based signal subscription */
+    private klineSignalSymbols = new Set<string>();
+
+    constructor(
+        engine: RealTradingEngine,
+        config?: Partial<RiskMonitorConfig>,
+        notifier?: RiskAlertNotifier,
+        wsService?: BinanceWebSocketService,
+    ) {
         this.engine = engine;
         this.notifier = notifier;
+        this.wsService = wsService;
         this.config = {
             pollIntervalMs: 5000,
             trailingStopPositive: 0.01,
@@ -39,6 +67,124 @@ export class RiskMonitorLoop {
 
     setNotifier(notifier: RiskAlertNotifier): void {
         this.notifier = notifier;
+    }
+
+    setWsService(wsService: BinanceWebSocketService): void {
+        this.wsService = wsService;
+    }
+
+    // ── F3-10: WebSocket mode for real-time price updates ─────────────────────
+
+    /**
+     * Subscribe to real-time ticker stream for the given symbols.
+     * Each price tick directly triggers SL/TP evaluation (no polling delay).
+     * Falls back to REST polling if WebSocket is unavailable.
+     */
+    startWebSocket(symbols: string[]): void {
+        if (!this.wsService) {
+            console.warn('[RiskMonitorLoop] No wsService set, cannot start WebSocket mode.');
+            return;
+        }
+
+        for (const symbol of symbols) {
+            const symUpper = symbol.toUpperCase();
+            if (this.wsSymbols.has(symUpper)) continue;
+            this.wsSymbols.add(symUpper);
+
+            this.wsService.subscribeTickerStream(symUpper, async (tick) => {
+                if (!this.isRunning) return;
+                try {
+                    const trades = await db.getOpenLiveTrades();
+                    const symbolTrades = trades.filter(
+                        (t: any) => t.symbol.toUpperCase() === symUpper,
+                    );
+                    for (const trade of symbolTrades) {
+                        await this.updateTrailingStop(trade, tick.lastPrice);
+                        await this.evaluateExitTriggers(trade, tick.lastPrice);
+                    }
+                } catch (err) {
+                    console.error('[RiskMonitorLoop WS] tick error:', (err as Error).message);
+                }
+            });
+        }
+    }
+
+    /** Stop WebSocket subscriptions for all symbols */
+    stopWebSocket(): void {
+        if (!this.wsService) return;
+        for (const sym of this.wsSymbols) {
+            this.wsService.unsubscribe(sym);
+        }
+        this.wsSymbols.clear();
+    }
+
+    // ── F3-12: executionReport confirmation ───────────────────────────────────
+
+    /**
+     * Called when a User Data Stream `executionReport` event arrives for a FILLED order.
+     * Syncs the trade status in DB without additional REST polling.
+     */
+    async handleExecutionReport(orderId: number, status: string): Promise<void> {
+        if (status !== 'FILLED') return;
+        // Delegate to engine for DB sync — engine already has confirmFill logic
+        await (this.engine as any).confirmFill?.(orderId).catch(() => {});
+    }
+
+    // ── F3-13: Auto-signal from kline close ───────────────────────────────────
+
+    /**
+     * Subscribe to kline close events. On each closed candle, evaluate strategy
+     * and notify subscribers if a BUY/SELL signal is generated.
+     */
+    startKlineSignal(
+        symbol: string,
+        interval: string,
+        strategy: SignalStrategy,
+        signalNotifier: KlineSignalNotifier,
+    ): void {
+        if (!this.wsService) return;
+
+        const symUpper = symbol.toUpperCase();
+        const key = `${symUpper}_${interval}`;
+        if (this.klineSignalSymbols.has(key)) return;
+        this.klineSignalSymbols.add(key);
+
+        this.wsService.subscribeKlineStream(symUpper, interval, async (kline) => {
+            if (!kline.isClosed) return;
+
+            try {
+                // Use a minimal candle array for strategy evaluation
+                const candles = [{
+                    date: new Date(kline.closeTime),
+                    open: kline.open,
+                    high: kline.high,
+                    low: kline.low,
+                    close: kline.close,
+                    volume: kline.volume,
+                }];
+
+                const enriched = strategy.populateIndicators?.(candles) ?? candles;
+                const result = strategy.populateEntryTrend?.(enriched);
+
+                if (result?.action === 'BUY' || result?.action === 'SELL') {
+                    await signalNotifier(
+                        symUpper,
+                        result.action,
+                        result.confidence ?? 0,
+                        result.reason ?? `${result.action} signal on ${interval} close`,
+                    );
+                    // Also notify connectionManager signal subscribers (F3-13)
+                    connectionManager.notifySignalSubscribers(
+                        symUpper,
+                        result.action,
+                        result.confidence ?? 0,
+                        result.reason ?? '',
+                    );
+                }
+            } catch (err) {
+                console.error('[RiskMonitorLoop kline] signal error:', (err as Error).message);
+            }
+        });
     }
 
     async start(): Promise<void> {

@@ -144,11 +144,11 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
             const response = await axios.post(
                 `${this.baseUrl}/chat/completions`,
                 {
-                    model: "moonshotai/Kimi-K2.5-TEE",
+                    model: "Qwen/Qwen3-32B",
                     messages: [
                         {
                             role: "system",
-                            content: "You are an expert cryptocurrency market analyst specializing in news impact analysis and price prediction. Always provide accurate, structured data in JSON format."
+                            content: "You are a news researcher tasked with analyzing recent news and trends over the past week. Please write a comprehensive report of the current state of the world that is relevant for trading and macroeconomics. Always provide accurate, structured data in JSON format."
                         },
                         {
                             role: "user",
