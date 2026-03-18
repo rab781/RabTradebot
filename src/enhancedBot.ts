@@ -178,7 +178,7 @@ function buildMainMenuInline(symbol: string) {
       Markup.button.callback('📈 Sim', 'cat:sim'),
     ],
     [
-      Markup.button.callback('💰 Live', 'cat:live'),
+      Markup.button.callback('🔴 Live (Real $)', 'cat:live'),
       Markup.button.callback('🗂 Orders', 'cat:orders'),
       Markup.button.callback('🧪 Backtest', 'cat:backtest'),
     ],
@@ -241,7 +241,7 @@ function buildCategoryMenuInline(symbol: string, category: string) {
     case 'live':
       return Markup.inlineKeyboard([
         [
-          Markup.button.callback('🚀 Start Live Trade', 'run:livestart'),
+          Markup.button.callback('⚠️ Start Live Trade', 'run:livestart'),
           Markup.button.callback('⛔ Stop Live', 'run:livestop'),
         ],
         [Markup.button.callback('💼 Live Portfolio', 'run:liveportfolio')],
@@ -434,7 +434,7 @@ bot.action(/^cat:(.+)$/, async (ctx) => {
     analysis: '📊 Analysis',
     news: '📰 News',
     sim: '📈 Trading Sim',
-    live: '💰 Live Trading',
+    live: '🔴 Live Trading (Real $)',
     orders: '🗂 Orders & Portfolio',
     backtest: '🧪 Backtest & Optimize',
     data: '⚙️ Data & System',
