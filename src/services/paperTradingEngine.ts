@@ -709,15 +709,16 @@ export class PaperTradingEngine {
 
             if (!dbTradeId) {
                 const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
-                if (!dbTrade) {
+                if (!dbTrade || !dbTrade.id) {
                     return;
                 }
 
                 dbTradeId = dbTrade.id;
-                this.paperTradeDbIds.set(trade.id, dbTradeId);
+                // dbTradeId is now definitely a string, but TS still thinks it could be undefined here
+                this.paperTradeDbIds.set(trade.id, dbTradeId as string);
             }
 
-            await db.updateTradeRisk(dbTradeId, {
+            await db.updateTradeRisk(dbTradeId as string, {
                 stopLoss: trade.stoplossRate,
                 notes: `PAPER_UNREALIZED_PNL=${(trade.profit || 0).toFixed(8)}`
             });
