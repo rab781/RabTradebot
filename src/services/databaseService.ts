@@ -738,7 +738,7 @@ export class DatabaseService {
             take: 20
         });
 
-        return results.map(r => ({
+        return results.map((r: any) => ({
             ...r,
             trades: JSON.parse(r.trades),
             equityCurve: r.equityCurve ? JSON.parse(r.equityCurve) : undefined,

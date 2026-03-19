@@ -709,15 +709,16 @@ export class PaperTradingEngine {
 
             if (!dbTradeId) {
                 const dbTrade = await db.findOpenTrade(this.userId, trade.pair, trade.openRate, 'PAPER_OPEN');
-                if (!dbTrade) {
+                if (!dbTrade || !dbTrade.id) {
                     return;
                 }
 
                 dbTradeId = dbTrade.id;
-                this.paperTradeDbIds.set(trade.id, dbTradeId);
+                // dbTradeId is now definitely a string, but TS still thinks it could be undefined here
+                this.paperTradeDbIds.set(trade.id, dbTradeId as string);
             }
 
-            await db.updateTradeRisk(dbTradeId, {
+            await db.updateTradeRisk(dbTradeId as string, {
                 stopLoss: trade.stoplossRate,
                 notes: `PAPER_UNREALIZED_PNL=${(trade.profit || 0).toFixed(8)}`
             });
@@ -728,12 +729,18 @@ export class PaperTradingEngine {
 
     private calculateAverageVolume20(): number {
         const startIdx = Math.max(0, this.currentDataIndex - 20);
-        const last20Candles = this.historicalData.slice(startIdx, this.currentDataIndex);
-        if (last20Candles.length === 0) {
+        let sumVolume = 0;
+        let count = 0;
+        for (let i = startIdx; i < this.currentDataIndex; i++) {
+            sumVolume += this.historicalData[i].volume;
+            count++;
+        }
+
+        if (count === 0) {
             return 1;
         }
 
-        return last20Candles.reduce((sum, candle) => sum + candle.volume, 0) / last20Candles.length;
+        return sumVolume / count;
     }
 
     private getSpreadRate(pair: string): number {

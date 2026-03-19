@@ -51,3 +51,7 @@
 ## 2025-02-16 - [Fix CI Jest 'No tests found' Error]
 **Learning:** The project's CI pipeline runs `npm test` without `--passWithNoTests`. If the `tests/` directory has no test files (e.g., only a README), Jest will fail the CI job with exit code 1 ("No tests found").
 **Action:** When working in a project where actual tests may be missing or removed but CI expects tests to exist, add a minimal dummy test file (e.g., `tests/dummy.test.ts`) that asserts `expect(true).toBe(true)` to satisfy the test runner and prevent pipeline failures.
+
+## 2025-05-25 - [Optimize Hot-Path Array Allocation in Trading Engines]
+**Learning:** Inside `PaperTradingEngine`, calculating average volume for every trade interaction using `historicalData.slice(...).reduce(...)` created a massive O(N*M) allocation bottleneck on the hot path due to frequent intermediate array creation and garbage collection pressure.
+**Action:** Replace `slice().reduce()` in high-frequency trading loops with single-pass `for` loops that read directly from the source array to sum values and count elements.
