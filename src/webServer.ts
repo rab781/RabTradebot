@@ -11,21 +11,31 @@ import path from 'path';
 import os from 'os';
 import BotStateManager from './services/botStateManager';
 
-const app = express();
-const httpServer = createServer(app);
-const io = new SocketIOServer(httpServer, {
-    cors: {
-        origin: '*',
-        methods: ['GET', 'POST']
-    }
-});
-
 const PORT = Number(process.env.WEB_PORT || 3000);
 const HOST = process.env.WEB_HOST || '0.0.0.0';
+
+const app = express();
+const httpServer = createServer(app);
+
+// 🛡️ Sentinel: Restrict CORS origin to prevent unauthorized access (High Priority: Overly permissive CORS)
+const allowedOrigins = process.env.CORS_ORIGIN
+    ? process.env.CORS_ORIGIN.split(',')
+          .map(origin => origin.trim())
+          .filter(origin => origin.length > 0)
+    : [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`];
+const corsOptions = {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+};
+
+const io = new SocketIOServer(httpServer, {
+    cors: corsOptions,
+});
+
 const stateManager = BotStateManager.getInstance();
 
 // Middleware
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
@@ -113,7 +123,7 @@ app.get('/api/health', (req: Request, res: Response) => {
     res.json({
         status: 'OK',
         timestamp: new Date(),
-        uptime: process.uptime()
+        uptime: process.uptime(),
     });
 });
 

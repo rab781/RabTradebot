@@ -11,23 +11,23 @@ datasource db {
 
 // User model - Telegram users
 model User {
-  id                Int       @id @default(autoincrement())
-  telegramId        BigInt    @unique
-  username          String?
-  firstName         String?
-  lastName          String?
-  createdAt         DateTime  @default(now())
-  updatedAt         DateTime  @updatedAt
+  id         Int      @id @default(autoincrement())
+  telegramId BigInt   @unique
+  username   String?
+  firstName  String?
+  lastName   String?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
 
   // Preferences
-  defaultSymbol     String    @default("BTCUSDT")
-  riskTolerance     Float     @default(0.02) // 2% default
+  defaultSymbol        String  @default("BTCUSDT")
+  riskTolerance        Float   @default(0.02) // 2% default
   notificationsEnabled Boolean @default(true)
 
   // Relations
-  trades            Trade[]
-  alerts            Alert[]
-  preferences       UserPreference[]
+  trades      Trade[]
+  alerts      Alert[]
+  preferences UserPreference[]
 
   @@index([telegramId])
 }
@@ -41,7 +41,7 @@ model UserPreference {
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, key])
   @@index([userId])
@@ -49,43 +49,43 @@ model UserPreference {
 
 // Trade model - All executed trades
 model Trade {
-  id                String   @id @default(uuid())
-  userId            Int
-  symbol            String
-  side              String   // LONG, SHORT
-  entryPrice        Float
-  exitPrice         Float?
-  quantity          Float
-  leverage          Float    @default(1)
+  id         String @id @default(uuid())
+  userId     Int
+  symbol     String
+  side       String // LONG, SHORT
+  entryPrice Float
+  exitPrice  Float?
+  quantity   Float
+  leverage   Float  @default(1)
 
   // Strategy info
-  strategyName      String
-  strategyVersion   String?
-  signalStrength    Float?
-  mlConfidence      Float?   // ML model confidence if used
+  strategyName    String
+  strategyVersion String?
+  signalStrength  Float?
+  mlConfidence    Float? // ML model confidence if used
 
   // Trade lifecycle
-  entryTime         DateTime
-  exitTime          DateTime?
-  status            String   // OPEN, CLOSED, CANCELLED
+  entryTime DateTime
+  exitTime  DateTime?
+  status    String // OPEN, CLOSED, CANCELLED
 
   // Performance
-  profit            Float?
-  profitPct         Float?
-  fees              Float    @default(0)
+  profit    Float?
+  profitPct Float?
+  fees      Float  @default(0)
 
   // Risk metrics
-  stopLoss          Float?
-  takeProfit        Float?
-  maxDrawdown       Float?
+  stopLoss    Float?
+  takeProfit  Float?
+  maxDrawdown Float?
 
   // Metadata
-  notes             String?
-  tags              String?  // JSON array
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  notes     String?
+  tags      String? // JSON array
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user              User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([symbol])
@@ -95,39 +95,39 @@ model Trade {
 
 // Strategy performance metrics
 model StrategyMetric {
-  id                String   @id @default(uuid())
-  strategyName      String
-  symbol            String
-  timeframe         String
+  id           String @id @default(uuid())
+  strategyName String
+  symbol       String
+  timeframe    String
 
   // Performance
-  totalTrades       Int
-  winningTrades     Int
-  losingTrades      Int
-  winRate           Float
-  avgProfit         Float
-  avgLoss           Float
-  profitFactor      Float
-  sharpeRatio       Float
+  totalTrades   Int
+  winningTrades Int
+  losingTrades  Int
+  winRate       Float
+  avgProfit     Float
+  avgLoss       Float
+  profitFactor  Float
+  sharpeRatio   Float
 
   // Risk metrics
-  maxDrawdown       Float
-  maxDrawdownPct    Float
-  calmarRatio       Float
-  sortinoRatio      Float
+  maxDrawdown    Float
+  maxDrawdownPct Float
+  calmarRatio    Float
+  sortinoRatio   Float
 
   // Trade stats
-  avgTradeDuration  Float    // in minutes
-  bestTrade         Float
-  worstTrade        Float
+  avgTradeDuration Float // in minutes
+  bestTrade        Float
+  worstTrade       Float
 
   // Period
-  startDate         DateTime
-  endDate           DateTime
+  startDate DateTime
+  endDate   DateTime
 
   // Metadata
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([strategyName, symbol, timeframe, startDate])
   @@index([strategyName])
@@ -136,16 +136,16 @@ model StrategyMetric {
 
 // Historical price data cache
 model HistoricalData {
-  id        String   @id @default(uuid())
+  id        String @id @default(uuid())
   symbol    String
   timeframe String
-  timestamp BigInt   // Unix timestamp
+  timestamp BigInt // Unix timestamp
 
-  open      Float
-  high      Float
-  low       Float
-  close     Float
-  volume    Float
+  open   Float
+  high   Float
+  low    Float
+  close  Float
+  volume Float
 
   createdAt DateTime @default(now())
 
@@ -156,37 +156,37 @@ model HistoricalData {
 
 // ML Model performance tracking
 model MLModelMetric {
-  id                String   @id @default(uuid())
-  modelName         String
-  modelVersion      String
-  symbol            String
+  id           String @id @default(uuid())
+  modelName    String
+  modelVersion String
+  symbol       String
 
   // Predictions
-  totalPredictions  Int
+  totalPredictions   Int
   correctPredictions Int
-  accuracy          Float
+  accuracy           Float
 
   // Confidence analysis
-  avgConfidence     Float
-  highConfAccuracy  Float?  // Accuracy when confidence > 0.6
-  lowConfAccuracy   Float?  // Accuracy when confidence < 0.3
+  avgConfidence    Float
+  highConfAccuracy Float? // Accuracy when confidence > 0.6
+  lowConfAccuracy  Float? // Accuracy when confidence < 0.3
 
   // Performance by direction
-  bullishAccuracy   Float?
-  bearishAccuracy   Float?
+  bullishAccuracy Float?
+  bearishAccuracy Float?
 
   // Training info
-  trainingDate      DateTime?
-  trainingSamples   Int?
-  trainingEpochs    Int?
-  trainingTime      Float?  // seconds
+  trainingDate    DateTime?
+  trainingSamples Int?
+  trainingEpochs  Int?
+  trainingTime    Float? // seconds
 
   // Period
-  startDate         DateTime
-  endDate           DateTime
+  startDate DateTime
+  endDate   DateTime
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@unique([modelName, symbol, startDate])
   @@index([modelName])
@@ -194,30 +194,30 @@ model MLModelMetric {
 
 // Individual ML Predictions for accuracy tracking
 model Prediction {
-  id                String   @id @default(uuid())
-  userId            Int
-  symbol            String
+  id     String @id @default(uuid())
+  userId Int
+  symbol String
 
   // Prediction details
-  modelName         String
-  modelVersion      String
-  predictedDirection String  // UP, DOWN, NEUTRAL
-  confidence        Float
-  predictedChange   Float    // % change predicted
-  currentPrice      Float
+  modelName          String
+  modelVersion       String
+  predictedDirection String // UP, DOWN, NEUTRAL
+  confidence         Float
+  predictedChange    Float // % change predicted
+  currentPrice       Float
 
   // Actual outcome (filled after time passes)
-  actualDirection   String?
-  actualChange      Float?
-  actualPrice       Float?
-  wasCorrect        Boolean?
+  actualDirection String?
+  actualChange    Float?
+  actualPrice     Float?
+  wasCorrect      Boolean?
 
   // Timing
-  predictionTime    DateTime @default(now())
-  verificationTime  DateTime?
+  predictionTime   DateTime  @default(now())
+  verificationTime DateTime?
 
-  createdAt         DateTime @default(now())
-  updatedAt         DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([userId])
   @@index([symbol])
@@ -228,26 +228,26 @@ model Prediction {
 
 // Price alerts
 model Alert {
-  id            String   @id @default(uuid())
-  userId        Int
-  symbol        String
-  alertType     String   // PRICE_ABOVE, PRICE_BELOW, VOLUME_SPIKE, ML_SIGNAL
+  id        String @id @default(uuid())
+  userId    Int
+  symbol    String
+  alertType String // PRICE_ABOVE, PRICE_BELOW, VOLUME_SPIKE, ML_SIGNAL
 
   // Alert conditions
-  targetPrice   Float?
-  condition     String?  // JSON for complex conditions
+  targetPrice Float?
+  condition   String? // JSON for complex conditions
 
   // Status
-  isActive      Boolean  @default(true)
-  triggered     Boolean  @default(false)
-  triggeredAt   DateTime?
+  isActive    Boolean   @default(true)
+  triggered   Boolean   @default(false)
+  triggeredAt DateTime?
 
   // Metadata
-  message       String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  message   String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
   @@index([symbol])
@@ -256,34 +256,34 @@ model Alert {
 
 // Backtest results storage
 model BacktestResult {
-  id                String   @id @default(uuid())
-  strategyName      String
-  symbol            String
-  timeframe         String
+  id           String @id @default(uuid())
+  strategyName String
+  symbol       String
+  timeframe    String
 
   // Configuration
-  startDate         DateTime
-  endDate           DateTime
-  initialBalance    Float
+  startDate      DateTime
+  endDate        DateTime
+  initialBalance Float
 
   // Results
-  finalBalance      Float
-  totalProfit       Float
-  totalProfitPct    Float
-  totalTrades       Int
-  winRate           Float
-  profitFactor      Float
-  sharpeRatio       Float
-  maxDrawdown       Float
-  maxDrawdownPct    Float
+  finalBalance   Float
+  totalProfit    Float
+  totalProfitPct Float
+  totalTrades    Int
+  winRate        Float
+  profitFactor   Float
+  sharpeRatio    Float
+  maxDrawdown    Float
+  maxDrawdownPct Float
 
   // Trade details (JSON)
-  trades            String   // JSON array of trades
-  equityCurve       String?  // JSON array of equity points
+  trades      String // JSON array of trades
+  equityCurve String? // JSON array of equity points
 
   // Metadata
-  parameters        String?  // JSON of strategy parameters
-  createdAt         DateTime @default(now())
+  parameters String? // JSON of strategy parameters
+  createdAt  DateTime @default(now())
 
   @@index([strategyName])
   @@index([symbol])
@@ -292,18 +292,18 @@ model BacktestResult {
 
 // Error logs for monitoring
 model ErrorLog {
-  id            String   @id @default(uuid())
-  level         String   // ERROR, WARN, INFO
-  source        String   // command name, service, etc
-  message       String
-  stackTrace    String?
+  id         String  @id @default(uuid())
+  level      String // ERROR, WARN, INFO
+  source     String // command name, service, etc
+  message    String
+  stackTrace String?
 
   // Context
-  userId        Int?
-  symbol        String?
-  metadata      String?  // JSON
+  userId   Int?
+  symbol   String?
+  metadata String? // JSON
 
-  createdAt     DateTime @default(now())
+  createdAt DateTime @default(now())
 
   @@index([level])
   @@index([source])
