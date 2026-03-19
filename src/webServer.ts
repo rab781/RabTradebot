@@ -20,6 +20,8 @@ const httpServer = createServer(app);
 // 🛡️ Sentinel: Restrict CORS origin to prevent unauthorized access (High Priority: Overly permissive CORS)
 const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
+          .map(origin => origin.trim())
+          .filter(origin => origin.length > 0)
     : [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`];
 const corsOptions = {
     origin: allowedOrigins,
