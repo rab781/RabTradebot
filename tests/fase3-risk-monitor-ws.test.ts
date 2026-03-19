@@ -39,17 +39,17 @@ import { connectionManager } from '../src/services/connectionManager';
 // ─── Mock BinanceWebSocketService ─────────────────────────────────────────────
 
 class MockWsService {
-    tickerCallbacks = new Map<string, Function>();
-    klineCallbacks = new Map<string, Function>();
+    tickerCallbacks = new Map<string, (...args: any[]) => any>();
+    klineCallbacks = new Map<string, (...args: any[]) => any>();
     subscribedSymbols: string[] = [];
     unsubscribedSymbols: string[] = [];
 
-    subscribeTickerStream(symbol: string, cb: Function) {
+    subscribeTickerStream(symbol: string, cb: (...args: any[]) => any) {
         this.tickerCallbacks.set(symbol.toUpperCase(), cb);
         this.subscribedSymbols.push(symbol.toUpperCase());
     }
 
-    subscribeKlineStream(symbol: string, interval: string, cb: Function) {
+    subscribeKlineStream(symbol: string, interval: string, cb: (...args: any[]) => any) {
         this.klineCallbacks.set(`${symbol.toUpperCase()}_${interval}`, cb);
     }
 
