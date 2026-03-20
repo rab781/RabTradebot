@@ -215,7 +215,7 @@ export class TradingViewService {
 
     private async getAlphaVantageData(symbol: string, interval: string): Promise<DataFrame> {
         // Free API key from: https://www.alphavantage.co/support/#api-key
-        const API_KEY = 'YOUR_FREE_API_KEY'; // Replace with your free API key
+        const API_KEY = process.env.ALPHAVANTAGE_API_KEY || 'YOUR_FREE_API_KEY'; // Replace with your free API key
         const response = await this.getWithTlsFallback('https://www.alphavantage.co/query', {
             params: {
                 function: 'CRYPTO_INTRADAY',
