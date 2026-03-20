@@ -751,7 +751,7 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       await ctx.reply(
         `🚀 Live Trading — ${symbol}\n\n⚠️ This uses REAL funds!\n\nConfirm:`,
         Markup.inlineKeyboard([
-          [Markup.button.callback(`✅ Confirm Start (${symbol})`, 'run:livestart_confirm')],
+          [Markup.button.callback(`🔴 Confirm Start Live (${symbol}) - Real $`, 'run:livestart_confirm')],
           [Markup.button.callback('❌ Cancel', 'home')],
         ]),
       );
