@@ -34,7 +34,17 @@ const io = new SocketIOServer(httpServer, {
 
 const stateManager = BotStateManager.getInstance();
 
+// 🛡️ Sentinel: Security Headers Middleware (High Priority: Missing security headers)
+const securityHeaders = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+};
+
 // Middleware
+app.use(securityHeaders);
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
