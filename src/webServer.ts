@@ -47,7 +47,8 @@ app.use('/api/', (req: Request, res: Response, next: any) => {
 
     if (record && record.resetTime > now) {
         if (++record.count > MAX_REQUESTS_PER_WINDOW) {
-            return res.status(429).json({ error: 'Too Many Requests' });
+            res.status(429).json({ error: 'Too Many Requests' });
+            return;
         }
     } else {
         if (rateLimitMap.size >= MAX_MAP_CAPACITY) {
