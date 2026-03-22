@@ -34,6 +34,37 @@ const io = new SocketIOServer(httpServer, {
 
 const stateManager = BotStateManager.getInstance();
 
+// 🛡️ Sentinel: Custom bounded in-memory rate limiter to prevent DoS attacks (High Priority: Missing rate limiting)
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 100;
+const MAX_MAP_CAPACITY = 5000;
+
+app.use('/api/', (req: Request, res: Response, next: any) => {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const now = Date.now();
+    let record = rateLimitMap.get(ip);
+
+    if (record && record.resetTime > now) {
+        if (++record.count > MAX_REQUESTS_PER_WINDOW) {
+            return res.status(429).json({ error: 'Too Many Requests' });
+        }
+    } else {
+        if (rateLimitMap.size >= MAX_MAP_CAPACITY) {
+            // Evict expired entries to prevent memory exhaustion
+            for (const [key, val] of rateLimitMap.entries()) {
+                if (val.resetTime <= now) rateLimitMap.delete(key);
+            }
+            // If still at capacity, delete the oldest/first entry
+            if (rateLimitMap.size >= MAX_MAP_CAPACITY) {
+                rateLimitMap.delete(rateLimitMap.keys().next().value as string);
+            }
+        }
+        rateLimitMap.set(ip, { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS });
+    }
+    next();
+});
+
 // Middleware
 app.use(cors(corsOptions));
 app.use(express.json());
@@ -128,7 +159,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // WebSocket connection
-io.on('connection', (socket) => {
+io.on('connection', (socket: any) => {
     console.log('🔌 Client connected to dashboard');
 
     // Send initial data
