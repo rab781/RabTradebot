@@ -246,6 +246,9 @@ export class OpenClawStrategy implements IStrategy {
 
         const period = 20;
 
+        let rollingReturnSum = 0;
+        let rollingReturnSumSq = 0;
+
         for (let i = 0; i < length; i++) {
             const close = closes[i];
 
@@ -278,20 +281,20 @@ export class OpenClawStrategy implements IStrategy {
             priceVsEma21[i] = ((close - ema21) / ema21) * 100;
 
             // Volatility
+            const currentReturn = allReturns[i];
+            rollingReturnSum += currentReturn;
+            rollingReturnSumSq += currentReturn * currentReturn;
+
             if (i >= period) {
-                let sum = 0;
-                for (let j = i - period + 1; j <= i; j++) {
-                    sum += allReturns[j];
-                }
-                const mean = sum / period;
+                const oldReturn = allReturns[i - period];
+                rollingReturnSum -= oldReturn;
+                rollingReturnSumSq -= oldReturn * oldReturn;
 
-                let sumSqDiff = 0;
-                for (let j = i - period + 1; j <= i; j++) {
-                    const diff = allReturns[j] - mean;
-                    sumSqDiff += diff * diff;
-                }
+                // Calculate variance: Sum((x - mean)^2) / N = (Sum(x^2) - (Sum(x)^2) / N) / N
+                const variance = (rollingReturnSumSq - ((rollingReturnSum * rollingReturnSum) / period)) / period;
 
-                volatility[i] = Math.sqrt(sumSqDiff / period);
+                // Guard against floating point imprecision causing negative variance
+                volatility[i] = Math.sqrt(Math.max(0, variance));
             }
         }
 

@@ -55,3 +55,7 @@
 ## 2025-05-25 - [Optimize Hot-Path Array Allocation in Trading Engines]
 **Learning:** Inside `PaperTradingEngine`, calculating average volume for every trade interaction using `historicalData.slice(...).reduce(...)` created a massive O(N*M) allocation bottleneck on the hot path due to frequent intermediate array creation and garbage collection pressure.
 **Action:** Replace `slice().reduce()` in high-frequency trading loops with single-pass `for` loops that read directly from the source array to sum values and count elements.
+
+## 2025-05-25 - [Optimize Rolling Variance / Volatility Calculation]
+**Learning:** Calculating rolling variance/volatility using nested loops to find the mean and sum of squared differences creates an O(N*K) bottleneck (where N is data length and K is the period). In `OpenClawStrategy.ts`, computing standard deviation for every candle using an inner loop over the 20-period history caused massive CPU overhead.
+**Action:** Replace nested loops for rolling standard deviations with a sliding window tracking `rollingSum` and `rollingSumSq` (sum of returns and sum of squared returns). Add the new value, subtract the `i-period` value, and derive the variance mathematically in O(1) step time: `(rollingSumSq - ((rollingSum * rollingSum) / period)) / period`. Always wrap variance in `Math.max(0, variance)` before `Math.sqrt` to prevent floating point edge-case NaNs.
