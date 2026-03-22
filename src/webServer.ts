@@ -3,9 +3,9 @@
  * Menyediakan REST API dan WebSocket untuk real-time updates
  */
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
-import { Server as SocketIOServer } from 'socket.io';
+import { Server as SocketIOServer, Socket } from 'socket.io';
 import cors from 'cors';
 import path from 'path';
 import os from 'os';
@@ -40,10 +40,10 @@ const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
 const MAX_REQUESTS_PER_WINDOW = 100;
 const MAX_MAP_CAPACITY = 5000;
 
-app.use('/api/', (req: Request, res: Response, next: any) => {
+app.use('/api/', (req: Request, res: Response, next: NextFunction): void => {
     const ip = req.ip || req.connection.remoteAddress || 'unknown';
     const now = Date.now();
-    let record = rateLimitMap.get(ip);
+    const record = rateLimitMap.get(ip);
 
     if (record && record.resetTime > now) {
         if (++record.count > MAX_REQUESTS_PER_WINDOW) {
@@ -160,7 +160,7 @@ app.get('/api/health', (req: Request, res: Response) => {
 });
 
 // WebSocket connection
-io.on('connection', (socket: any) => {
+io.on('connection', (socket: Socket) => {
     console.log('🔌 Client connected to dashboard');
 
     // Send initial data
