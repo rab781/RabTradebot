@@ -34,6 +34,13 @@ const io = new SocketIOServer(httpServer, {
 
 const stateManager = BotStateManager.getInstance();
 
+// Trust the immediate upstream proxy so req.ip reflects the real client IP from X-Forwarded-For
+app.set('trust proxy', 1);
+
+// Apply CORS globally before the rate limiter so that 429 responses on /api/* also include CORS
+// headers, preventing browsers from misreporting a rate-limit rejection as a CORS error.
+app.use(cors(corsOptions));
+
 // 🛡️ Sentinel: Custom bounded in-memory rate limiter to prevent DoS attacks (High Priority: Missing rate limiting)
 const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
 const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
@@ -41,7 +48,7 @@ const MAX_REQUESTS_PER_WINDOW = 100;
 const MAX_MAP_CAPACITY = 5000;
 
 app.use('/api/', (req: Request, res: Response, next: NextFunction): void => {
-    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
     const now = Date.now();
     const record = rateLimitMap.get(ip);
 
@@ -56,7 +63,7 @@ app.use('/api/', (req: Request, res: Response, next: NextFunction): void => {
             for (const [key, val] of rateLimitMap.entries()) {
                 if (val.resetTime <= now) rateLimitMap.delete(key);
             }
-            // If still at capacity, delete the oldest/first entry
+            // If still at capacity, delete the oldest inserted entry (FIFO eviction)
             if (rateLimitMap.size >= MAX_MAP_CAPACITY) {
                 rateLimitMap.delete(rateLimitMap.keys().next().value as string);
             }
@@ -65,9 +72,6 @@ app.use('/api/', (req: Request, res: Response, next: NextFunction): void => {
     }
     next();
 });
-
-// Middleware
-app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
 
