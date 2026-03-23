@@ -475,21 +475,24 @@ bot.action(/^run:(.+)$/, async (ctx) => {
 async function handleInlineRun(ctx: any, action: string, symbol: string, chatId: number, telegramId: number, dbUserId: number) {
   switch (action) {
     case 'signal': {
-      await ctx.reply(`🔄 Generating signal for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Generating signal for ${symbol}...`);
       const signal = await signalGenerator.generateSignal(symbol);
       stateManager.addSignal({ symbol, action: signal.action, price: signal.price, confidence: signal.confidence, timestamp: new Date(), indicators: {} });
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(signal.text);
       break;
     }
     case 'volume': {
-      await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(`📊 Volume Analysis — ${symbol}\n\n${analysis}`);
       break;
     }
     case 'sr': {
-      await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(`🎯 Support/Resistance — ${symbol}\n\n${analysis}`);
       break;
     }
@@ -567,14 +570,19 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       break;
     }
     case 'chart': {
-      await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
+      const loading = await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
       const chartData = await dataManager.getRecentData(symbol, '1h', 100);
-      if (!chartData || chartData.length === 0) { await ctx.reply(`❌ No data for ${symbol}`); break; }
+      if (!chartData || chartData.length === 0) {
+        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        await ctx.reply(`❌ No data for ${symbol}`);
+        break;
+      }
       const mapped = chartData.map(d => ({ t: d.timestamp, o: d.open, h: d.high, l: d.low, c: d.close, v: d.volume }));
       const chartResult = await imageChartService.generateCandlestickChart(symbol, '1h', mapped as any);
       const patternInfo = chartResult.patterns.length > 0
         ? `\nPatterns: ${chartResult.patterns.map((p: any) => p.name).join(', ')}`
         : '';
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await bot.telegram.sendPhoto(chatId, { source: chartResult.buffer }, { caption: `📈 ${symbol} 1h Chart${patternInfo}` });
       break;
     }
@@ -988,8 +996,9 @@ bot.command('signal', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /signal BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply('🔄 Generating signal...');
+    loadingMsg = await ctx.reply('🔄 Generating signal...');
     const signal = await signalGenerator.generateSignal(symbol);
 
     // Add signal to dashboard using structured data from SignalResult
@@ -1002,8 +1011,20 @@ bot.command('signal', async (ctx) => {
       indicators: {},
     });
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
     ctx.reply(signal.text);
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error(`Error generating signal for ${symbol}:`, error);
     ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);
   }
@@ -1382,8 +1403,9 @@ bot.command('backtest', async (ctx) => {
     return ctx.reply('Days must be between 7 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
+    loadingMsg = await ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
 
     // Download historical data
     const endDate = new Date();
@@ -1508,8 +1530,21 @@ Worst: ${result.worstTrade ? `$${result.worstTrade.profit?.toFixed(2)} (${result
 Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
         `;
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(resultMessage);
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Backtest error:', error);
     await db.logError({
       level: 'ERROR',
@@ -1541,8 +1576,9 @@ bot.command('papertrade', async (ctx) => {
     );
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
 
     // Ensure user exists in database
     const user = await ensureUser(ctx);
@@ -1566,6 +1602,12 @@ bot.command('papertrade', async (ctx) => {
     // Start paper trading
     await paperEngine.start(symbol, '5m', 500);
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(`✅ Paper trading started for ${symbol}!
 💰 Initial balance: $${paperConfig.initialBalance}
 📊 Strategy: ${strategy.name}
@@ -1575,6 +1617,13 @@ Use /portfolio to check your positions
 Use /performance to see detailed metrics
 Use /stoptrading to stop trading`);
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Paper trading error:', error);
     await db.logError({
       level: 'ERROR',
@@ -1744,8 +1793,9 @@ bot.command('optimize', async (ctx) => {
     return ctx.reply('Days must be between 14 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting strategy optimization for ${symbol}...
+    loadingMsg = await ctx.reply(`🔄 Starting strategy optimization for ${symbol}...
 This may take several minutes. ⏳`);
 
     // Download historical data
@@ -1816,8 +1866,21 @@ ${Object.entries(analysis.parameterImportance)
 Tested ${results.length} parameter combinations.
         `;
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(message);
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Optimization error:', error);
     ctx.reply(`❌ Error during optimization: ${(error as Error).message}`);
   }
@@ -1839,8 +1902,9 @@ bot.command('download', async (ctx) => {
     return ctx.reply('Days must be between 1 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Downloading ${days} days of data for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Downloading ${days} days of data for ${symbol}...`);
 
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
@@ -1879,8 +1943,21 @@ ${quality.gaps.length > 0 ? `Gaps: ${quality.gaps.length}` : ''}
 Data cached for future use. 💾
         `;
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(message);
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Download error:', error);
     ctx.reply(`❌ Error downloading data: ${(error as Error).message}`);
   }
@@ -1896,8 +1973,9 @@ bot.command('datainfo', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /datainfo BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Checking data quality for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Checking data quality for ${symbol}...`);
 
     // Get recent data for analysis
     const recentData = await dataManager.getRecentData(symbol, '5m', 100);
@@ -1924,8 +2002,21 @@ Cached Datasets: ${dataManager.getCacheSize()}
 ${quality.issues.length > 0 ? `\n⚠️ ISSUES:\n${quality.issues.slice(0, 3).join('\n')}` : ''}
         `;
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(message);
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Data info error:', error);
     ctx.reply(`❌ Error checking data: ${(error as Error).message}`);
   }
@@ -2715,9 +2806,10 @@ bot.command('impact', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /impact BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
     console.log(`[AI] [/impact] request symbol=${symbol} user=${ctx.message.from.id}`);
-    ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
 
     const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
     const newsItems = result.traditionalNews.articles;
@@ -2766,8 +2858,21 @@ ${newsItems
 
 💡 Use /pnews ${symbol} for detailed analysis`;
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(quickSummary);
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Quick impact error:', error);
     ctx.reply(`❌ Error getting impact analysis: ${(error as Error).message}`);
   }
@@ -3337,14 +3442,27 @@ bot.command('volume', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /volume BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply('🔄 Analyzing volume data...');
+    loadingMsg = await ctx.reply('🔄 Analyzing volume data...');
     // Use existing analyzer method
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
     ctx.reply(
       `📊 Volume Analysis for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for comprehensive analysis.`
     );
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Volume analysis error:', error);
     ctx.reply(`❌ Error analyzing volume for ${symbol}. Please try again later.`);
   }
@@ -3360,13 +3478,26 @@ bot.command('sr', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /sr BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply('🔄 Calculating support and resistance levels...');
+    loadingMsg = await ctx.reply('🔄 Calculating support and resistance levels...');
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
     ctx.reply(
       `🎯 Support/Resistance for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for detailed levels.`
     );
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Support/Resistance analysis error:', error);
     ctx.reply(`❌ Error analyzing support/resistance for ${symbol}. Please try again later.`);
   }
@@ -3384,13 +3515,19 @@ bot.command('chart', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /chart BTCUSDT 4h');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Generating ${timeframe} chart for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Generating ${timeframe} chart for ${symbol}...`);
 
     // Get data
     const data = await dataManager.getRecentData(symbol, timeframe, 100);
 
     if (!data || data.length === 0) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
       return ctx.reply(`❌ No data found for ${symbol}`);
     }
 
@@ -3413,11 +3550,25 @@ bot.command('chart', async (ctx) => {
       chartResult.patterns.length > 0
         ? `\n📊 Patterns: ${chartResult.patterns.map((p) => `${p.name} (${p.confidence}%)`).join(', ')}`
         : '';
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     await ctx.replyWithPhoto(
       { source: chartResult.buffer },
       { caption: `📈 ${symbol} ${timeframe} Chart${patternInfo}` }
     );
   } catch (error) {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
     console.error('Chart generation error:', error);
     ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
   }
