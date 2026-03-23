@@ -134,7 +134,15 @@ export class TechnicalAnalyzer {
             const previousMACD = macdResult[macdResult.length - 2];
 
             // Calculate trend strength
-            const volumeAvg = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+            // ⚡ Bolt Optimization: Replace O(N) array slicing and reduction with a single O(N) backward loop.
+            // This prevents array allocation overhead in the hot path.
+            let sumVolume = 0;
+            const volumePeriod = Math.min(20, volumes.length);
+            for (let i = volumes.length - volumePeriod; i < volumes.length; i++) {
+                sumVolume += volumes[i];
+            }
+            const volumeAvg = volumePeriod > 0 ? sumVolume / volumePeriod : 0;
+
             const currentVolume = volumes[volumes.length - 1];
             const volumeStrength = currentVolume > volumeAvg ? 'Strong' : 'Weak';
 
