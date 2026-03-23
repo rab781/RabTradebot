@@ -206,7 +206,12 @@ export class TradingDatabase {
     }
 
     updateTrade(id: number, updates: Partial<Trade>): void {
-        const fields = Object.keys(updates).map(key => `${key} = @${key}`).join(', ');
+        const allowedColumns = ['symbol', 'strategy', 'action', 'entryPrice', 'exitPrice', 'quantity', 'profit', 'profitPct', 'entryTime', 'exitTime', 'reason', 'metadata'];
+        const fields = Object.keys(updates)
+            .filter(key => allowedColumns.includes(key))
+            .map(key => `${key} = @${key}`)
+            .join(', ');
+        if (fields.length === 0) return;
         const stmt = this.db.prepare(`UPDATE trades SET ${fields} WHERE id = @id`);
         stmt.run({ ...updates, id });
     }
