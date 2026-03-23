@@ -293,11 +293,24 @@ export class AdvancedAnalyzer {
     }
 
     private calculateSMA(data: number[], period: number): number[] {
-        const sma = [];
-        for (let i = period - 1; i < data.length; i++) {
-            const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-            sma.push(sum / period);
+        // ⚡ Bolt Optimization: Use a sliding window sum instead of O(N*K) slice/reduce
+        // This avoids creating intermediate arrays and callback overhead on each step
+        const sma: number[] = [];
+        if (data.length < period) return sma;
+
+        let currentSum = 0;
+        // Initial sum
+        for (let i = 0; i < period; i++) {
+            currentSum += data[i];
         }
+        sma.push(currentSum / period);
+
+        // Sliding window
+        for (let i = period; i < data.length; i++) {
+            currentSum = currentSum - data[i - period] + data[i];
+            sma.push(currentSum / period);
+        }
+
         return sma;
     }
 

@@ -59,3 +59,7 @@
 ## 2025-05-25 - [Optimize Rolling Variance / Volatility Calculation]
 **Learning:** Calculating rolling variance/volatility using nested loops to find the mean and sum of squared differences creates an O(N*K) bottleneck (where N is data length and K is the period). In `OpenClawStrategy.ts`, computing standard deviation for every candle using an inner loop over the 20-period history caused massive CPU overhead.
 **Action:** Replace nested loops for rolling standard deviations with a sliding window tracking `rollingSum` and `rollingSumSq` (sum of returns and sum of squared returns). Add the new value, subtract the `i-period` value, and derive the variance mathematically in O(1) step time: `(rollingSumSq - ((rollingSum * rollingSum) / period)) / period`. Always wrap variance in `Math.max(0, variance)` before `Math.sqrt` to prevent floating point edge-case NaNs.
+
+## 2025-05-25 - [Optimize O(N*K) slice/reduce loops in analyzers]
+**Learning:** In `advancedAnalyzer.ts` and `technicalAnalyzer.ts`, calculating a simple moving average and rolling averages by repeatedly using `.slice(...).reduce(...)` created unnecessary O(N*K) time complexity and massive allocation overhead from intermediate arrays.
+**Action:** Replace `slice().reduce()` inside rolling loops with sliding window sums (in `advancedAnalyzer.ts`) and linear backward loops (in `technicalAnalyzer.ts`) to avoid callback overhead and intermediate array instantiation. This provides a direct O(N) path and minimizes GC pressure.
