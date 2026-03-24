@@ -296,7 +296,7 @@ export class AdvancedAnalyzer {
         const len = data.length;
         if (len < period) return [];
 
-        const sma = new Array(len - period + 1);
+        const sma: number[] = new Array<number>(len - period + 1);
         let sum = 0;
 
         // Calculate initial window sum
