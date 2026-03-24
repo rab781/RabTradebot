@@ -293,11 +293,24 @@ export class AdvancedAnalyzer {
     }
 
     private calculateSMA(data: number[], period: number): number[] {
-        const sma = [];
-        for (let i = period - 1; i < data.length; i++) {
-            const sum = data.slice(i - period + 1, i + 1).reduce((a, b) => a + b, 0);
-            sma.push(sum / period);
+        const len = data.length;
+        if (len < period) return [];
+
+        const sma = new Array(len - period + 1);
+        let sum = 0;
+
+        // Calculate initial window sum
+        for (let i = 0; i < period; i++) {
+            sum += data[i];
         }
+        sma[0] = sum / period;
+
+        // Sliding window
+        for (let i = period; i < len; i++) {
+            sum = sum - data[i - period] + data[i];
+            sma[i - period + 1] = sum / period;
+        }
+
         return sma;
     }
 
