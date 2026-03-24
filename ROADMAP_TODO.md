@@ -6,6 +6,7 @@
 
 ---
 
+
 ## 📊 Progress Overview
 
 | Fase | Nama | Status | Bobot | Progress |
@@ -18,10 +19,12 @@
 | 5 | Strategy Optimization | ⏳ Pending | +4 pts | 0% |
 | 6 | Production Infrastructure | ⏳ Pending | +3 pts | 0% |
 | 7 | Multi-Agent LLM Intelligence | ⏳ Pending | +10 pts | 0% |
+| 8 | Web Dashboard (Kinetic Observatory) | ⏳ Pending | +10 pts | 0% |
 
 **Scorecard Saat Ini: 78 / 100** ✅ (Fase 0 + Fase 1 + Fase 2 complete)
 
 > **Note:** Fase 7 menambah dimensi baru sistem (LLM-based multi-agent reasoning). Total target nilai naik dari 100 → ~110/100 (bonus tier).
+> **Note:** Fase 8 menambah Web Dashboard berbasis Stitch design system ("Kinetic Observatory"). Target akhir: **120/100** (ultra bonus tier).
 
 ---
 
@@ -747,6 +750,182 @@
 
 ---
 
+## 🌐 FASE 8 — Web Dashboard (Kinetic Observatory)
+
+> **Estimasi:** 2–3 Minggu
+> **Prioritas:** 🟡 Menengah — High-Impact untuk Observability & UX
+> **Target Score:** Bonus +10 pts (120/100)
+> **Design Reference:** Stitch Project ID `265577062322331843` — 4 screens desain sudah final
+> **Note:** Fase ini **berdiri sendiri** dan bisa dikerjakan paralel dengan Fase 4-7. Mengekspos data bot ke dashboard visual premium yang sudah didesain di Stitch.
+> **ADR:** Gunakan **Vite + TypeScript** untuk frontend, di-serve via `webServer.ts` yang sudah ada. WebSocket dari Fase 3 di-proxy ke browser untuk real-time data.
+
+### 8.1 Backend REST API Endpoints (Foundation — Sprint Pertama)
+
+- [ ] **[F8-1]** Perluas `src/webServer.ts` — tambah REST API router terpisah di `/api/*`
+  - Gunakan Express Router agar tidak mengotori server utama
+  - Middleware: CORS untuk dev, auth middleware via JWT
+
+- [ ] **[F8-2]** Implementasi `GET /api/portfolio`
+  - Return: `{ totalBalance, availableBalance, openPositions[], unrealizedPnL, marginUsed }`
+  - Sumber data: `getAccountBalance()` + open trades dari DB
+
+- [ ] **[F8-3]** Implementasi `GET /api/trades?status=open|closed&symbol=X&limit=N`
+  - Return: array trade dengan field: `id, symbol, side, entryPrice, exitPrice, profit, status, duration`
+  - Support pagination dengan `offset` query param
+
+- [ ] **[F8-4]** Implementasi `GET /api/performance`
+  - Return: `{ equityCurve[], sharpeRatio, maxDrawdown, totalReturn, winRate, profitFactor }`
+  - Hitung dari semua closed trades di DB
+
+- [ ] **[F8-5]** Implementasi `GET /api/backtest/results?strategy=X&limit=N`
+  - Return: hasil `BacktestResult` terbaru per strategi dari DB
+  - Field: `strategy, period, totalTrades, winRate, roi, sharpe, maxDrawdown, params`
+
+- [ ] **[F8-6]** Implementasi `GET /api/signals?limit=N`
+  - Return: riwayat sinyal terbaru dari `AgentAnalysisLog` (jika Fase 7 aktif) atau dari `SignalResult` log
+  - Field: `timestamp, symbol, action, confidence, reasoning`
+
+- [ ] **[F8-7]** Implementasi `GET /api/market/ticker?symbol=X`
+  - Return: harga real-time dari cache WebSocket
+  - Jika WS tidak aktif, fallback ke `getCurrentPrice()` REST
+
+- [ ] **[F8-8]** Implementasi WebSocket endpoint `/ws/market`
+  - Proxy price stream dari `BinanceWebSocketService` ke browser client
+  - Format pesan: `{ type: 'ticker', symbol, price, change24h, volume }`
+  - Auto-subscribe ke symbol yang diminta client
+
+- [ ] **[F8-9]** Implementasi auth middleware sederhana
+  - Route `/api/auth/token` — input: Telegram `user_id` + secret key
+  - Return JWT token (expire 24 jam)
+  - Semua `/api/*` route wajib valid JWT di header `Authorization: Bearer <token>`
+
+### 8.2 Frontend Setup (Vite + TypeScript)
+
+- [ ] **[F8-10]** Init Vite project di `src/web/`
+  ```
+  cd src/web && npx create-vite@latest . -- --template vanilla-ts
+  ```
+  - Build output ke `dist/web/` (buka dari `webServer.ts`)
+
+- [ ] **[F8-11]** Implementasi Design System dari Stitch ke CSS
+  - Buat `src/web/src/styles/design-system.css`
+  - CSS variables sesuai `designTheme`: `--color-primary: #00F2FF`, dll.
+  - Fonts: import Space Grotesk + Inter dari Google Fonts
+  - Utility classes: `.surface`, `.surface-bright`, `.chip-buy`, `.chip-sell`
+
+- [ ] **[F8-12]** Buat layout shell dengan sidebar navigasi
+  - Sidebar: Logo RabTradebot, nav links ke 4 halaman, status bot (online/offline dot)
+  - Layout mengikuti desain Stitch: sidebar kiri + main content kanan
+  - Responsive: collapse sidebar di layar < 1200px
+
+- [ ] **[F8-13]** Implementasi routing client-side (hash-based, tanpa framework)
+  - Route: `#/dashboard`, `#/ai-analysis`, `#/backtesting`, `#/portfolio`
+  - Lazy load setiap halaman via dynamic import
+
+- [ ] **[F8-14]** Buat `ApiClient` class di `src/web/src/api/apiClient.ts`
+  - Wrapper untuk semua HTTP calls ke `/api/*`
+  - Auto-attach JWT token dari localStorage
+  - Error handling: 401 → redirect ke login, 500 → show toast
+
+- [ ] **[F8-15]** Buat `WebSocketClient` class di `src/web/src/api/wsClient.ts`
+  - Connect ke `/ws/market`
+  - Auto-reconnect dengan exponential backoff
+  - Event emitter: `on('ticker', callback)`
+
+### 8.3 Halaman 1 — Main Trading Dashboard
+
+> **Reference:** Stitch Screen ID `616abb0c0959481492038ad05f78bcf3`
+
+- [ ] **[F8-16]** Buat `src/web/src/pages/dashboard.ts`
+  - **Widget: Live Price Ticker** — harga real-time via WebSocket, animasi flash saat harga berubah
+  - **Widget: Account Balance** — total balance, available margin, unrealized PnL
+  - **Widget: Open Positions** — tabel posisi aktif dengan unrealized PnL, SL/TP levels
+  - **Widget: Recent Orders** — 10 order terakhir (filled, cancelled, pending)
+
+- [ ] **[F8-17]** Implementasi live price chart (sparkline) untuk setiap open position
+  - Gunakan library `lightweight-charts` (TradingView's library, open source)
+  - Update chart secara real-time dari WebSocket data
+
+- [ ] **[F8-18]** Implementasi "Quick Action" buttons
+  - **[Close Position]** — kirim request ke bot via Telegram deep link
+  - **[Set Alert]** — simpan price alert ke localStorage, notify via browser notification API
+
+### 8.4 Halaman 2 — AI Analysis & Sentiment
+
+> **Reference:** Stitch Screen ID `3937523f7d774ee7b5abaa5524abea64`
+
+- [ ] **[F8-19]** Buat `src/web/src/pages/aiAnalysis.ts`
+  - **Widget: Sentiment Gauge** — donut chart menunjukkan skor sentimen (-1 hingga +1)
+  - **Widget: Agent Decision Card** — output terakhir dari multi-agent (jika Fase 7 aktif)
+  - **Widget: Signal Timeline** — list sinyal terakhir dengan timestamp dan confidence bar
+  - **Widget: ML Model Stats** — accuracy gauge, confusion matrix mini, win rate trend
+
+- [ ] **[F8-20]** Implementasi "Trigger Analysis" button
+  - Kirim request `POST /api/signals/trigger?symbol=X` ke backend
+  - Backend memanggil `multiAgentOrchestrator.runAnalysis()` (jika Fase 7 aktif)
+  - Show loading state selama analisis berjalan (polling `/api/signals` setiap 2 detik)
+
+### 8.5 Halaman 3 — Backtesting & Strategy Lab
+
+> **Reference:** Stitch Screen ID `cbb47c5408fd43ada3df476b8e7ed0a4`
+
+- [ ] **[F8-21]** Buat `src/web/src/pages/backtesting.ts`
+  - **Widget: Backtest Config Form** — input: symbol, timeframe, start/end date, strategy params
+  - **Widget: Results Comparison Table** — semua backtest results dari DB, sortable
+  - **Widget: Equity Curve Chart** — TradingView lightweight chart dari `equityCurve[]` data
+  - **Widget: Trade Distribution** — bar chart: win/loss/BE per bulan
+
+- [ ] **[F8-22]** Implementasi "Run Backtest" via API
+  - `POST /api/backtest/run` — trigger backtest di backend
+  - Polling hasil via `GET /api/backtest/status?jobId=X` setiap 3 detik
+  - Tampilkan progress bar selama backtest berjalan
+
+### 8.6 Halaman 4 — Portfolio & Performance
+
+> **Reference:** Stitch Screen ID `da41b9f28d074bb58d10aa0e5edf49e5`
+
+- [ ] **[F8-23]** Buat `src/web/src/pages/portfolio.ts`
+  - **Widget: Equity Curve** — chart performa sepanjang waktu, overlay dengan benchmark BTC
+  - **Widget: Performance Stats** — Sharpe ratio, Sortino, Max Drawdown, Calmar ratio
+  - **Widget: Trade History Table** — semua closed trades, filterable by symbol/date/profit
+  - **Widget: Monthly Returns Heatmap** — tabel bulan × tahun dengan warna green/red
+
+- [ ] **[F8-24]** Implementasi export data
+  - **[Export CSV]** — download trade history sebagai CSV
+  - **[Export PDF]** — print-friendly performance report (browser print API)
+
+### 8.7 Integrasi & Deployment
+
+- [ ] **[F8-25]** Update `src/webServer.ts` — serve static files dari `dist/web/`
+  ```ts
+  app.use('/dashboard', express.static(path.join(__dirname, '../dist/web')))
+  app.get('/dashboard/*', (req, res) => res.sendFile(path.join(__dirname, '../dist/web/index.html')))
+  ```
+
+- [ ] **[F8-26]** Tambah npm script di `package.json`:
+  - `"build:web": "cd src/web && vite build --outDir ../../dist/web"`
+  - `"dev:web": "cd src/web && vite --port 3001"`
+  - `"build:all": "npm run build && npm run build:web"`
+
+- [ ] **[F8-27]** Update `ecosystem.config.js` (dari Fase 6)
+  - Tambah env var `WEB_DASHBOARD_URL` untuk link di Telegram bot
+  - Bot kirim link dashboard di welcome message dan `/help` command
+
+- [ ] **[F8-28]** Tambah command `/dashboard` di `enhancedBot.ts`
+  - Return: link ke web dashboard dengan JWT token yang sudah di-embed (one-click login)
+  - Format: `https://your-domain.com/dashboard#token=<jwt>`
+
+### 📋 Ringkasan FASE 8
+
+| Sprint | Fokus | Output |
+|--------|-------|--------|
+| S1 — Backend API | REST endpoints + WS proxy | `/api/*` routes siap |
+| S2 — Frontend Setup | Vite + Design System + Routing | Shell dashboard berjalan |
+| S3 — 4 Halaman | Implement semua widgets | 4 halaman sesuai Stitch design |
+| S4 — Integrasi | Serve dari bot, auth, deployment | Dashboard live dari VPS |
+
+---
+
 ## 📝 APPENDIX A — File Baru yang Perlu Dibuat
 
 | File | Fase | Deskripsi |
@@ -781,6 +960,14 @@
 | `src/services/ai/traderAgent.ts` | F7 | Agent: konversi debat jadi proposal trade |
 | `src/services/ai/portfolioManagerAgent.ts` | F7 | Agent: approve/reject proposal |
 | `src/services/ai/multiAgentOrchestrator.ts` | F7 | Entry point seluruh pipeline multi-agent |
+| `src/web/` | F8 | Direktori root Vite frontend project |
+| `src/web/src/styles/design-system.css` | F8 | Implementasi Stitch design tokens ke CSS |
+| `src/web/src/api/apiClient.ts` | F8 | HTTP client wrapper dengan auto JWT auth |
+| `src/web/src/api/wsClient.ts` | F8 | WebSocket client dengan auto-reconnect |
+| `src/web/src/pages/dashboard.ts` | F8 | Halaman Main Trading Dashboard |
+| `src/web/src/pages/aiAnalysis.ts` | F8 | Halaman AI Analysis & Sentiment |
+| `src/web/src/pages/backtesting.ts` | F8 | Halaman Backtesting & Strategy Lab |
+| `src/web/src/pages/portfolio.ts` | F8 | Halaman Portfolio & Performance |
 
 ---
 
@@ -799,11 +986,13 @@
 | `src/services/strategyOptimizer.ts` | F5 | Tambah WFO, integrasikan Bayesian optimizer |
 | `src/services/databaseService.ts` | F6 | Update untuk PostgreSQL compatibility |
 | `src/enhancedBot.ts` | F1,F3 | Tambah commands baru (livetrade, orders, subscribe) |
-| `src/webServer.ts` | F6 | Tambah `/health` endpoint |
+| `src/webServer.ts` | F6, F8 | Tambah `/health` endpoint + serve Vite build + `/api/*` router |
 | `scripts/production-training.ts` | F4 | Proper train/val/test split, WFV |
 | `src/services/signalGenerator.ts` | F7 | Integrasi output multi-agent sebagai sinyal utama |
-| `src/enhancedBot.ts` | F7 | Tambah command `/agentanalysis`, `/agentlog` |
+| `src/enhancedBot.ts` | F7, F8 | Tambah command `/agentanalysis`, `/agentlog`, `/dashboard` |
 | `prisma/schema.prisma` | F7 | Tambah tabel `AgentAnalysisLog` |
+| `package.json` | F8 | Tambah script `build:web`, `dev:web`, `build:all` |
+| `ecosystem.config.js` | F8 | Tambah env var `WEB_DASHBOARD_URL` |
 
 ---
 
@@ -876,6 +1065,12 @@ Fase 6 (Infrastructure) ◄─── Bisa dimulai kapan saja, tapi idealnya sete
 Fase 7 (Multi-Agent LLM) ◄─── Bisa dikerjakan PARALEL sejak Fase 3 selesai
     │
     └──► Integrasi ke signalGenerator.ts (bergantung Fase 1 & 2 selesai ✅)
+
+Fase 8 (Web Dashboard) ◄─── Bisa dikerjakan PARALEL sejak Fase 3 selesai
+    │
+    ├──► Sprint 1 (Backend API) — bergantung Fase 1 selesai ✅ (trade data di DB)
+    ├──► Sprint 3 (AI Analysis page) — opsional bergantung Fase 7 untuk full feature
+    └──► Sprint 4 (Deployment) — idealnya setelah Fase 6 (VPS + PM2 tersedia)
 ```
 
 ---
@@ -919,6 +1114,13 @@ Fase 7 (Multi-Agent LLM) ◄─── Bisa dikerjakan PARALEL sejak Fase 3 seles
 - [ ] Toggle `USE_MULTI_AGENT=false` memastikan fallback ke GRU + TA rule-based berjalan normal
 - [ ] Akurasi agent tercatat dan bisa dilihat di `/mlstats` setelah minimal 20 analisis
 
+### Fase 8 ✅ Done jika:
+- [ ] Dashboard dapat diakses via browser di `https://your-domain.com/dashboard` dari VPS
+- [ ] Live price ticker update < 1 detik via WebSocket di halaman Main Dashboard
+- [ ] Semua 4 halaman (Dashboard, AI Analysis, Backtesting, Portfolio) ter-render sesuai Stitch design
+- [ ] JWT auth berfungsi — link dari Telegram `/dashboard` langsung login tanpa password manual
+- [ ] Export CSV trade history berhasil didownload dari halaman Portfolio
+
 ### Fase 6 ✅ Done jika:
 - [ ] Bot berjalan stabil di VPS selama 72 jam tanpa restart manual
 - [ ] Coverage test mencapai minimal 80%
@@ -944,7 +1146,8 @@ Fase 7 (Multi-Agent LLM) ◄─── Bisa dikerjakan PARALEL sejak Fase 3 seles
 | Testing & Coverage | 2/10 | 8/10 |
 | Infrastructure | 2/10 | 9/10 |
 | Multi-Agent LLM | 0/10 | 9/10 |
-| **TOTAL** | **54/130** | **114/130** ≈ **110/100** (Bonus Tier) |
+| Web Dashboard | 0/10 | 9/10 |
+| **TOTAL** | **54/140** | **123/140** ≈ **120/100** (Ultra Bonus Tier) |
 
 ---
 
