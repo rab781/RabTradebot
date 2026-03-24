@@ -105,8 +105,8 @@ The bot relies on `.env` variables for setup. Key options include:
 | `TELEGRAM_BOT_TOKEN` | `string` | *(Required)* | The token from @BotFather to run the bot. |
 | `DATABASE_URL` | `string` | `file:./prisma/dev.db` | The connection string for the Prisma database. |
 | `BINANCE_TESTNET` | `boolean` | `false` | Set to `true` for development and paper trading on Testnet. |
-| `MAX_ACCOUNT_DRAWDOWN` | `number` | `0.15` | Maximum account drawdown (15%) before the circuit breaker stops trading. |
-| `DEFAULT_RISK_PER_TRADE` | `number` | `0.01` | Default risk parameter (1%) for automated position sizing. |
+| `MAX_ACCOUNT_DRAWDOWN` | `number` | `0.15` | Planned: maximum account drawdown (15%) before a circuit breaker would stop trading (not yet implemented). |
+| `DEFAULT_RISK_PER_TRADE` | `number` | `0.01` | Planned: default risk parameter (1%) for automated position sizing (not yet implemented). |
 
 ### Advanced Usage
 
