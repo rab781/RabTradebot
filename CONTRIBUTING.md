@@ -58,7 +58,7 @@ Bad documentation is a bug. If you add a new feature, a new command, or change h
 
 - Push your branch to your fork.
 - Open a PR against the `main` branch.
-- Follow the PR template. Provide clear reasoning for your changes, what it fixes, and how to test it.
+- Provide a clear PR description: why you made the change, what it does, and how to test it.
 - Your PR will trigger CI checks. Ensure all tests and linters pass.
 
 ## Architecture Highlights
