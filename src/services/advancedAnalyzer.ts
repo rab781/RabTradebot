@@ -83,9 +83,14 @@ export class AdvancedAnalyzer {
             const baseVolume = parseFloat(ticker.volume);
 
             // Calculate average volume from recent trades
-            const avgVolume =
-                trades.reduce((acc: number, trade: any) => acc + parseFloat(trade.qty), 0) /
-                trades.length;
+            // ⚡ Bolt Optimization: Use a single-pass `for` loop to prevent O(N) intermediate
+            // closures and callback overhead, improving execution speed in high-frequency analysis.
+            let totalVolume = 0;
+            const len = trades.length;
+            for (let i = 0; i < len; i++) {
+                totalVolume += parseFloat(trades[i].qty);
+            }
+            const avgVolume = len > 0 ? totalVolume / len : 0;
             const unusualVolume = baseVolume > avgVolume * 2;
 
             // Generate recommendation based on volume and price action
