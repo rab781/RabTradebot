@@ -17,6 +17,9 @@ const HOST = process.env.WEB_HOST || '0.0.0.0';
 const app = express();
 const httpServer = createServer(app);
 
+// 🛡️ Sentinel: Remove X-Powered-By header
+app.disable('x-powered-by');
+
 // 🛡️ Sentinel: Restrict CORS origin to prevent unauthorized access (High Priority: Overly permissive CORS)
 const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
@@ -35,6 +38,16 @@ const io = new SocketIOServer(httpServer, {
 const stateManager = BotStateManager.getInstance();
 
 // Middleware
+
+// 🛡️ Sentinel: Add manual security headers (Medium Priority: Missing security headers)
+app.use((req: Request, res: Response, next: express.NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('X-XSS-Protection', '1; mode=block');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+});
+
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
