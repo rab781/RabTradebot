@@ -702,8 +702,33 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       await ctx.reply(`🤖 Chutes AI: ${configured ? '✅ Configured & Ready\n/pnews SYMBOL — Full AI news\n/impact SYMBOL — Quick impact' : '❌ Not configured\nAdd CHUTES_API_KEY to .env'}`);
       break;
     }
-    case 'mlstatus': {
-      await ctx.reply(`🧠 ML Model: ${mlModelLoaded ? `✅ Loaded\n/mlpredict ${symbol} — Get prediction` : '⚠️ Not loaded\nUse /trainmodel to train first'}`);
+    case 'mlstatus':
+    case 'mlstats': {
+      // F4-20: ML stats dengan Fase 4 WFV info (F4-3)
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const fsM = require('fs');
+      // eslint-disable-next-line @typescript-eslint/no-var-requires
+      const pathM = require('path');
+      const hyperPath = pathM.join(process.cwd(), 'models', 'training_hyperparams.json');
+      const statusLine = mlModelLoaded ? '\u2705 Model dimuat (Fase 4)' : '\u26a0\ufe0f Belum dimuat';
+      let hyperMsg = '';
+      if (fsM.existsSync(hyperPath)) {
+        try {
+          const hp = JSON.parse(fsM.readFileSync(hyperPath, 'utf-8'));
+          const wfvLine = hp.wfv
+            ? '\n\n\ud83d\udcc8 WFV: ' + hp.wfv.windowCount + ' windows | Mean: ' + (hp.wfv.meanAccuracy * 100).toFixed(1) + '%'
+            : '';
+          hyperMsg = '\n\ud83d\udcca Training: ' + new Date(hp.trainedAt).toLocaleString() +
+            '\nArsitektur: GRU(64)\u2192GRU(32)\u2192Dense(3,softmax)' +
+            '\nTest Acc: ' + (hp.testAccuracy * 100).toFixed(1) + '% | Epoch: ' + hp.actualEpochs + wfvLine;
+        } catch { hyperMsg = '\n(Error membaca training record)'; }
+      } else {
+        hyperMsg = '\n\ud83d\udca1 Belum ada training record. Jalankan /trainmodel';
+      }
+      await ctx.reply(
+        '\ud83e\udde0 ML STATUS\n\n' + statusLine + hyperMsg +
+        '\n\nCommands:\n\u2022 /mlpredict ' + symbol + ' \u2014 Prediksi AI\n\u2022 /trainmodel ' + symbol + ' 1h \u2014 Latih ulang',
+      );
       break;
     }
     case 'liveportfolio': {
@@ -3850,3 +3875,4 @@ process.once('SIGTERM', () => {
   db.disconnect();
   process.exit(0);
 });
+

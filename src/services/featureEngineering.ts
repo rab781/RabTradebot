@@ -713,4 +713,98 @@ export class FeatureEngineeringService {
     getCacheSize(): number {
         return this.cache.size;
     }
+    // ─ F4-14, F4-15: Multi-Timeframe Features ──────────────────────────────────
+
+    /**
+     * Tambah 8 multi-timeframe features ke FeatureSet array:
+     * [F4-14] 15m: rsi_14_15m, macdHistogram_15m, bb_percentB_15m, volumeRatio_15m
+     * [F4-15] 4h:  rsi_14_4h, ema50Trend_4h, priceVsEMA50_4h, atrPercent_4h
+     * Total: 60 (1h) + 8 = 68 fitur. Update featureCount SimpleGRUModel → 68 (F4-16)
+     */
+    addMultiTimeframeFeatures(
+        baseFeatures: FeatureSet[],
+        candles15m: OHLCVCandle[],
+        candles4h: OHLCVCandle[],
+    ): MultiTFFeatureSet[] {
+        const closes15m = candles15m.map(c => c.close);
+        const volumes15m = candles15m.map(c => c.volume);
+        const highs15m = candles15m.map(c => c.high);
+        const lows15m = candles15m.map(c => c.low);
+        const closes4h = candles4h.map(c => c.close);
+        const highs4h = candles4h.map(c => c.high);
+        const lows4h = candles4h.map(c => c.low);
+
+        const rsi15m   = closes15m.length >= 15  ? RSI.calculate({ period: 14, values: closes15m }) : [];
+        const macd15m  = closes15m.length >= 35  ? MACD.calculate({ values: closes15m, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }) : [];
+        const bb15m    = closes15m.length >= 20  ? BollingerBands.calculate({ period: 20, values: closes15m, stdDev: 2 }) : [];
+        const volMA15m = volumes15m.length >= 20 ? SMA.calculate({ period: 20, values: volumes15m }) : [];
+
+        const rsi4h    = closes4h.length >= 15  ? RSI.calculate({ period: 14, values: closes4h }) : [];
+        const ema50_4h = closes4h.length >= 51  ? EMA.calculate({ period: 50, values: closes4h }) : [];
+        const atr4h    = highs4h.length >= 15   ? ATR.calculate({ high: highs4h, low: lows4h, close: closes4h, period: 14 }) : [];
+
+        const safe = <T>(arr: T[], i: number): T | undefined =>
+            i >= 0 && arr.length > 0 ? arr[Math.min(i, arr.length - 1)] : undefined;
+
+        return baseFeatures.map(base => {
+            const ts  = base.timestamp;
+            const i15 = this._findLatestBefore(candles15m, ts);
+            const i4h = this._findLatestBefore(candles4h, ts);
+
+            // 15m
+            const rsi15mVal      = safe(rsi15m, i15) ?? 50;
+            const macd15mHist    = (safe(macd15m, i15) as any)?.histogram ?? 0;
+            const bbObj          = safe(bb15m, i15) as any;
+            const c15            = i15 >= 0 ? closes15m[i15] : 0;
+            const bb_pctB_15m    = bbObj && bbObj.upper !== bbObj.lower ? (c15 - bbObj.lower) / (bbObj.upper - bbObj.lower) : 0.5;
+            const vma15          = safe(volMA15m, i15) ?? 1;
+            const volRatio15m    = i15 >= 0 ? (volumes15m[i15] / ((vma15 as number) || 1)) : 1;
+
+            // 4h
+            const c4h            = i4h >= 0 ? closes4h[i4h] : (closes4h[closes4h.length - 1] ?? 0);
+            const rsi4hVal       = safe(rsi4h, i4h) ?? 50;
+            const ema50_4hV      = (safe(ema50_4h, i4h) as number) ?? c4h;
+            const pVsEMA50       = ema50_4hV !== 0 ? ((c4h - ema50_4hV) / ema50_4hV) * 100 : 0;
+            const ema50Trend     = pVsEMA50 > 0 ? 1 : pVsEMA50 < 0 ? -1 : 0;
+            const atr4hV         = (safe(atr4h, i4h) as number) ?? 0;
+            const atrPct4h       = c4h !== 0 ? (atr4hV / c4h) * 100 : 0;
+
+            return {
+                ...base,
+                rsi_14_15m:        rsi15mVal,
+                macdHistogram_15m: macd15mHist,
+                bb_percentB_15m:   bb_pctB_15m,
+                volumeRatio_15m:   volRatio15m,
+                rsi_14_4h:         rsi4hVal,
+                ema50Trend_4h:     ema50Trend,
+                priceVsEMA50_4h:   pVsEMA50,
+                atrPercent_4h:     atrPct4h,
+            };
+        });
+    }
+
+    private _findLatestBefore(candles: OHLCVCandle[], timestamp: number): number {
+        let lo = 0, hi = candles.length - 1, result = -1;
+        while (lo <= hi) {
+            const mid = Math.floor((lo + hi) / 2);
+            if (candles[mid].timestamp <= timestamp) { result = mid; lo = mid + 1; }
+            else hi = mid - 1;
+        }
+        return result;
+    }
+
+}
+
+// ─ F4-16: MultiTFFeatureSet (60 base + 8 multi-TF = 68 features) ───────────────
+
+/** featureCount di SimpleGRUModel harus di-update ke 68 saat menggunakan multi-TF features */
+export interface MultiTFFeatureSet extends FeatureSet {
+    rsi_14_15m:        number;  // RSI 14 dari 15m
+    macdHistogram_15m: number;  // MACD histogram dari 15m
+    bb_percentB_15m:   number;  // BB %B dari 15m
+    volumeRatio_15m:   number;  // Volume ratio vs MA-20 dari 15m
+    rsi_14_4h:         number;  // RSI 14 dari 4h
+    ema50Trend_4h:     number;  // +1=above EMA50, -1=below, 0=at
+    priceVsEMA50_4h:   number;  // % dari harga vs EMA50 4h
+    atrPercent_4h:     number;  // ATR% dari 4h (ukuran volatilitas)
 }
