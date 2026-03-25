@@ -475,21 +475,24 @@ bot.action(/^run:(.+)$/, async (ctx) => {
 async function handleInlineRun(ctx: any, action: string, symbol: string, chatId: number, telegramId: number, dbUserId: number) {
   switch (action) {
     case 'signal': {
-      await ctx.reply(`🔄 Generating signal for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Generating signal for ${symbol}...`);
       const signal = await signalGenerator.generateSignal(symbol);
       stateManager.addSignal({ symbol, action: signal.action, price: signal.price, confidence: signal.confidence, timestamp: new Date(), indicators: {} });
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(signal.text);
       break;
     }
     case 'volume': {
-      await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(`📊 Volume Analysis — ${symbol}\n\n${analysis}`);
       break;
     }
     case 'sr': {
-      await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(`🎯 Support/Resistance — ${symbol}\n\n${analysis}`);
       break;
     }
@@ -989,7 +992,7 @@ bot.command('signal', async (ctx) => {
   }
 
   try {
-    ctx.reply('🔄 Generating signal...');
+    const loadingMsg = await ctx.reply('🔄 Generating signal...');
     const signal = await signalGenerator.generateSignal(symbol);
 
     // Add signal to dashboard using structured data from SignalResult
@@ -1002,6 +1005,7 @@ bot.command('signal', async (ctx) => {
       indicators: {},
     });
 
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
     ctx.reply(signal.text);
   } catch (error) {
     console.error(`Error generating signal for ${symbol}:`, error);
@@ -3338,9 +3342,10 @@ bot.command('volume', async (ctx) => {
   }
 
   try {
-    ctx.reply('🔄 Analyzing volume data...');
+    const loadingMsg = await ctx.reply('🔄 Analyzing volume data...');
     // Use existing analyzer method
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
     ctx.reply(
       `📊 Volume Analysis for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for comprehensive analysis.`
     );
@@ -3361,8 +3366,9 @@ bot.command('sr', async (ctx) => {
   }
 
   try {
-    ctx.reply('🔄 Calculating support and resistance levels...');
+    const loadingMsg = await ctx.reply('🔄 Calculating support and resistance levels...');
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
     ctx.reply(
       `🎯 Support/Resistance for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for detailed levels.`
     );
