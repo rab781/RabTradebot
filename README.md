@@ -1,427 +1,133 @@
 # Advanced Crypto Trading Bot
 
-A comprehensive Telegram bot that provides cryptocurrency trading signals, market analysis, backtesting, and paper trading capabilities.
+> A comprehensive Telegram bot that provides professional-grade cryptocurrency trading signals, market analysis, backtesting, and paper trading capabilities directly in your chat.
 
-## Features
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-### 🤖 AI-Powered Analysis (NEW!)
+## Why This Exists
 
-- **Chutes AI Integration**: Advanced news analysis and price predictions
-- **Multi-factor Analysis**: Analyzes regulations, whale movements, on-chain metrics
-- **Price Target Predictions**: Bullish, bearish, and neutral scenarios
-- **24h/7d/30d Forecasts**: Short, medium, and long-term predictions
-- **Trading Recommendations**: Entry points, stop loss, take profit targets
-- **Sentiment Scoring**: Real-time market sentiment from latest news
-- **Impact Assessment**: Critical, high, medium, low news categorization
+Retail traders often lack access to the institutional-grade tools necessary to make data-driven decisions in volatile crypto markets. Navigating multiple platforms for technical indicators, news sentiment, and strategy backtesting is time-consuming and fragmented. This bot consolidates multi-timeframe analysis, AI-powered news sentiment (via Chutes AI), and risk management into a single, accessible Telegram interface—leveling the playing field without the cost of premium subscriptions.
 
-### 📊 Analysis Tools
+## Quick Start
 
-- Comprehensive market analysis with `/analyze` command
-- Technical Analysis using multiple indicators (RSI, MACD, Bollinger Bands, Moving Averages)
-- Multi-timeframe analysis (1H, 4H, 1D)
-- Support and resistance detection
-- News sentiment analysis from major crypto news sources
-- **Twitter Integration**: Real-time social media sentiment analysis
-- **Influencer Tracking**: Monitor tweets from major crypto influencers
-- **Social Media Trends**: Track trending hashtags and discussions
-- Real-time price monitoring and alerts
-- Advanced Volume Analysis
-
-### Trading Capabilities
-
-- Backtesting strategies with historical data
-- Paper trading simulation
-- Strategy optimization
-- Performance tracking and portfolio management
-- Support & Resistance Detection
-- Multiple Timeframe Analysis
-- Interactive Price Charts
-- Customizable Price Alerts
-- Entry/Exit Points Suggestions
-- Easy-to-use Telegram commands
-- **Robust Error Handling**: Automatic retry mechanism for API failures
-- **Public API Fallback**: Uses public Binance API when private API fails
-- **Comprehensive Logging**: Detailed logs for debugging and monitoring
-- **Rate Limit Protection**: Intelligent retry with exponential backoff
-
-## Setup
-
-1. **Clone the repository**:
-
-   ```bash
-   git clone https://github.com/yourusername/crypto-signal-bot.git
-   cd crypto-signal-bot
-   ```
-
-2. **Install dependencies**:
-
-   ```bash
-   npm install
-   ```
-
-3. **Setup environment variables**:
-
-   ```bash
-   # Copy the example environment file
-   copy .env.example .env
-
-   # Edit the .env file with your credentials
-   # At minimum, you need TELEGRAM_BOT_TOKEN
-   # BINANCE_API_KEY and BINANCE_API_SECRET are optional
-   ```
-
-4. **Configure your `.env` file**:
-
-   ```
-   TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
-   BINANCE_API_KEY=your_binance_api_key_here  # Optional
-   BINANCE_API_SECRET=your_binance_api_secret_here  # Optional
-   ```
-
-5. **Start the bot**:
-   ```bash
-   npm start
-   ```
-
-## Available Commands
-
-Basic Commands:
-
-- `/start` - Start the bot
-- `/help` - Show available commands
-- `/signal [symbol]` - Get trading signals for a cryptocurrency (e.g., `/signal BTCUSDT`)
-- `/watch [symbol]` - Start watching a cryptocurrency for signals
-- `/unwatch [symbol]` - Stop watching a cryptocurrency
-- `/list` - List all cryptocurrencies being watched
-
-Advanced Analysis:
-
-- `/volume [symbol]` - Get detailed volume analysis
-- `/sr [symbol]` - Get support and resistance levels
-- `/timeframes [symbol]` - Analyze multiple timeframes
-- `/chart [symbol]` - Generate interactive price chart
-- `/depth [symbol]` - Get order book depth analysis
-
-Price Alerts:
-
-- `/alert [symbol] [price] [above/below]` - Set price alert
-- `/alerts` - List your active price alerts
-- `/delalert [symbol]` - Delete price alert
-
-News & AI Analysis:
-
-- `/news [symbol]` - Comprehensive news analysis (traditional + social media)
-- `/pnews [symbol]` - **Advanced AI-powered news analysis with Chutes AI**
-- `/impact [symbol]` - Quick news impact assessment with price predictions
-- `/fullanalysis [symbol]` - Combined technical + fundamental AI analysis
-- `/pstatus` - Check Chutes AI configuration status
-- `/twitter [symbol]` - Twitter sentiment analysis for a cryptocurrency
-- `/influencers` - Latest tweets from major crypto influencers
-- `/cryptonews [symbol] [keywords]` - Search Twitter for specific crypto news
-
-Advanced Trading:
-
-- `/analyze [symbol]` - Complete comprehensive market analysis
-- `/backtest [symbol] [days]` - Run strategy backtesting
-- `/papertrade [symbol]` - Start paper trading simulation
-- `/portfolio` - View current paper trading portfolio
-- `/performance` - View detailed trading performance
-- `/optimize [symbol] [days]` - Optimize strategy parameters
-
-Data Management:
-
-- `/download [symbol] [days]` - Download historical price data
-- `/datainfo [symbol]` - Check data quality and summary
-- `/strategies` - List available trading strategies
-
-## Requirements
-
-- Node.js v16 or higher
-- Telegram Bot Token (get it from @BotFather)
-- Binance API credentials (optional - for advanced features)
-- Twitter API credentials (optional - for social media analysis)
-- **Chutes AI API Key (NEW!)** - For advanced news analysis and price predictions
-
-## API Configuration
-
-### Required
-
-- **Telegram Bot Token**: Get from @BotFather on Telegram
-
-### Optional APIs
-
-- **Binance API**: For advanced trading features and better rate limits
-- **Twitter API**: For social media sentiment analysis and influencer tracking
-- **Chutes AI API**: For AI-powered news analysis and price impact predictions
-
-See [CHUTES_SETUP.md](CHUTES_SETUP.md) for detailed Chutes AI setup instructions and advanced usage.
-See `TWITTER_SETUP.md` for detailed Twitter API setup instructions.
-
-## Development
-
-To run in development mode with hot reloading:
+Get the bot up and running in under 2 minutes:
 
 ```bash
-npm run dev
+git clone https://github.com/yourusername/crypto-signal-bot.git
+cd crypto-signal-bot
+pnpm install
+
+# Copy the environment template and add your Telegram bot token
+cp .env.example .env
+# Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
+
+pnpm start
 ```
 
-## Tech Stack
+Open Telegram, find your bot, and send `/start`.
 
-- TypeScript
-- Node.js
-- Telegraf (Telegram Bot Framework)
-- Technical Indicators
-- Binance API (with public API fallback)
-- Twitter API v2 (for social media analysis)
-- Cheerio (Web Scraping)
-- Axios (HTTP Client)
-- Comprehensive Error Handling & Logging
+## Installation
 
-## Troubleshooting
+**Prerequisites**:
+- Node.js 18+
+- pnpm 8+
+- A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
-### Common Issues
+```bash
+# 1. Clone the repository
+git clone https://github.com/yourusername/crypto-signal-bot.git
+cd crypto-signal-bot
 
-1. **Error 403 (API Access Denied)**
+# 2. Install dependencies (strictly use pnpm)
+pnpm install
+```
 
-   - Check if your Binance API credentials are correct
-   - Ensure your IP is whitelisted (if IP restriction is enabled)
-   - The bot automatically falls back to public API if private API fails
+## Configuration
 
-2. **Rate Limiting**
+Configure the bot by editing the `.env` file.
 
-   - The bot includes automatic retry mechanism with exponential backoff
-   - Public API fallback helps avoid rate limits on private API
+| Option | Type | Required | Description |
+|--------|------|----------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
 
-3. **Invalid Symbol Errors**
+> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
-   - Ensure you're using correct Binance symbol format (e.g., BTCUSDT, not BTC/USDT)
-   - Check if the symbol exists on Binance
+## Usage
 
-4. **Network Issues**
-   - The bot includes retry mechanisms for temporary network failures
-   - Check your internet connection if issues persist
+Interact with the bot via Telegram commands.
 
-### Logs
+### Basic Example
 
-The bot provides comprehensive logging:
-
-- User interactions (commands, requests)
-- API calls and responses
-- Error details with timestamps
-- Service status and fallback usage
-
-All logs include timestamps in ISO format for easy debugging.
-
-## Contributing
-
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/AmazingFeature`)
-3. Commit your changes (`git commit -m 'Add some AmazingFeature'`)
-4. Push to the branch (`git push origin feature/AmazingFeature`)
-5. Open a Pull Request
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
-## Disclaimer
-
-This bot is for educational and informational purposes only. It should not be considered as financial advice. Always do your own research before making any trading decisions.
-
-## Support
-
-If you find this project helpful, please give it a ⭐ on GitHub!
-
-For issues and questions, please use the GitHub Issues page.
-
-# 🚀 Advanced Crypto Trading Bot
-
-## 🎯 NEW COMPREHENSIVE ANALYSIS FEATURE
-
-### `/analyze` Command - Complete Market Analysis
-
-The most powerful feature of this bot! Get a complete market analysis in one command:
+To get a complete market analysis for a specific pair:
 
 ```
 /analyze BTCUSDT
 ```
 
 **What you get:**
+- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
+- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
+- **Backtesting Results**: 30-day strategy performance
+- **Recommendations**: Entry/exit levels with reasoning
 
-- 📊 **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
-- ⏰ **Multi-timeframe Analysis**: 1H, 4H, 1D trends
-- 🔬 **Backtesting Results**: 30-day strategy performance
-- 🎯 **Precise Recommendations**: Entry/exit levels with reasoning
-- 📈 **Chart Links**: Direct links to TradingView charts
-- 💡 **Risk Management**: Stop loss, take profit, risk/reward ratios
+### Advanced Usage
 
-**Example Output:**
+The bot supports complex trading workflows, including simulated trading and strategy optimization.
 
+**Start a Paper Trading Session:**
 ```
-🎯 COMPREHENSIVE ANALYSIS: BTCUSDT
-💰 Current Price: $52,340.50
-📅 Analysis Time: 2025-01-07 10:30:00
-
-🔮 OVERALL RECOMMENDATION: BUY 🟢
-📊 Confidence: 78.5%
-🎯 Entry Price: $52,340.50
-🛑 Stop Loss: $49,723.48
-🎯 Take Profit: $55,440.93
+/papertrade ETHUSDT
 ```
+*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
 
-## 🌟 Key Features
-
-### 1. **Comprehensive Analysis** (`/analyze`)
-
-- Complete technical and fundamental analysis
-- Multi-strategy backtesting
-- Real-time market sentiment
-- Precise entry/exit recommendations
-- Risk management calculations
-
-### 2. **Advanced Trading Tools**
-
-- 📊 **Backtesting**: `/backtest BTCUSDT 30`
-- 🎯 **Paper Trading**: `/papertrade BTCUSDT`
-- 🔧 **Strategy Optimization**: `/optimize BTCUSDT 60`
-- 📈 **Portfolio Tracking**: `/portfolio`
-
-### 3. **Data & Charts**
-
-- 📊 **TradingView Integration**: Professional charts
-- 📈 **Multiple Data Sources**: Binance, Yahoo Finance, Alpha Vantage
-- 💾 **Data Management**: Download and cache historical data
-- 📊 **Volume Analysis**: Detailed volume patterns
-
-### 4. **Risk Management**
-
-- 🎯 **Position Sizing**: Automatic calculations
-- 🛑 **Stop Loss**: Dynamic stop loss levels
-- 📊 **Risk/Reward**: Optimal risk/reward ratios
-- 📈 **Performance Tracking**: Detailed metrics
-
-## 🔧 **Setup for FREE Usage**
-
-### **Data Sources (100% Free)**
-
-1. **Binance API** - 1200 requests/minute
-2. **Yahoo Finance** - Unlimited (unofficial)
-3. **Alpha Vantage** - 5 calls/minute (with free API key)
-4. **TradingView Widgets** - Unlimited charts
-
-### **Charts & Visualization**
-
-- **TradingView Widgets**: Professional, familiar interface
-- **Chart.js**: Custom analysis charts
-- **Real-time Updates**: WebSocket support
-
-## 📱 **Complete Command List**
-
-### **🎯 COMPREHENSIVE ANALYSIS**
-
-- `/analyze [symbol]` - Complete market analysis
-
-### **📊 BASIC ANALYSIS**
-
-- `/signal [symbol]` - Trading signals
-- `/volume [symbol]` - Volume analysis
-- `/sr [symbol]` - Support/resistance levels
-- `/chart [symbol]` - Generate charts
-
-### **🎯 ADVANCED TRADING**
-
-- `/backtest [symbol] [days]` - Strategy backtesting
-- `/papertrade [symbol]` - Start paper trading
-- `/stoptrading` - Stop paper trading
-- `/portfolio` - View positions
-- `/performance` - Performance metrics
-
-### **🔧 OPTIMIZATION**
-
-- `/optimize [symbol] [days]` - Parameter optimization
-- `/strategies` - List available strategies
-
-### **📈 DATA MANAGEMENT**
-
-- `/download [symbol] [days]` - Download data
-- `/datainfo [symbol]` - Data quality check
-
-### **🔔 PRICE ALERTS**
-
-- `/alert [symbol] [price] [above/below]` - Set alerts
-- `/alerts` - List active alerts
-- `/delalert [symbol]` - Delete alerts
-
-## 🎯 **Usage Examples**
-
-### **Complete Analysis**
-
+**Backtest a Strategy:**
 ```
-/analyze BTCUSDT
+/backtest SOLUSDT 30
 ```
+*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
 
-_Get complete technical analysis, backtesting, and recommendations_
-
-### **Quick Trading Signal**
-
-```
-/signal ETHUSDT
-```
-
-_Get a quick buy/sell signal_
-
-### **Strategy Backtesting**
-
-```
-/backtest BTCUSDT 30
-```
-
-_Test strategy performance over 30 days_
-
-### **Paper Trading**
-
-```
-/papertrade SOLUSDT
-```
-
-_Start virtual trading with real market data_
-
-### **Optimize Strategy**
-
+**Optimize Strategy Parameters:**
 ```
 /optimize ADAUSDT 60
 ```
+*Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
-_Find optimal parameters for 60-day period_
+## Telegram Command Reference
 
-## 🚀 **Why This Bot is Special**
+### Basic Analysis
+- `/signal [symbol]` - Trading signals
+- `/volume [symbol]` - Volume analysis
+- `/sr [symbol]` - Support/resistance levels
+- `/chart [symbol]` - Generate interactive charts
 
-1. **100% Free** - No hidden costs or premium features
-2. **Professional Grade** - Same tools used by professional traders
-3. **Multiple Strategies** - Backtesting across different approaches
-4. **Real-time Data** - Live market data from multiple sources
-5. **TradingView Integration** - Familiar, professional charts
-6. **Risk Management** - Built-in position sizing and stop losses
-7. **Multi-timeframe** - Analysis across different time horizons
+### Advanced Trading
+- `/backtest [symbol] [days]` - Strategy backtesting
+- `/papertrade [symbol]` - Start paper trading simulation
+- `/portfolio` - View current positions and balance
+- `/performance` - Detailed performance metrics
+- `/optimize [symbol] [days]` - Optimize strategy parameters
 
-## 🎯 **Perfect For**
+### Data & Status
+- `/download [symbol] [days]` - Download historical data
+- `/datainfo [symbol]` - Check data quality and summary
+- `/strategies` - List available trading strategies
+- `/apistatus` - Check Binance API connectivity
 
-- **Beginners**: Learn with comprehensive analysis and explanations
-- **Intermediate**: Backtest strategies and optimize parameters
-- **Advanced**: Multi-strategy analysis and risk management
-- **All Levels**: Professional-grade tools without the cost
+## Architecture & Tech Stack
 
-## 🔧 **Technical Details**
+- **Language**: TypeScript
+- **Bot Framework**: Telegraf
+- **Database**: Prisma ORM with SQLite
+- **Market Data**: Binance REST & WebSocket APIs
+- **AI/ML**: TensorFlow.js (GRU models), Chutes AI (News Sentiment)
 
-### **Free Data Sources**
+## Contributing
 
-- **Binance API**: Real-time crypto data
-- **Yahoo Finance**: Historical data
-- **Alpha Vantage**: Professional financial data
-- **TradingView**: Professional charts and widgets
+We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
-### **Analysis Components**
+## License
 
-- **Technical Indicators**: RSI, MACD, Bollinger Bands, Moving Averages
-- **Volume Analysis**: Volume patterns and anomalies
-- **Support/Resistance**: Key price levels
+MIT © [Your Name](https://github.com/yourname)
