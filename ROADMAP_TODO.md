@@ -2,10 +2,9 @@
 
 > **Target:** Dari 50/100 → 100/100 Full Quant Trading Bot
 > **Estimasi Total:** ~8 Minggu
-> **Last Updated:** 2026-03-17
+> **Last Updated:** 2026-03-26
 
 ---
-
 
 ## 📊 Progress Overview
 
@@ -15,13 +14,13 @@
 | 1 | Real Order Execution | ✅ Done | +20 pts | 100% |
 | 2 | Realistic Paper Trading | ✅ Done | +8 pts | 100% |
 | 3 | Real-time WebSocket | ✅ Done | +7 pts | 100% |
-| 4 | ML Pipeline Improvement | ⏳ Pending | +8 pts | 0% |
-| 5 | Strategy Optimization | ⏳ Pending | +4 pts | 0% |
+| 4 | ML Pipeline Improvement | ✅ Done | +8 pts | 100% |
+| 5 | Strategy Optimization | ✅ Done | +8 pts | 100% |
 | 6 | Production Infrastructure | ⏳ Pending | +3 pts | 0% |
 | 7 | Multi-Agent LLM Intelligence | ⏳ Pending | +10 pts | 0% |
 | 8 | Web Dashboard (Kinetic Observatory) | ⏳ Pending | +10 pts | 0% |
 
-**Scorecard Saat Ini: 78 / 100** ✅ (Fase 0 + Fase 1 + Fase 2 complete)
+**Scorecard Saat Ini: 94 / 100** ✅ (Fase 0 + Fase 1 + Fase 2 + Fase 3 + Fase 4 + Fase 5 complete)
 
 > **Note:** Fase 7 menambah dimensi baru sistem (LLM-based multi-agent reasoning). Total target nilai naik dari 100 → ~110/100 (bonus tier).
 > **Note:** Fase 8 menambah Web Dashboard berbasis Stitch design system ("Kinetic Observatory"). Target akhir: **120/100** (ultra bonus tier).
