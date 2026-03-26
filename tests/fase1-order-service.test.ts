@@ -84,4 +84,19 @@ describe('F1: BinanceOrderService', () => {
         await expect(svc.placeMarketOrder('BTCUSDT', 'BUY', 0.001)).rejects.toThrow(/-2010/);
         expect(mockAxiosRequest).toHaveBeenCalledTimes(1);
     });
+
+    it('syncs rate limiter state from response headers', async () => {
+        const svc = new BinanceOrderService();
+
+        mockAxiosRequest.mockResolvedValueOnce({
+            data: { symbol: 'BTCUSDT', price: '100000.00' },
+            headers: { 'x-mbx-used-weight-1m': '1199' },
+        });
+
+        await svc.getCurrentPrice('BTCUSDT');
+        const snapshot = svc.getRateLimiterSnapshot();
+
+        expect(snapshot.rest.used).toBeGreaterThanOrEqual(1198);
+        expect(snapshot.rest.used).toBeLessThanOrEqual(1200);
+    });
 });

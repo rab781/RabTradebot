@@ -1,0 +1,23 @@
+# Dependencies and build outputs
+node_modules
+dist
+coverage
+
+# Environment files and secrets
+.env
+.env.*
+!.env.example
+
+# VCS and editor artifacts
+.git
+.gitignore
+.vscode
+
+# Logs and runtime data
+logs
+*.log
+charts
+
+# OS files
+.DS_Store
+Thumbs.db

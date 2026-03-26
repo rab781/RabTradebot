@@ -7,6 +7,18 @@
  * - tracking in Trade and PaperTradingEngine
  */
 
+jest.mock('../src/services/databaseService', () => ({
+    db: {
+        getOpenPaperTrades: jest.fn().mockResolvedValue([]),
+        saveTrade: jest.fn().mockResolvedValue({ id: 'paper-trade-1' }),
+        closeTrade: jest.fn().mockResolvedValue(undefined),
+        findOpenTrade: jest.fn().mockResolvedValue(null),
+        updateTradeRisk: jest.fn().mockResolvedValue(undefined),
+        setUserPreference: jest.fn().mockResolvedValue(undefined),
+        logError: jest.fn().mockResolvedValue(undefined),
+    },
+}));
+
 import { PaperTradingEngine } from '../src/services/paperTradingEngine';
 
 describe('F2-2: Slippage Integration', () => {

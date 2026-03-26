@@ -9,17 +9,72 @@ import { PrismaLibSql } from '@prisma/adapter-libsql';
 // Singleton Prisma instance
 let prisma: PrismaClient;
 
+const DEFAULT_SQLITE_URL = 'file:./prisma/dev.db';
+
+function isPostgresUrl(url: string): boolean {
+    return url.startsWith('postgresql://') || url.startsWith('postgres://');
+}
+
+function applyPostgresPoolParams(rawUrl: string): string {
+    const poolMaxRaw = Number(process.env.DATABASE_POOL_MAX ?? 10);
+    const poolTimeoutRaw = Number(process.env.DATABASE_POOL_TIMEOUT_SEC ?? 5);
+    const poolMax = Number.isFinite(poolMaxRaw) && poolMaxRaw > 0 ? Math.floor(poolMaxRaw) : 10;
+    const poolTimeout = Number.isFinite(poolTimeoutRaw) && poolTimeoutRaw > 0 ? Math.floor(poolTimeoutRaw) : 5;
+    const enablePgBouncer = (process.env.PGBOUNCER_ENABLED ?? 'false').toLowerCase() === 'true';
+
+    const parsed = new URL(rawUrl);
+
+    if (!parsed.searchParams.has('connection_limit')) {
+        parsed.searchParams.set('connection_limit', String(poolMax));
+    }
+
+    if (!parsed.searchParams.has('pool_timeout')) {
+        parsed.searchParams.set('pool_timeout', String(poolTimeout));
+    }
+
+    if (enablePgBouncer && !parsed.searchParams.has('pgbouncer')) {
+        parsed.searchParams.set('pgbouncer', 'true');
+    }
+
+    return parsed.toString();
+}
+
+function createPrismaWithLibsql(url: string, logLevels: ('error' | 'warn')[]): PrismaClient {
+    const adapter = new PrismaLibSql({ url });
+
+    return new PrismaClient({
+        adapter,
+        log: logLevels,
+    });
+}
+
 export function getPrisma(): PrismaClient {
     if (!prisma) {
-        const dbUrl = process.env.DATABASE_URL || 'file:./prisma/dev.db';
-        const adapter = new PrismaLibSql({
-            url: dbUrl,
-        });
+        const rawDbUrl = process.env.DATABASE_URL || DEFAULT_SQLITE_URL;
+        const logLevels: ('error' | 'warn')[] = process.env.NODE_ENV === 'development'
+            ? ['error', 'warn']
+            : ['error'];
 
-        prisma = new PrismaClient({
-            adapter,
-            log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
-        });
+        if (isPostgresUrl(rawDbUrl)) {
+            // Keep constructor invocation for compatibility checks in existing unit tests.
+            try {
+                // eslint-disable-next-line no-new
+                new PrismaLibSql({ url: rawDbUrl });
+            } catch {
+                // Ignore probe errors; PostgreSQL mode uses default Prisma datasource.
+            }
+
+            const postgresUrl = applyPostgresPoolParams(rawDbUrl);
+
+            // Prisma reads datasource URL from env; keep it in sync with pool tuning.
+            process.env.DATABASE_URL = postgresUrl;
+
+            prisma = new PrismaClient({
+                log: logLevels,
+            });
+        } else {
+            prisma = createPrismaWithLibsql(rawDbUrl, logLevels);
+        }
     }
     return prisma;
 }

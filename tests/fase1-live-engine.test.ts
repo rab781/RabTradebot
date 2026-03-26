@@ -4,6 +4,7 @@ jest.mock('../src/services/databaseService', () => ({
         saveTrade: jest.fn(),
         getTradeById: jest.fn(),
         closeTrade: jest.fn(),
+        logError: jest.fn(),
     },
 }));
 

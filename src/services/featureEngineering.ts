@@ -333,6 +333,11 @@ export class FeatureEngineeringService {
 
         const macdValue = indicators.macd[arrayIndex] || { MACD: 0, signal: 0, histogram: 0 };
         const stochValue = indicators.stoch[arrayIndex] || { k: 50, d: 50 };
+        const macd = macdValue?.MACD ?? 0;
+        const macdSignal = macdValue?.signal ?? 0;
+        const macdHistogram = macdValue?.histogram ?? 0;
+        const stochK = stochValue?.k ?? 50;
+        const stochD = stochValue?.d ?? 50;
 
         return {
             rsi_7: indicators.rsi_7[arrayIndex] || 50,
@@ -340,14 +345,14 @@ export class FeatureEngineeringService {
             rsi_21: indicators.rsi_21[arrayIndex] || 50,
             roc_10: indicators.roc_10[arrayIndex] || 0,
             roc_20: indicators.roc_20[arrayIndex] || 0,
-            stoch_k: stochValue.k,
-            stoch_d: stochValue.d,
+            stoch_k: stochK,
+            stoch_d: stochD,
             williams_r: indicators.williamsR[arrayIndex] || -50,
             cci: indicators.cci[arrayIndex] || 0,
             mfi: indicators.mfi[arrayIndex] || 50,
-            macd: macdValue.MACD,
-            macdSignal: macdValue.signal,
-            macdHistogram: macdValue.histogram,
+            macd,
+            macdSignal,
+            macdHistogram,
             macdCrossover: this.calculateMACDCrossover(indicators.macd, arrayIndex)
         };
     }

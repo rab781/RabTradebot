@@ -1,5 +1,6 @@
-import axios, { AxiosError, AxiosProxyConfig, AxiosRequestConfig } from 'axios';
+import axios, { AxiosError, AxiosProxyConfig, AxiosRequestConfig, AxiosResponse } from 'axios';
 import crypto from 'crypto';
+import { rateLimiter, RateLimiterSnapshot } from './rateLimiter';
 
 export type BinanceOrderSide = 'BUY' | 'SELL';
 
@@ -43,10 +44,7 @@ export interface SymbolTradeRules {
     tickSize: number;
 }
 
-interface RateLimitEntry {
-    ts: number;
-    weight: number;
-}
+type RateLimitBucket = 'rest' | 'order';
 
 export class BinanceOrderService {
     private readonly baseUrl: string;
@@ -55,10 +53,8 @@ export class BinanceOrderService {
     private readonly timeoutMs: number;
     private readonly recvWindow: number;
 
-    private readonly maxWeightPerMinute: number;
     private readonly defaultEndpointWeight: number;
-    private readonly rateWindowMs = 60_000;
-    private rateEntries: RateLimitEntry[] = [];
+    private readonly rateLimiterTimeoutMs: number;
 
     constructor() {
         const testnetEnabled = /^(1|true|yes)$/i.test(process.env.BINANCE_TESTNET || '');
@@ -71,8 +67,8 @@ export class BinanceOrderService {
         this.timeoutMs = parseInt(process.env.BINANCE_ORDER_TIMEOUT_MS || '12000', 10);
         this.recvWindow = parseInt(process.env.BINANCE_RECV_WINDOW || '5000', 10);
 
-        this.maxWeightPerMinute = parseInt(process.env.BINANCE_MAX_WEIGHT_PER_MINUTE || '1200', 10);
         this.defaultEndpointWeight = parseInt(process.env.BINANCE_DEFAULT_ENDPOINT_WEIGHT || '1', 10);
+        this.rateLimiterTimeoutMs = parseInt(process.env.BINANCE_RATE_LIMITER_TIMEOUT_MS || '30000', 10);
     }
 
     isConfigured(): boolean {
@@ -81,6 +77,10 @@ export class BinanceOrderService {
 
     getBaseUrl(): string {
         return this.baseUrl;
+    }
+
+    getRateLimiterSnapshot(): RateLimiterSnapshot {
+        return rateLimiter.getSnapshot();
     }
 
     roundToStepSize(quantity: number, stepSize: number): number {
@@ -105,6 +105,7 @@ export class BinanceOrderService {
                 quantity,
             },
             1,
+            'order',
         );
     }
 
@@ -121,6 +122,7 @@ export class BinanceOrderService {
                 price,
             },
             1,
+            'order',
         );
     }
 
@@ -144,6 +146,7 @@ export class BinanceOrderService {
                 price: limitPrice,
             },
             1,
+            'order',
         );
     }
 
@@ -167,6 +170,7 @@ export class BinanceOrderService {
                 price: limitPrice,
             },
             1,
+            'order',
         );
     }
 
@@ -179,6 +183,7 @@ export class BinanceOrderService {
                 orderId,
             },
             1,
+            'order',
         );
     }
 
@@ -190,12 +195,13 @@ export class BinanceOrderService {
                 symbol: symbol.toUpperCase(),
             },
             1,
+            'order',
         );
     }
 
     async getOpenOrders(symbol?: string): Promise<BinanceOpenOrder[]> {
         const params = symbol ? { symbol: symbol.toUpperCase() } : undefined;
-        return this.privateRequest<BinanceOpenOrder[]>('GET', '/api/v3/openOrders', params, 1);
+        return this.privateRequest<BinanceOpenOrder[]>('GET', '/api/v3/openOrders', params, 1, 'rest');
     }
 
     async getOrderStatus(symbol: string, orderId: number): Promise<BinanceOrderResponse> {
@@ -207,6 +213,7 @@ export class BinanceOrderService {
                 orderId,
             },
             1,
+            'rest',
         );
     }
 
@@ -257,10 +264,10 @@ export class BinanceOrderService {
         return this.requestWithRetry<T>(
             async () => {
                 const config = this.buildRequestConfig({ method: 'GET', url: `${this.baseUrl}${path}`, params });
-                const response = await axios.request<T>(config);
-                return response.data;
+                return axios.request<T>(config);
             },
             weight ?? this.defaultEndpointWeight,
+            'rest',
         );
     }
 
@@ -269,6 +276,7 @@ export class BinanceOrderService {
         path: string,
         params?: Record<string, unknown>,
         weight?: number,
+        bucket: RateLimitBucket = 'rest',
     ): Promise<T> {
         if (!this.isConfigured()) {
             throw new Error('Binance API keys are not configured. Set BINANCE_API_KEY and BINANCE_API_SECRET.');
@@ -296,26 +304,36 @@ export class BinanceOrderService {
                     },
                 });
 
-                const response = await axios.request<T>(config);
-                return response.data;
+                return axios.request<T>(config);
             },
             weight ?? this.defaultEndpointWeight,
+            bucket,
         );
     }
 
-    private async requestWithRetry<T>(requestFn: () => Promise<T>, weight: number): Promise<T> {
+    private async requestWithRetry<T>(
+        requestFn: () => Promise<AxiosResponse<T>>,
+        weight: number,
+        bucket: RateLimitBucket,
+    ): Promise<T> {
         const maxRetries = 3;
         const baseDelayMs = 1000;
 
         for (let attempt = 0; attempt <= maxRetries; attempt++) {
-            await this.acquireWeight(weight);
+            await rateLimiter.acquire(bucket, weight, this.rateLimiterTimeoutMs);
 
             try {
-                return await requestFn();
+                const response = await requestFn();
+                rateLimiter.syncFromHeaders(response.headers as Record<string, unknown>);
+                return response.data;
             } catch (error) {
                 const axiosError = error as AxiosError<{ code?: number; msg?: string }>;
                 const binanceCode = axiosError.response?.data?.code;
                 const statusCode = axiosError.response?.status;
+
+                if (axiosError.response?.headers) {
+                    rateLimiter.syncFromHeaders(axiosError.response.headers as Record<string, unknown>);
+                }
 
                 const shouldNeverRetry = binanceCode === -2010 || binanceCode === -1121;
                 const shouldRetryHttp = statusCode === 429 || (typeof statusCode === 'number' && statusCode >= 500);
@@ -331,34 +349,6 @@ export class BinanceOrderService {
         }
 
         throw new Error('Request failed unexpectedly after retry loop');
-    }
-
-    private async acquireWeight(weight: number): Promise<void> {
-        const now = Date.now();
-        this.evictExpiredRateEntries(now);
-
-        const currentWeight = this.rateEntries.reduce((sum, r) => sum + r.weight, 0);
-        if (currentWeight + weight <= this.maxWeightPerMinute) {
-            this.rateEntries.push({ ts: now, weight });
-            return;
-        }
-
-        const earliest = this.rateEntries[0];
-        if (!earliest) {
-            this.rateEntries.push({ ts: now, weight });
-            return;
-        }
-
-        const waitMs = Math.max(0, this.rateWindowMs - (now - earliest.ts));
-        await this.sleep(waitMs);
-
-        const nextNow = Date.now();
-        this.evictExpiredRateEntries(nextNow);
-        this.rateEntries.push({ ts: nextNow, weight });
-    }
-
-    private evictExpiredRateEntries(now: number): void {
-        this.rateEntries = this.rateEntries.filter((r) => now - r.ts < this.rateWindowMs);
     }
 
     private toQueryString(params: Record<string, unknown>): string {

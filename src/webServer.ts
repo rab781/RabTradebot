@@ -10,6 +10,8 @@ import cors from 'cors';
 import path from 'path';
 import os from 'os';
 import BotStateManager from './services/botStateManager';
+import { healthMonitor } from './services/healthMonitor';
+import { withLogContext } from './utils/logger';
 
 const PORT = Number(process.env.WEB_PORT || 3000);
 const HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -127,9 +129,27 @@ app.get('/api/health', (req: Request, res: Response) => {
     });
 });
 
+// F6-11: External monitoring endpoint
+app.get('/health', (req: Request, res: Response) => {
+    const snapshot = healthMonitor.getSnapshot();
+    const stats = stateManager.getStats();
+
+    const payload = {
+        status: snapshot.overallStatus,
+        timestamp: new Date(snapshot.timestamp).toISOString(),
+        uptime: snapshot.uptime,
+        memoryUsageMb: snapshot.memoryUsageMb,
+        requestCount: stats.totalCommands,
+        components: snapshot.components,
+    };
+
+    const httpCode = snapshot.overallStatus === 'down' ? 503 : 200;
+    res.status(httpCode).json(payload);
+});
+
 // WebSocket connection
 io.on('connection', (socket) => {
-    console.log('🔌 Client connected to dashboard');
+    withLogContext({ service: 'webServer' }).info('Client connected to dashboard');
 
     // Send initial data
     socket.emit('dashboard', stateManager.getDashboardData());
@@ -152,7 +172,7 @@ io.on('connection', (socket) => {
     });
 
     socket.on('disconnect', () => {
-        console.log('🔌 Client disconnected from dashboard');
+        withLogContext({ service: 'webServer' }).info('Client disconnected from dashboard');
     });
 });
 
@@ -164,12 +184,12 @@ export function startWebServer() {
             .flat()
             .find((iface) => iface && iface.family === 'IPv4' && !iface.internal)?.address;
 
-        console.log(`🌐 Web Dashboard running at http://localhost:${PORT}`);
+        withLogContext({ service: 'webServer', data: { port: PORT, host: HOST } }).info(`Web Dashboard running at http://localhost:${PORT}`);
         if (lanIp) {
-            console.log(`🌐 LAN Access: http://${lanIp}:${PORT}`);
+            withLogContext({ service: 'webServer', data: { lanIp, port: PORT } }).info(`LAN Access: http://${lanIp}:${PORT}`);
         }
-        console.log(`📊 API available at http://localhost:${PORT}/api`);
-        console.log(`🔌 WebSocket ready for real-time updates`);
+        withLogContext({ service: 'webServer' }).info(`API available at http://localhost:${PORT}/api`);
+        withLogContext({ service: 'webServer' }).info('WebSocket ready for real-time updates');
     });
 }
 

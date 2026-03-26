@@ -120,6 +120,21 @@ export class RealTradingEngine {
 
         const order = await binanceOrderService.placeMarketOrder(upperSymbol, side, quantity);
 
+        await db.logError({
+            level: 'INFO',
+            source: 'realTradingEngine.executeEntry',
+            message: `LIVE order sent ${upperSymbol} ${side} qty=${quantity}`,
+            userId,
+            symbol: upperSymbol,
+            metadata: {
+                side,
+                quantity,
+                strategyName: strategy.name,
+                signalConfidence: signal.confidence,
+                orderId: order.orderId,
+            },
+        });
+
         const entryPrice = parseFloat(order.price || '0') > 0
             ? parseFloat(order.price)
             : (parseFloat(order.cummulativeQuoteQty || '0') > 0 && parseFloat(order.executedQty || '0') > 0)
@@ -156,6 +171,21 @@ export class RealTradingEngine {
             userId,
         );
 
+        await db.logError({
+            level: 'INFO',
+            source: 'realTradingEngine.executeEntry',
+            message: `LIVE order confirmed ${upperSymbol} ${side} entry=${entryPrice.toFixed(6)} qty=${quantity}`,
+            userId,
+            symbol: upperSymbol,
+            metadata: {
+                orderId: order.orderId,
+                entryPrice,
+                quantity,
+                stopLoss,
+                takeProfit,
+            },
+        });
+
         return {
             tradeId: trade.id,
             orderId: order.orderId,
@@ -188,8 +218,29 @@ export class RealTradingEngine {
         for (const orderId of protectiveOrderIds) {
             try {
                 await binanceOrderService.cancelOrder(symbol, orderId);
+                await db.logError({
+                    level: 'INFO',
+                    source: 'realTradingEngine.executeExit',
+                    message: `Protective order cancelled ${symbol} orderId=${orderId}`,
+                    userId,
+                    symbol,
+                    metadata: {
+                        tradeId: trade.id,
+                        orderId,
+                    },
+                });
             } catch {
-                // best effort only
+                await db.logError({
+                    level: 'WARN',
+                    source: 'realTradingEngine.executeExit',
+                    message: `Protective order cancellation failed ${symbol} orderId=${orderId}`,
+                    userId,
+                    symbol,
+                    metadata: {
+                        tradeId: trade.id,
+                        orderId,
+                    },
+                });
             }
         }
 
@@ -200,6 +251,19 @@ export class RealTradingEngine {
         }
 
         const exitOrder = await binanceOrderService.placeMarketOrder(symbol, exitSide, quantity);
+
+        await db.logError({
+            level: 'INFO',
+            source: 'realTradingEngine.executeExit',
+            message: `LIVE exit sent ${symbol} ${exitSide} qty=${quantity} reason=${reason}`,
+            userId,
+            symbol,
+            metadata: {
+                tradeId: trade.id,
+                reason,
+                orderId: exitOrder.orderId,
+            },
+        });
 
         const resolvedExitPrice = parseFloat(exitOrder.price || '0') > 0
             ? parseFloat(exitOrder.price)
@@ -216,6 +280,20 @@ export class RealTradingEngine {
             `📤 LIVE EXIT ${symbol}\nReason: ${reason}\nExit Price: ${resolvedExitPrice.toFixed(4)}\nExit Order ID: ${exitOrder.orderId}`,
             userId,
         );
+
+        await db.logError({
+            level: 'INFO',
+            source: 'realTradingEngine.executeExit',
+            message: `LIVE exit confirmed ${symbol} exit=${resolvedExitPrice.toFixed(6)} qty=${quantity} reason=${reason}`,
+            userId,
+            symbol,
+            metadata: {
+                tradeId: trade.id,
+                exitOrderId: exitOrder.orderId,
+                exitPrice: resolvedExitPrice,
+                reason,
+            },
+        });
 
         return {
             tradeId: trade.id,

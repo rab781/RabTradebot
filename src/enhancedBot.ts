@@ -35,10 +35,14 @@ import { db } from './services/databaseService';
 
 // Prediction Verifier
 import { predictionVerifier } from './services/predictionVerifier';
+import { healthMonitor } from './services/healthMonitor';
+import { rateLimiter } from './services/rateLimiter';
+import { withLogContext } from './utils/logger';
 
 // Web Dashboard
 import { startWebServer, stateManager } from './webServer';
 import BotStateManager from './services/botStateManager';
+import { getPrisma } from './services/databaseService';
 
 // Load environment variables
 config();
@@ -133,6 +137,12 @@ async function ensureUser(ctx: any) {
 const ACTIVE_SYMBOL_PREF_KEY = 'active_symbol';
 const DEFAULT_ACTIVE_SYMBOL = 'BTCUSDT';
 const COMMON_QUOTES = ['USDT', 'USDC', 'BUSD', 'FDUSD', 'BTC', 'ETH'];
+
+const healthRuntime = {
+  usdtBalance: 0,
+  peakUsdtBalance: 0,
+  modelAccuracy: 1,
+};
 
 function normalizeSymbolInput(rawInput: string): string {
   const cleaned = rawInput.toUpperCase().replace(/[^A-Z0-9]/g, '');
@@ -272,6 +282,7 @@ function buildCategoryMenuInline(symbol: string, category: string) {
       return Markup.inlineKeyboard([
         [
           Markup.button.callback('🌐 API Status', 'run:apistatus'),
+          Markup.button.callback('🩺 Healthcheck', 'run:healthcheck'),
           Markup.button.callback('🤖 AI Status', 'run:pstatus'),
           Markup.button.callback('🧠 ML Status', 'run:mlstatus'),
         ],
@@ -319,7 +330,7 @@ realTradingEngine.setNotifier(async (message, dbUserId) => {
   try {
     await notifyByDbUserId(message, dbUserId);
   } catch (error) {
-    console.error('Live notifier error:', error);
+    withLogContext({ service: 'enhancedBot', userId: dbUserId }).error({ err: error }, 'Live notifier error');
   }
 });
 
@@ -327,7 +338,7 @@ riskMonitorLoop.setNotifier(async (message, dbUserId) => {
   try {
     await notifyByDbUserId(message, dbUserId);
   } catch (error) {
-    console.error('Risk monitor notifier error:', error);
+    withLogContext({ service: 'enhancedBot', userId: dbUserId }).error({ err: error }, 'Risk monitor notifier error');
   }
 });
 
@@ -707,6 +718,10 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       await ctx.reply(report + wsReport);
       break;
     }
+    case 'healthcheck': {
+      await ctx.reply('💡 Run full health report:\n/healthcheck');
+      break;
+    }
     case 'pstatus': {
       const configured = chutesService.isConfigured();
       await ctx.reply(`🤖 Chutes AI: ${configured ? '✅ Configured & Ready\n/pnews SYMBOL — Full AI news\n/impact SYMBOL — Quick impact' : '❌ Not configured\nAdd CHUTES_API_KEY to .env'}`);
@@ -805,7 +820,14 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
         try { await executeLiveSignal(dbUserId, symbol, strategyToUse); } catch (_) { /* logged by callee */ }
       };
       await runSig();
-      liveSession.liveTrading.timer = setInterval(() => { runSig().catch(console.error); }, intervalMs);
+      liveSession.liveTrading.timer = setInterval(() => {
+        runSig().catch((error) => {
+          withLogContext({ service: 'enhancedBot', userId: telegramId, symbol }).error(
+            { err: error },
+            'livetrade interval execution error',
+          );
+        });
+      }, intervalMs);
       await ctx.reply(`✅ Live trading started — ${symbol}\nStrategy: ${strategyToUse.name}\nInterval: ${(intervalMs / 1000).toFixed(0)}s\n\nUse ⛔ Stop Live to stop.`);
       break;
     }
@@ -861,7 +883,7 @@ bot.command('start', async (ctx) => {
 
   const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
   const userId = ctx.message.from.id;
-  console.log(`[${new Date().toISOString()}] New user started bot: ${username} (${userId})`);
+  withLogContext({ service: 'enhancedBot', userId }).info({ username }, 'New user started bot');
   ctx.reply(`Welcome to Advanced Crypto Signal Bot! 🚀
 
 This bot now includes powerful freqtrade-inspired features:
@@ -900,6 +922,8 @@ This bot now includes powerful freqtrade-inspired features:
 
 🔧 STATUS CHECKS:
 /apistatus - Check Binance API connectivity & auth
+/healthcheck - Check full system health
+/logs [N] - Show recent system logs (admin only)
 /orders [symbol] - View open Binance orders
 /cancelorder <orderId> [symbol] - Cancel live order
 /liveportfolio - View non-zero balances + open orders
@@ -991,6 +1015,8 @@ Tip: setelah set coin, cukup tap tombol command tanpa ngetik ulang symbol.
    • Private API auth (if keys configured)
    • Account permissions & non-zero balances
    • Rate limit info
+/healthcheck - Full system health (DB, REST, WS, ML, process)
+/logs [N] - Show recent ErrorLog rows (admin only)
 /pstatus - Check Chutes AI configuration
 /mlstatus - Check ML model status
 
@@ -3030,6 +3056,107 @@ bot.command('apistatus', async (ctx) => {
   return;
 });
 
+bot.command('healthcheck', async (ctx) => {
+  try {
+    const loadingMsg = await ctx.reply('🔄 Running full health check...');
+
+    const stats = stateManager.getStats();
+
+    // DB health probe
+    try {
+      await getPrisma().$queryRawUnsafe('SELECT 1');
+      healthMonitor.setExternalComponentStatus('database', 'ok', 'Database reachable');
+    } catch (error) {
+      healthMonitor.setExternalComponentStatus('database', 'down', `Database unreachable: ${(error as Error).message}`);
+    }
+
+    const snapshot = await healthMonitor.runFullHealthCheck();
+
+    const statusIcon = snapshot.overallStatus === 'ok' ? '✅' : snapshot.overallStatus === 'degraded' ? '⚠️' : '🚨';
+    const comp = snapshot.components;
+
+    const fmt = (name: string, c: { status: string; message: string }) => {
+      const icon = c.status === 'ok' ? '✅' : c.status === 'degraded' ? '⚠️' : '🚨';
+      return `${icon} ${name}: ${c.message}`;
+    };
+
+    const message = [
+      `🩺 HEALTHCHECK ${statusIcon}`,
+      `Overall: ${snapshot.overallStatus.toUpperCase()}`,
+      '',
+      fmt('Database', comp.database),
+      fmt('Binance REST', comp.binanceRest),
+      fmt('WebSocket', comp.binanceWs),
+      fmt('ML Model', comp.modelAccuracy),
+      fmt('Drawdown', comp.accountDrawdown),
+      fmt('Balance', comp.accountBalance),
+      fmt('Process', comp.botProcess),
+      '',
+      `⏱ Uptime: ${(snapshot.uptime / 60).toFixed(1)} min`,
+      `🧠 Memory: ${snapshot.memoryUsageMb.toFixed(0)} MB`,
+      `📨 Request Count: ${stats.totalCommands}`,
+      `🔌 WS Streams: ${connectionManager.getActiveStreamCount()}`,
+    ].join('\n');
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
+    await ctx.reply(message);
+  } catch (error) {
+    withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error({ err: error }, 'healthcheck command error');
+    await ctx.reply(`❌ Error running health check: ${(error as Error).message}`);
+  }
+});
+
+bot.command('logs', async (ctx) => {
+  try {
+    const adminChat = process.env.ADMIN_CHAT_ID;
+    const requesterChat = String(ctx.chat?.id || '');
+    if (!adminChat || requesterChat !== adminChat) {
+      return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+    }
+
+    const arg = Number(ctx.message.text.split(' ')[1] || 20);
+    const limit = Number.isFinite(arg) ? Math.min(Math.max(Math.trunc(arg), 1), 100) : 20;
+    const rows = await db.getRecentErrors(limit);
+
+    if (!rows || rows.length === 0) {
+      return ctx.reply('📭 No logs found.');
+    }
+
+    const lines = rows.map((row: any, idx: number) => {
+      const ts = new Date(row.createdAt).toISOString();
+      const src = row.source || 'unknown';
+      const lvl = (row.level || 'INFO').toUpperCase();
+      const sym = row.symbol ? ` ${row.symbol}` : '';
+      return `${idx + 1}. [${lvl}] ${ts} ${src}${sym}\n${row.message}`;
+    });
+
+    const chunks: string[] = [];
+    let current = '📜 Recent Logs\n\n';
+    for (const line of lines) {
+      if ((current + line + '\n\n').length > 3500) {
+        chunks.push(current.trim());
+        current = '';
+      }
+      current += `${line}\n\n`;
+    }
+    if (current.trim()) chunks.push(current.trim());
+
+    for (const chunk of chunks) {
+      await ctx.reply(chunk);
+    }
+  } catch (error) {
+    withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error({ err: error }, 'logs command error');
+    return ctx.reply(`❌ Error loading logs: ${(error as Error).message}`);
+  }
+
+  return;
+});
+
 // ============================================================================
 // LIVE ORDER COMMANDS (FASE 1)
 // ============================================================================
@@ -3827,13 +3954,41 @@ bot.command('leaderboard', async (ctx) => {
 
 // Error handling
 bot.catch((err, ctx) => {
-  console.error('Bot error:', err);
+  withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error({ err }, 'Bot error');
   ctx.reply('❌ An unexpected error occurred. Please try again later.');
 });
 
 // Launch bot
-console.log('🚀 Starting Telegram Bot...');
-console.log('🔄 Bot initialization complete. Waiting for messages...');
+withLogContext({ service: 'enhancedBot' }).info('Starting Telegram Bot');
+withLogContext({ service: 'enhancedBot' }).info('Bot initialization complete. Waiting for messages');
+
+// Configure health monitor integrations.
+healthMonitor.setServices({
+  rateLimiter,
+  wsService: {
+    isHealthy: () => connectionManager.getActiveStreamCount() > 0,
+    getStreamCount: () => connectionManager.getActiveStreamCount(),
+  },
+  tradingEngine: binanceOrderService.isConfigured()
+    ? {
+        getCurrentDrawdown: () => {
+          if (healthRuntime.peakUsdtBalance <= 0) return 0;
+          const dd = ((healthRuntime.peakUsdtBalance - healthRuntime.usdtBalance) / healthRuntime.peakUsdtBalance) * 100;
+          return Math.max(0, dd);
+        },
+        getAccountBalance: () => healthRuntime.usdtBalance,
+      }
+    : undefined,
+  mlModel: {
+    getRecentAccuracy: () => healthRuntime.modelAccuracy,
+  },
+});
+
+healthMonitor.setAlertCallback(async (message: string) => {
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  if (!adminChat) return;
+  await bot.telegram.sendMessage(Number(adminChat), message);
+});
 
 // Start web server first
 startWebServer();
@@ -3841,25 +3996,55 @@ startWebServer();
 // Start prediction verification service
 predictionVerifier.start();
 
+setInterval(async () => {
+  try {
+    if (binanceOrderService.isConfigured()) {
+      const balances = await binanceOrderService.getAccountBalance();
+      const usdt = balances.find((b) => b.asset === 'USDT');
+      const currentUsdt = usdt ? Number(usdt.free) + Number(usdt.locked) : 0;
+      healthRuntime.usdtBalance = Number.isFinite(currentUsdt) ? currentUsdt : 0;
+      healthRuntime.peakUsdtBalance = Math.max(healthRuntime.peakUsdtBalance, healthRuntime.usdtBalance);
+    }
+
+    try {
+      const acc = await predictionVerifier.generateAccuracyReport('GRU');
+      healthRuntime.modelAccuracy = Math.max(0, Math.min(1, (acc?.accuracy ?? 100) / 100));
+    } catch {
+      // keep previous value if no prediction stats yet
+    }
+
+    await healthMonitor.checkBinanceRest();
+    await healthMonitor.checkWebSocketHealth();
+    await healthMonitor.checkModelAccuracy();
+    if (binanceOrderService.isConfigured()) {
+      await healthMonitor.checkAccountDrawdown();
+      await healthMonitor.checkAccountBalance();
+    }
+    await healthMonitor.checkBotProcess();
+  } catch (error) {
+    withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Health monitor loop error');
+  }
+}, parseInt(process.env.HEALTH_MONITOR_INTERVAL_MS || '300000', 10));
+
 bot
   .launch({ dropPendingUpdates: true })
   .then(() => {
-    console.log('✅ Bot started successfully!');
-    console.log('🎯 Ready to receive commands...');
-    console.log('💡 Send /start to see available commands');
-    console.log('🔍 Prediction verification service active');
+    withLogContext({ service: 'enhancedBot' }).info('Bot started successfully');
+    withLogContext({ service: 'enhancedBot' }).info('Ready to receive commands');
+    withLogContext({ service: 'enhancedBot' }).info('Send /start to see available commands');
+    withLogContext({ service: 'enhancedBot' }).info('Prediction verification service active');
     riskMonitorLoop.start().catch((error) => {
-      console.error('❌ Failed to start risk monitor loop:', error);
+      withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start risk monitor loop');
     });
   })
   .catch((error) => {
-    console.error('❌ Failed to start bot:', error);
+    withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start bot');
     process.exit(1);
   });
 
 // Enable graceful stop
 process.once('SIGINT', () => {
-  console.log('🛑 Received SIGINT, stopping bot...');
+  withLogContext({ service: 'enhancedBot' }).warn('Received SIGINT, stopping bot');
   for (const session of userSessions.values()) {
     if (session.liveTrading?.active) {
       stopLiveTradingSession(session.liveTrading);
@@ -3873,7 +4058,7 @@ process.once('SIGINT', () => {
 });
 
 process.once('SIGTERM', () => {
-  console.log('🛑 Received SIGTERM, stopping bot...');
+  withLogContext({ service: 'enhancedBot' }).warn('Received SIGTERM, stopping bot');
   for (const session of userSessions.values()) {
     if (session.liveTrading?.active) {
       stopLiveTradingSession(session.liveTrading);

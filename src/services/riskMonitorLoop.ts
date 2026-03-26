@@ -3,6 +3,7 @@ import { binanceOrderService } from './binanceOrderService';
 import { RealTradingEngine, realTradingEngine } from './realTradingEngine';
 import { BinanceWebSocketService } from './binanceWebSocketService';
 import { connectionManager } from './connectionManager';
+import { withLogContext } from '../utils/logger';
 
 export interface RiskMonitorConfig {
     pollIntervalMs: number;
@@ -82,7 +83,7 @@ export class RiskMonitorLoop {
      */
     startWebSocket(symbols: string[]): void {
         if (!this.wsService) {
-            console.warn('[RiskMonitorLoop] No wsService set, cannot start WebSocket mode.');
+            withLogContext({ service: 'riskMonitorLoop' }).warn('No wsService set, cannot start WebSocket mode');
             return;
         }
 
@@ -103,7 +104,10 @@ export class RiskMonitorLoop {
                         await this.evaluateExitTriggers(trade, tick.lastPrice);
                     }
                 } catch (err) {
-                    console.error('[RiskMonitorLoop WS] tick error:', (err as Error).message);
+                    withLogContext({ service: 'riskMonitorLoop', symbol: symUpper }).error(
+                        { err, phase: 'ws_tick' },
+                        'Risk monitor WebSocket tick error',
+                    );
                 }
             });
         }
@@ -167,6 +171,20 @@ export class RiskMonitorLoop {
                 const result = strategy.populateEntryTrend?.(enriched);
 
                 if (result?.action === 'BUY' || result?.action === 'SELL') {
+                    await db.logError({
+                        level: 'INFO',
+                        source: 'riskMonitorLoop.signal',
+                        message: `Signal generated ${symUpper} ${result.action} conf=${(result.confidence ?? 0).toFixed(3)}`,
+                        symbol: symUpper,
+                        metadata: {
+                            interval,
+                            action: result.action,
+                            confidence: result.confidence ?? 0,
+                            reason: result.reason ?? '',
+                            strategy: strategy.name,
+                        },
+                    });
+
                     await signalNotifier(
                         symUpper,
                         result.action,
@@ -182,7 +200,10 @@ export class RiskMonitorLoop {
                     );
                 }
             } catch (err) {
-                console.error('[RiskMonitorLoop kline] signal error:', (err as Error).message);
+                withLogContext({ service: 'riskMonitorLoop', symbol: symUpper }).error(
+                    { err, phase: 'kline_signal' },
+                    'Risk monitor kline signal error',
+                );
             }
         });
     }
@@ -193,7 +214,7 @@ export class RiskMonitorLoop {
         await this.tick();
         this.timer = setInterval(() => {
             this.tick().catch((error) => {
-                console.error('Risk monitor tick error:', (error as Error).message);
+                withLogContext({ service: 'riskMonitorLoop' }).error({ err: error }, 'Risk monitor tick error');
             });
         }, this.config.pollIntervalMs);
     }
@@ -251,6 +272,19 @@ export class RiskMonitorLoop {
                     stopLoss: candidateStop,
                     notes: `TRAILING_UPDATE:${candidateStop}`,
                 });
+                await db.logError({
+                    level: 'INFO',
+                    source: 'riskMonitorLoop.trailing',
+                    message: `Trailing stop updated ${trade.symbol} long ${currentStop.toFixed(6)} -> ${candidateStop.toFixed(6)}`,
+                    userId: trade.userId,
+                    symbol: trade.symbol,
+                    metadata: {
+                        tradeId: trade.id,
+                        side,
+                        currentPrice,
+                        highestPrice,
+                    },
+                });
                 trade.stopLoss = candidateStop;
             }
         } else {
@@ -262,6 +296,19 @@ export class RiskMonitorLoop {
                 await db.updateTradeRisk(trade.id, {
                     stopLoss: candidateStop,
                     notes: `TRAILING_UPDATE:${candidateStop}`,
+                });
+                await db.logError({
+                    level: 'INFO',
+                    source: 'riskMonitorLoop.trailing',
+                    message: `Trailing stop updated ${trade.symbol} short ${currentStop.toFixed(6)} -> ${candidateStop.toFixed(6)}`,
+                    userId: trade.userId,
+                    symbol: trade.symbol,
+                    metadata: {
+                        tradeId: trade.id,
+                        side,
+                        currentPrice,
+                        lowestPrice,
+                    },
                 });
                 trade.stopLoss = candidateStop;
             }
@@ -284,6 +331,19 @@ export class RiskMonitorLoop {
             : takeProfit > 0 && currentPrice <= takeProfit;
 
         if (stopTriggered) {
+            await db.logError({
+                level: 'INFO',
+                source: 'riskMonitorLoop.exitTrigger',
+                message: `Stop loss triggered ${trade.symbol} at ${currentPrice.toFixed(6)}`,
+                userId: trade.userId,
+                symbol: trade.symbol,
+                metadata: {
+                    tradeId: trade.id,
+                    side,
+                    stopLoss,
+                    currentPrice,
+                },
+            });
             await this.engine.executeExit(trade.id, 'stop_loss_triggered');
             await this.notify(`🛑 Stop loss triggered for ${trade.symbol} @ ${currentPrice.toFixed(4)}`, trade.userId);
             this.trailState.delete(trade.id);
@@ -291,6 +351,19 @@ export class RiskMonitorLoop {
         }
 
         if (takeProfitTriggered) {
+            await db.logError({
+                level: 'INFO',
+                source: 'riskMonitorLoop.exitTrigger',
+                message: `Take profit triggered ${trade.symbol} at ${currentPrice.toFixed(6)}`,
+                userId: trade.userId,
+                symbol: trade.symbol,
+                metadata: {
+                    tradeId: trade.id,
+                    side,
+                    takeProfit,
+                    currentPrice,
+                },
+            });
             await this.engine.executeExit(trade.id, 'take_profit_triggered');
             await this.notify(`🎯 Take profit reached for ${trade.symbol} @ ${currentPrice.toFixed(4)}`, trade.userId);
             this.trailState.delete(trade.id);
@@ -322,6 +395,19 @@ export class RiskMonitorLoop {
             `🚨 CIRCUIT BREAKER aktif (drawdown ${(drawdownPct * 100).toFixed(2)}%). Menutup semua posisi live...`,
             userId,
         );
+
+        await db.logError({
+            level: 'INFO',
+            source: 'riskMonitorLoop.circuitBreaker',
+            message: `Circuit breaker activated drawdown=${(drawdownPct * 100).toFixed(3)}% openTrades=${openTrades.length}`,
+            userId,
+            metadata: {
+                drawdownPct,
+                openTrades: openTrades.length,
+                baseline,
+                usdtBalance,
+            },
+        });
 
         await Promise.all(
             openTrades.map(async (trade) => {

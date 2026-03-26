@@ -1,298 +1,109 @@
-# Phase 5 — Strategy Optimization yang Robust
+# Phase 6 — Production Infrastructure (DevOps & Reliability)
 
-## 🏛️ Architecture Overview (Software Architect Perspective)
+## 🏗️ Architecture Overview (Software Architect & DevOps Perspective)
 
-Phase 5 adds 4 advanced optimization capabilities + 3 anti-overfitting safeguards to the existing [StrategyOptimizer](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts#24-365) class, evolving it from a simple grid search tool into a **rigorous anti-overfitting optimization framework**.
+Phase 6 marks the transition from a research/testing bot to a **production-grade financial system**. The focus shifts entirely to **reliability, observability, and scale**.
 
 > [!IMPORTANT]
-> **Core philosophy:** The enemy of quant trading bukan "mencari parameter terbaik" — tapi **overfitting**. Setiap fitur di Phase 5 dirancang untuk **mendeteksi dan mencegah overfitting**, bukan hanya optimize.
+> **DevOps Philosophy:** "No manual processes, zero silent failures." We are moving from SQLite (development) to PostgreSQL (production), adding Token Bucket rate limiting to prevent Binance IP bans, and introducing structured JSON logging for auditability.
 
-### ADR: Monolithic StrategyOptimizer vs Separate Classes
-
-**Decision:** Create `BayesianOptimizer` as a standalone class (`bayesianOptimizer.ts`), while WFO, Monte Carlo, and Pareto methods are added as methods on the existing [StrategyOptimizer](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts#24-365). This keeps related backtest-based optimizations co-located while isolating the TPE algorithm (which is a fundamentally different optimization paradigm).
-
-**Trade-off:** Slightly larger [StrategyOptimizer](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts#24-365) class (~600 lines total) but avoids over-engineering with separate file for each statistical method. TPE needs its own class due to internal state (kernel density models, evaluation history).
-
-### Key Design Decisions
-- **No external ML library** for TPE — implement in pure TypeScript using `mathjs` (already in deps) for gaussian KDE, avoiding npm dependency bloat for a single algorithm
-- **Monte Carlo is stateless** — pure function on trade array, no persistence needed
-- **Pareto uses non-dominated sorting** — O(n²) acceptable since candidate set is small (<100 results)
+### Key Architectural Decisions
+1. **Database:** SQLite is insufficient for high-concurrency production deployments (write locks). We migrate to **PostgreSQL**.
+2. **Logging:** `console.log` is replaced by `pino` (fast, structured JSON logger) to allow external scraping (e.g., Datadog/Grafana).
+3. **Rate Limiting:** A centralized "Token Bucket" algorithm replaces scattered `sleep()` calls to handle Binance's complex weight limits.
+4. **Monitoring:** A dedicated loop monitors bot health, account equity, and websocket streams, alerting admins instantly on degradation.
 
 ---
 
 ## Proposed Changes
 
-### Sprint 1 — Walk-Forward Optimization (WFO) [F5-1, F5-2, F5-3, F5-4]
+### Sprint 1 — Database Migration & Structured Logging [F6-1 to F6-4, F6-12 to F6-15]
 
-> **Goal:** Validate strategy parameter robustness by testing on rolling out-of-sample data windows.
+> **Goal:** Establish a robust persistence layer and auditable logging system.
 
-#### [MODIFY] [strategyOptimizer.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts)
+#### [NEW] [prisma/schema.postgres.prisma](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/prisma/schema.postgres.prisma)
+- Duplicate existing schema but change `provider = "postgresql"`
+- Use `@db.JsonB` for `trades`, `equityCurve`, and `parameters` arrays.
+- Setup connection pool parameters in DATABASE_URL.
 
-Add 3 new methods + 2 interfaces:
+#### [NEW] [scripts/migrate-sqlite-to-postgres.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/scripts/migrate-sqlite-to-postgres.ts)
+- Script to extract all active Trades, Orders, and user preferences from SQLite and insert them into the new Postgres schema.
 
-```typescript
-// New interfaces
-interface WFOWindowResult {
-  window: number;
-  inSampleScore: number;
-  outOfSampleScore: number;
-  stabilityRatio: number;  // OOS/IS (closer to 1.0 = less overfit)
-  bestParams: Record<string, any>;
-  backtestResult: BacktestResult;
-}
+#### [NEW] [src/utils/logger.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/utils/logger.ts)
+- Implements `pino` logger.
+- Configures environments: DEV gets `pino-pretty` (readable console), PROD gets raw JSON.
+- Methods: `logger.info`, `logger.warn`, `logger.error`, `logger.debug`.
 
-interface WFOResult {
-  windows: WFOWindowResult[];
-  bestStableParams: Record<string, any>;
-  avgStabilityRatio: number;
-  summary: string;
-}
-```
-
-**`walkForwardOptimize(data, inSampleRatio, numWindows)`** — Splits data into `numWindows` rolling windows, runs grid optimization on in-sample portion, and validates on out-of-sample. Selects parameters with highest stability ratio (OOS/IS score ≈ 1.0).
-
-**`findStableParams(windows)`** — Picks parameter set with highest median OOS score across windows.
-
-**`formatWFOSummary(result)`** — Returns formatted string for Telegram `/optimize` display.
+#### [MODIFY] [all src/ files]
+- Replace all `console.log` and `console.error` with the new structured logger.
 
 ---
 
-**`deflatedSharpeRatio(observedSR, totalTrials, skewness, kurtosis)`** [NEW — F5-12] — Corrects Sharpe Ratio for multiple testing bias using Bailey & Lopez de Prado (2014) formula. When you test 100+ parameter combos, the "best" Sharpe is statistically inflated. DSR gives the **probability that the observed Sharpe is genuine, not luck**.
+### Sprint 2 — Centalized Rate Limiter & Health Monitoring [F6-5 to F6-11]
 
-```typescript
-// Key formula: adjusts for number of trials, skewness, kurtosis of returns
-P(DSR) = normalCDF((SR_observed * √n) / √(1 - γ₃*SR + ((γ₄-1)/4)*SR²))
-// P(DSR) > 0.95 → confident the Sharpe is real, not from data mining
-```
+> **Goal:** Prevent API bans and ensure the bot is always alive and healthy.
 
-#### [NEW] [fase5-walk-forward-optimize.test.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/tests/fase5-walk-forward-optimize.test.ts)
+#### [NEW] [src/services/rateLimiter.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/rateLimiter.ts)
+- **Token Bucket Algorithm Implementation.**
+- Manages three separate buckets:
+  1. `REST_API`: 1200 weight / minute.
+  2. `ORDER`: 10 / second, 100k / day.
+  3. `WS`: Max 5 streams per connection.
+- Features `waitForToken(weight)` that delays execution if buckets are empty.
 
-~21 tests covering:
-- Data splitting logic (correct ratios per window)
-- Stability ratio calculation (OOS/IS)
-- Best parameter selection (most stable, not highest IS score)
-- Edge cases: single window, empty data, all windows negative
-- WFO summary formatting validation
-- Integration: full WFO pipeline with mock strategy
-- **DSR: more trials → higher penalty (lower DSR probability)**
-- **DSR: negative skewness → higher penalty**
-- **DSR: output always in [0, 1]**
+#### [MODIFY] [src/services/binance/binanceOrderService.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/binance/binanceOrderService.ts)
+- Wrap all API calls (create order, cancel order, get balance) with `rateLimiter.waitForToken()`.
+- Parse `X-MBX-USED-WEIGHT` header from Binance to sync local token counts with the server.
 
----
+#### [NEW] [src/services/healthMonitor.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/healthMonitor.ts)
+- Periodic loop (e.g., every 5 mins) checking:
+  - WebSocket connection status.
+  - Binance REST API latency.
+  - Current account drawdown > threshold?
+  - Model accuracy drop?
+- Emits Telegram alerts to ADMIN_CHAT_ID on failures.
 
-### Sprint 2 — Bayesian Optimization with TPE [F5-5, F5-6, F5-7, F5-8]
-
-> **Goal:** Replace brute-force grid search with intelligent parameter exploration using Tree Parzen Estimator.
-
-#### [NEW] [bayesianOptimizer.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/bayesianOptimizer.ts)
-
-New class `BayesianOptimizer`:
-
-```typescript
-class BayesianOptimizer {
-  // TPE Core
-  sampleNextParams(space, evaluationHistory): Record<string, any>
-  splitGoodBad(history, gamma): { good, bad }  // gamma=0.25 default
-  kernelDensityEstimate(samples, point): number  // Gaussian KDE
-  expectedImprovement(good, bad, point): number  // p(good)/p(bad)
-  
-  // Main optimization loop
-  async optimize(strategy, data, space, config): Promise<OptimizationResult[]>
-  
-  // Comparison utility
-  getEfficiencyReport(bayesianResults, gridResults): string
-}
-```
-
-**TPE Algorithm:** 
-1. Initial random exploration (10 evals)
-2. Split results into good (top 25%) and bad (bottom 75%)
-3. Fit Gaussian KDE to both groups
-4. Sample next point maximizing [l(x)/g(x)](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/types/dataframe.ts#130-133) ratio
-5. Repeat until `maxEvals` reached
-
-#### [MODIFY] [strategyOptimizer.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts)
-
-Add `optimizeMethod` option to [OptimizationConfig](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts#5-13):
-
-```diff
- export interface OptimizationConfig {
-     maxEvals: number;
-+    method: 'grid' | 'bayesian';  // default = 'bayesian'
-     // ...existing fields
- }
-```
-
-#### [NEW] [fase5-bayesian-optimizer.test.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/tests/fase5-bayesian-optimizer.test.ts)
-
-~16 tests covering:
-- Good/bad split with correct gamma ratio (25%/75%)
-- Gaussian KDE produces valid density values
-- KDE handles single point, edge cases
-- Expected improvement: p(good)/p(bad) ratio computation
-- TPE converges better than random sampling
-- Full Bayesian optimization loop with mock objective
-- Efficiency comparison report formatting
-- Parameter space handling (int, real, categorical)
+#### [MODIFY] [src/enhancedBot.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/enhancedBot.ts)
+- Implement `/healthcheck` command.
 
 ---
 
-### Sprint 3 — Monte Carlo Robustness Test [F5-9, F5-10]
+### Sprint 3 — Process Management & Deployment [F6-16 to F6-20]
 
-> **Goal:** Stress-test strategy profitability under randomized trade ordering.
+> **Goal:** Automate deployments and ensure the Node.js process auto-restarts on crash.
 
-#### [MODIFY] [strategyOptimizer.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts)
+#### [NEW] [ecosystem.config.js](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/ecosystem.config.js)
+- PM2 configuration.
+- `max_memory_restart: '512M'`, `autorestart: true`.
+- Log rotation settings.
 
-Add 2 new methods:
+#### [NEW] [scripts/deploy.sh](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/scripts/deploy.sh)
+- Zero-touch deployment bash script: `git pull`, `npm ci`, `prisma migrate`, `npm run build`, `pm2 restart`.
 
-```typescript
-interface MonteCarloResult {
-  simulations: number;
-  profitDistribution: { p5: number; p25: number; median: number; p75: number; p95: number };
-  drawdownDistribution: { p5: number; p25: number; median: number; p75: number; p95: number };
-  sharpeDistribution: { p5: number; p25: number; median: number; p75: number; p95: number };
-  summary: string;
-}
-```
-
-**`monteCarloTest(trades, numSimulations)`** — Fisher-Yates shuffles trade array N times, recomputes equity curve/drawdown/Sharpe for each. Returns percentile distribution.
-
-**`formatMonteCarloSummary(result)`** — Human-readable output:
-> "Dalam 95% skenario, max drawdown < 12.5%"  
-> "Dalam 5% skenario terburuk, profit = -3.2%"
-
-#### [NEW] [fase5-monte-carlo.test.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/tests/fase5-monte-carlo.test.ts)
-
-~12 tests covering:
-- Single trade → no variance in distribution
-- Known trades → percentile bounds are valid (P5 < P25 < median < P75 < P95)
-- All profitable trades → P5 profit is still > 0
-- Empty trades array → graceful handling
-- Large simulation count → stable results (within tolerance)
-- Summary text formatting validation
-- Profit/drawdown/Sharpe calculations correctness
+#### [NEW] [Dockerfile](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/Dockerfile) (Optional but Recommended)
+- Multi-stage build for containerized deployments.
 
 ---
 
-### Sprint 4 — Multi-Objective Pareto + Anti-Overfitting [F5-11, F5-13, F5-14] + Integration
+### Sprint 4 — Comprehensive Unit Testing to 80% Coverage [F6-20 to F6-24]
 
-> **Goal:** Pareto trade-offs + parameter sensitivity + overfitting probability score.
+> **Goal:** Reach production-ready test coverage thresholds.
 
-#### [MODIFY] [strategyOptimizer.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/services/strategyOptimizer.ts)
-
-**A) Pareto frontier method:**
-
-```typescript
-interface ParetoPoint {
-  params: Record<string, any>;
-  objectives: { returnPct: number; drawdownPct: number; winRate: number; profitFactor: number };
-  isDominated: boolean;
-}
-
-interface ParetoResult {
-  frontier: ParetoPoint[];    // non-dominated solutions only
-  allPoints: ParetoPoint[];   // all evaluated points
-  frontierSize: number;
-  summary: string;
-}
-```
-
-**`computeParetoFrontier(results, objectives)`** — Non-dominated sorting across optimization results. Shows Return vs Drawdown and WinRate vs ProfitFactor trade-offs.
-
-**`formatParetoSummary(result)`** — Display frontier points and trade-off insights.
-
-**B) Parameter Sensitivity Analysis [F5-13]:**
-
-```typescript
-interface SensitivityResult {
-  paramName: string;
-  sensitivityScore: number;  // std/mean of neighborhood performance (lower = more robust)
-  isRobust: boolean;         // sensitivityScore < 0.3 threshold
-  neighborhoodPerformance: number[];  // performance at ±10% of optimal value
-}
-```
-
-**`parameterSensitivity(results, bestParams)`** — For each parameter, evaluates performance at ±10% of optimal value. If performance drops >30% → parameter is fragile ("spike"). If stable → "plateau" (robust).
-
-**C) Overfitting Probability (PBO) [F5-14]:**
-
-```typescript
-// From WFO results: what fraction of windows have IS rank ≠ OOS rank?
-PBO = count(windows where bestISParams ≠ bestOOSParams) / totalWindows
-// PBO > 0.5 → strategy is likely overfit
-```
-
-**`computeOverfittingProbability(wfoResults)`** — Simple but powerful: if the "best" in-sample params consistently fail out-of-sample, the strategy is overfit. Returns probability [0, 1].
-
-#### [MODIFY] [enhancedBot.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/src/enhancedBot.ts)
-
-Update `/optimize` command handler to include WFO + DSR + Monte Carlo + Pareto + PBO in output.
-
-#### [NEW] [fase5-pareto-optimization.test.ts](file:///d:/Project%20Pribadi/bot%20trading%20tele/RabTradebot/tests/fase5-pareto-optimization.test.ts)
-
-~16 tests covering:
-- Single point → always non-dominated
-- Clear dominance: A > B in all objectives → B is dominated
-- True Pareto frontier with 2 objectives (Return vs Drawdown)
-- No duplicates in frontier
-- Frontier summary formatting
-- Edge case: all points identical → all on frontier
-- **Sensitivity: "plateau" param → low score**
-- **Sensitivity: "spike" param → high score (fragile)**
-- **PBO with perfect correlation (IS = OOS) → PBO = 0**
-- **PBO with random correlation → PBO ≈ 0.5**
+#### [NEW] Test Files
+1. `tests/fase6-binanceOrderService.test.ts`: Mock HTTP calls, check signature generation, step size rounding, error mapping.
+2. `tests/fase6-riskMonitorLoop.test.ts`: Test SL/TP triggers, trailing stop tracking, circuit breakers without hitting real API.
+3. `tests/fase6-rateLimiter.test.ts`: Validate Token Bucket refilling logic, delay calculations.
+4. `tests/fase6-featureEngineering.test.ts`: Matrix dimension checks, NaN handling.
 
 ---
 
-## Verification Plan
+## 🛡️ Verification & QA Plan (Testing Analyzer & Code Reviewer)
 
-### Automated Tests
+### 🔴 Mandatory Security Rules (Code Reviewer)
+- **Secrets:** Logs (`logger.ts`) MUST explicitly redact API keys, Secret keys, and JWT tokens.
+- **Transactions:** Any database write for trades must be wrapped in transactions (or logical equivalents) to prevent partial fills causing DB state corruption.
 
-Tests akan dijalankan per sprint dan secara keseluruhan:
-
-```bash
-# Sprint 1: Walk-Forward Optimization
-npx jest tests/fase5-walk-forward-optimize.test.ts --verbose
-
-# Sprint 2: Bayesian Optimizer
-npx jest tests/fase5-bayesian-optimizer.test.ts --verbose
-
-# Sprint 3: Monte Carlo
-npx jest tests/fase5-monte-carlo.test.ts --verbose
-
-# Sprint 4: Pareto
-npx jest tests/fase5-pareto-optimization.test.ts --verbose
-
-# Full Phase 5 suite
-npx jest tests/fase5-* --verbose
-
-# TypeScript compilation check (no emit)
-npx tsc --noEmit
-```
-
-**Expected results per sprint:**
-| Sprint | Test File | Expected Tests |
-|--------|-----------|---------------|
-| S1 — WFO + DSR | `fase5-walk-forward-optimize.test.ts` | ~21 tests |
-| S2 — Bayesian | `fase5-bayesian-optimizer.test.ts` | ~16 tests |
-| S3 — Monte Carlo | `fase5-monte-carlo.test.ts` | ~12 tests |
-| S4 — Pareto + Sensitivity + PBO | `fase5-pareto-optimization.test.ts` | ~16 tests |
-| **Total** | **4 test files** | **~65 tests** |
-
-### Release Readiness Criteria (Test Results Analyzer)
-- ✅ All tests pass (0 failures)
-- ✅ TypeScript: 0 compile errors
-- ✅ No NaN/Infinity in statistical calculations
-- ✅ Edge cases handled: empty data, single element, zero variance
-- ✅ DSR probability always in [0, 1]
-- ✅ PBO always in [0, 1]
-- ✅ Parameter sensitivity detects known "spike" vs "plateau" params
-- ✅ Monte Carlo distributions are statistically valid (P5 ≤ P25 ≤ median ≤ P75 ≤ P95)
-- ✅ Pareto frontier is correct (no dominated points in frontier)
-
-### Code Review Checklist (Engineering Code Reviewer)
-- 🔴 No division by zero in statistical methods
-- 🔴 Fisher-Yates shuffle is correct (no bias)
-- 🟡 KDE bandwidth selection is reasonable
-- 🟡 Memory usage for 1000 Monte Carlo simulations
-- 💭 Consistent coding style with existing fase4 tests
+### 📊 Quality Assurance (Test Results Analyzer)
+1. **Coverage Standard:** Execute `npm test -- --coverage`. Minimum acceptance criteria is **80% Line and Branch coverage** for core services (`binanceOrderService`, `rateLimiter`, `riskMonitorLoop`).
+2. **Rate Limiter Benchmark:** Test Token Bucket under 50 concurrent requests to ensure it correctly queues and processes without exceeding the rate limit.
+3. **Recovery Test:** Simulate a network disconnect and verify `healthMonitor.ts` fires the Telegram alert and attempts reconnection.
