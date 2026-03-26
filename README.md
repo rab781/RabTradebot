@@ -15,17 +15,17 @@ Get the bot up and running in under 2 minutes:
 ```bash
 git clone https://github.com/yourusername/crypto-signal-bot.git
 cd crypto-signal-bot
-pnpm install
+npm install
 
 # Copy the environment template and add your Telegram bot token
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
 # Build the project (generates the dist/ directory)
-pnpm run build
+npm run build
 
 # Start the bot
-pnpm start
+npm start
 ```
 
 Open Telegram, find your bot, and send `/start`.
@@ -34,7 +34,7 @@ Open Telegram, find your bot, and send `/start`.
 
 **Prerequisites**:
 - Node.js 18+
-- pnpm 8+
+- npm 9+
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
 ```bash
@@ -42,8 +42,8 @@ Open Telegram, find your bot, and send `/start`.
 git clone https://github.com/yourusername/crypto-signal-bot.git
 cd crypto-signal-bot
 
-# 2. Install dependencies (strictly use pnpm)
-pnpm install
+# 2. Install dependencies
+npm install
 ```
 
 ## Configuration
