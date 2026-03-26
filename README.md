@@ -2,6 +2,7 @@
 
 > A comprehensive Telegram bot that provides professional-grade cryptocurrency trading signals, market analysis, backtesting, and paper trading capabilities directly in your chat.
 
+[![npm version](https://badge.fury.io/js/advanced-crypto-trading-bot.svg)](https://badge.fury.io/js/advanced-crypto-trading-bot)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 ## Why This Exists
@@ -37,13 +38,20 @@ Open Telegram, find your bot, and send `/start`.
 - npm 9+
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
+1. Clone the repository
 ```bash
-# 1. Clone the repository
-git clone https://github.com/yourusername/crypto-signal-bot.git
-cd crypto-signal-bot
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
+```
 
-# 2. Install dependencies
+2. Install dependencies
+```bash
 npm install
+```
+
+3. Configure your environment variables
+```bash
+cp .env.example .env
 ```
 
 ## Configuration
@@ -105,13 +113,30 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/signal [symbol]` - Trading signals
 - `/volume [symbol]` - Volume analysis
 - `/sr [symbol]` - Support/resistance levels
-- `/chart [symbol]` - Generate interactive charts
+- `/chart [symbol] [timeframe]` - Generate interactive charts (e.g., `/chart BTCUSDT 1h`)
+- `/analyze [symbol]` - Complete technical and multi-timeframe analysis
+- `/fullanalysis [symbol]` - Technical + AI news analysis
+- `/openclaw [symbol]` - Advanced ML-powered analysis
+
+### ML & AI
+- `/mlpredict [symbol]` - GRU-based LSTM price prediction
+- `/trainmodel [symbol] [epochs]` - Train ML model (e.g., `/trainmodel BTCUSDT 15`)
+- `/mlstatus` - Check ML model status
+- `/pnews [symbol]` - AI news analysis (Powered by Chutes AI)
+- `/impact [symbol]` - Quick news impact overview (Powered by Chutes AI)
+- `/news [symbol]` - Comprehensive news analysis
 
 ### Advanced Trading
 - `/backtest [symbol] [days]` - Strategy backtesting
 - `/papertrade [symbol]` - Start paper trading simulation
-- `/portfolio` - View current positions and balance
+- `/livetrade start [symbol] confirm` - Start live trading (real funds)
+- `/livetrade stop` - Stop live trading
+- `/stoptrading` - Stop current paper trading session
+- `/portfolio` - View current paper trading positions and balance
 - `/performance` - Detailed performance metrics
+- `/orders [symbol]` - View open Binance orders
+- `/cancelorder <orderId> [symbol]` - Cancel live order
+- `/liveportfolio` - View non-zero balances + open orders
 - `/optimize [symbol] [days]` - Optimize strategy parameters
 
 ### Data & Status
@@ -119,6 +144,19 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
+- `/pstatus` - Check Chutes AI configuration
+- `/stats` - Your trading statistics & ML performance
+- `/strategystats [symbol]` - Compare strategy performance
+
+### Price Alerts
+- `/alert [symbol] [price] [above/below]` - Set price alert
+- `/alerts` - List your active price alerts
+- `/delalert [symbol]` - Delete price alert
+
+### UI & Navigation
+- `/coin [symbol]` - Set active coin
+- `/menu [optional-symbol]` - Open feature keyboard with active coin
+- `/go` - Quick open menu
 
 ## Architecture & Tech Stack
 
