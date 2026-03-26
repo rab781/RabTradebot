@@ -21,6 +21,10 @@ pnpm install
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
+# Build the project (generates the dist/ directory)
+pnpm run build
+
+# Start the bot
 pnpm start
 ```
 
