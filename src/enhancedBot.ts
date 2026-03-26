@@ -475,21 +475,24 @@ bot.action(/^run:(.+)$/, async (ctx) => {
 async function handleInlineRun(ctx: any, action: string, symbol: string, chatId: number, telegramId: number, dbUserId: number) {
   switch (action) {
     case 'signal': {
-      await ctx.reply(`🔄 Generating signal for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Generating signal for ${symbol}...`);
       const signal = await signalGenerator.generateSignal(symbol);
       stateManager.addSignal({ symbol, action: signal.action, price: signal.price, confidence: signal.confidence, timestamp: new Date(), indicators: {} });
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(signal.text);
       break;
     }
     case 'volume': {
-      await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(`📊 Volume Analysis — ${symbol}\n\n${analysis}`);
       break;
     }
     case 'sr': {
-      await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(`🎯 Support/Resistance — ${symbol}\n\n${analysis}`);
       break;
     }
@@ -567,14 +570,19 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       break;
     }
     case 'chart': {
-      await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
+      const loading = await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
       const chartData = await dataManager.getRecentData(symbol, '1h', 100);
-      if (!chartData || chartData.length === 0) { await ctx.reply(`❌ No data for ${symbol}`); break; }
+      if (!chartData || chartData.length === 0) {
+        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        await ctx.reply(`❌ No data for ${symbol}`);
+        break;
+      }
       const mapped = chartData.map(d => ({ t: d.timestamp, o: d.open, h: d.high, l: d.low, c: d.close, v: d.volume }));
       const chartResult = await imageChartService.generateCandlestickChart(symbol, '1h', mapped as any);
       const patternInfo = chartResult.patterns.length > 0
         ? `\nPatterns: ${chartResult.patterns.map((p: any) => p.name).join(', ')}`
         : '';
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await bot.telegram.sendPhoto(chatId, { source: chartResult.buffer }, { caption: `📈 ${symbol} 1h Chart${patternInfo}` });
       break;
     }
@@ -624,18 +632,20 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       break;
     }
     case 'impact': {
-      await ctx.reply(`🔄 Quick impact for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Quick impact for ${symbol}...`);
       const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
       const ai = result.aiAnalysis;
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       if (!ai) { await ctx.reply(`⚡ IMPACT — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\nConf: ${result.combinedSentiment.confidence.toFixed(1)}%`); break; }
       const sent = ai.overallSentiment === 'BULLISH' ? '🟢' : ai.overallSentiment === 'BEARISH' ? '🔴' : '🟡';
       await ctx.reply(`⚡ IMPACT — ${symbol}\n\n${sent} ${ai.overallSentiment}\n24H: ${ai.impactPrediction.shortTerm}\nExpected: ${ai.marketMovement.direction} ${ai.marketMovement.expectedRange.low.toFixed(1)}~${ai.marketMovement.expectedRange.high.toFixed(1)}%\nConf: ${ai.marketMovement.confidence.toFixed(1)}%`);
       break;
     }
     case 'news': {
-      await ctx.reply(`🔄 Basic news for ${symbol}...`);
+      const loading = await ctx.reply(`🔄 Basic news for ${symbol}...`);
       const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
       const articles = result.traditionalNews.articles;
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       if (articles.length === 0) { await ctx.reply(`❌ No news found for ${symbol}`); break; }
       const headlines = articles.slice(0, 5).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 80)}...`).join('\n');
       await ctx.reply(`📰 NEWS — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\n\n${headlines}`);
