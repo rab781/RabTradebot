@@ -323,19 +323,21 @@ export class RiskMonitorLoop {
             userId,
         );
 
-        for (const trade of openTrades) {
-            try {
-                await this.engine.executeExit(trade.id, 'circuit_breaker');
-            } catch (error) {
-                await db.logError({
-                    level: 'ERROR',
-                    source: 'risk_monitor_loop',
-                    message: `Failed to close trade ${trade.id} during circuit breaker: ${(error as Error).message}`,
-                    userId,
-                    symbol: trade.symbol,
-                });
-            }
-        }
+        await Promise.all(
+            openTrades.map(async (trade) => {
+                try {
+                    await this.engine.executeExit(trade.id, 'circuit_breaker');
+                } catch (error) {
+                    await db.logError({
+                        level: 'ERROR',
+                        source: 'risk_monitor_loop',
+                        message: `Failed to close trade ${trade.id} during circuit breaker: ${(error as Error).message}`,
+                        userId,
+                        symbol: trade.symbol,
+                    });
+                }
+            })
+        );
     }
 }
 
