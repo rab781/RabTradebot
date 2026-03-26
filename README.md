@@ -13,8 +13,8 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 Get the bot up and running in under 2 minutes:
 
 ```bash
-git clone https://github.com/yourusername/crypto-signal-bot.git
-cd crypto-signal-bot
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
 npm install
 
 # Copy the environment template and add your Telegram bot token
