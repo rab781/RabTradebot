@@ -39,20 +39,23 @@ Open Telegram, find your bot, and send `/start`.
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
 1. Clone the repository
-```bash
-git clone https://github.com/rab781/RabTradebot.git
-cd RabTradebot
-```
+
+   ```bash
+   git clone https://github.com/rab781/RabTradebot.git
+   cd RabTradebot
+   ```
 
 2. Install dependencies
-```bash
-npm install
-```
+
+   ```bash
+   npm install
+   ```
 
 3. Configure your environment variables
-```bash
-cp .env.example .env
-```
+
+   ```bash
+   cp .env.example .env
+   ```
 
 ## Configuration
 
