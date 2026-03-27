@@ -966,9 +966,23 @@ export class PaperTradingEngine {
     // Public methods for getting current state
     getCurrentResult(): PaperTradingResult {
         const totalTrades = this.closedTrades.length;
-        const profitableTrades = this.closedTrades.filter(t => (t.profit || 0) > 0).length;
-        const totalProfit = this.closedTrades.reduce((sum, t) => sum + (t.profit || 0), 0);
-        const totalUnrealizedPnl = this.positions.reduce((sum, pos) => sum + pos.unrealizedPnl, 0);
+
+        let profitableTrades = 0;
+        let totalProfit = 0;
+
+        // ⚡ Bolt Optimization: Replace multiple array traversals (.reduce, .filter)
+        // with single-pass loops for paper trading metrics.
+        for (let i = 0; i < totalTrades; i++) {
+            const pnl = this.closedTrades[i].profit || 0;
+            totalProfit += pnl;
+            if (pnl > 0) profitableTrades++;
+        }
+
+        let totalUnrealizedPnl = 0;
+        for (let i = 0; i < this.positions.length; i++) {
+            totalUnrealizedPnl += this.positions[i].unrealizedPnl;
+        }
+
         const currentBalance = this.balance + totalUnrealizedPnl;
         const realizedAndUnrealizedProfit = totalProfit + totalUnrealizedPnl;
 
