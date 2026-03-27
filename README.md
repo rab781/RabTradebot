@@ -119,7 +119,7 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/openclaw [symbol]` - Advanced ML-powered analysis
 
 ### ML & AI
-- `/mlpredict [symbol]` - GRU-based LSTM price prediction
+- `/mlpredict [symbol]` - GRU-based price prediction
 - `/trainmodel [symbol] [epochs]` - Train ML model (e.g., `/trainmodel BTCUSDT 15`)
 - `/mlstatus` - Check ML model status
 - `/pnews [symbol]` - AI news analysis (Powered by Chutes AI)
