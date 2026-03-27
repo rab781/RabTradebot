@@ -64,6 +64,7 @@ export class RateLimiter {
 
         const started = Date.now();
 
+        // eslint-disable-next-line no-constant-condition
         while (true) {
             const state = this.refill(bucket);
             if (state.tokens >= cost) {
