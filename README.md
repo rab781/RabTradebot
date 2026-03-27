@@ -39,23 +39,20 @@ Open Telegram, find your bot, and send `/start`.
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
 1. Clone the repository
-
-   ```bash
-   git clone https://github.com/rab781/RabTradebot.git
-   cd RabTradebot
-   ```
+```bash
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
+```
 
 2. Install dependencies
-
-   ```bash
-   npm install
-   ```
+```bash
+npm install
+```
 
 3. Configure your environment variables
-
-   ```bash
-   cp .env.example .env
-   ```
+```bash
+cp .env.example .env
+```
 
 ## Configuration
 
@@ -122,7 +119,7 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/openclaw [symbol]` - Advanced ML-powered analysis
 
 ### ML & AI
-- `/mlpredict [symbol]` - GRU-based price prediction
+- `/mlpredict [symbol]` - GRU-based LSTM price prediction
 - `/trainmodel [symbol] [epochs]` - Train ML model (e.g., `/trainmodel BTCUSDT 15`)
 - `/mlstatus` - Check ML model status
 - `/pnews [symbol]` - AI news analysis (Powered by Chutes AI)
