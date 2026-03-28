@@ -236,6 +236,7 @@ export class BayesianOptimizer {
         );
 
         const modifiedStrategy = (optimizer as any).applyParameters(params);
+        // eslint-disable-next-line @typescript-eslint/no-var-requires
         const backtestEngine = require('./backtestEngine').BacktestEngine;
 
         const engine = new backtestEngine(modifiedStrategy, {
