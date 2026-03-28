@@ -3,7 +3,7 @@
  * Menyediakan REST API dan WebSocket untuk real-time updates
  */
 
-import express, { Request, Response } from 'express';
+import express, { Request, Response, NextFunction } from 'express';
 import { createServer } from 'http';
 import { Server as SocketIOServer } from 'socket.io';
 import cors from 'cors';
@@ -22,8 +22,8 @@ const httpServer = createServer(app);
 // 🛡️ Sentinel: Restrict CORS origin to prevent unauthorized access (High Priority: Overly permissive CORS)
 const allowedOrigins = process.env.CORS_ORIGIN
     ? process.env.CORS_ORIGIN.split(',')
-          .map(origin => origin.trim())
-          .filter(origin => origin.length > 0)
+          .map((origin) => origin.trim())
+          .filter((origin) => origin.length > 0)
     : [`http://localhost:${PORT}`, `http://127.0.0.1:${PORT}`];
 const corsOptions = {
     origin: allowedOrigins,
@@ -37,6 +37,15 @@ const io = new SocketIOServer(httpServer, {
 const stateManager = BotStateManager.getInstance();
 
 // Middleware
+
+// 🛡️ Sentinel: Add essential security headers manually to avoid external dependencies
+app.use((req: Request, res: Response, next: NextFunction) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff');
+    res.setHeader('X-Frame-Options', 'DENY');
+    res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    next();
+});
+
 app.use(cors(corsOptions));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '../public')));
@@ -184,11 +193,17 @@ export function startWebServer() {
             .flat()
             .find((iface) => iface && iface.family === 'IPv4' && !iface.internal)?.address;
 
-        withLogContext({ service: 'webServer', data: { port: PORT, host: HOST } }).info(`Web Dashboard running at http://localhost:${PORT}`);
+        withLogContext({ service: 'webServer', data: { port: PORT, host: HOST } }).info(
+            `Web Dashboard running at http://localhost:${PORT}`
+        );
         if (lanIp) {
-            withLogContext({ service: 'webServer', data: { lanIp, port: PORT } }).info(`LAN Access: http://${lanIp}:${PORT}`);
+            withLogContext({ service: 'webServer', data: { lanIp, port: PORT } }).info(
+                `LAN Access: http://${lanIp}:${PORT}`
+            );
         }
-        withLogContext({ service: 'webServer' }).info(`API available at http://localhost:${PORT}/api`);
+        withLogContext({ service: 'webServer' }).info(
+            `API available at http://localhost:${PORT}/api`
+        );
         withLogContext({ service: 'webServer' }).info('WebSocket ready for real-time updates');
     });
 }
