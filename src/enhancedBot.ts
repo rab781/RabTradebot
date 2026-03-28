@@ -1049,8 +1049,9 @@ bot.command('signal', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /signal BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply('🔄 Generating signal...');
+    loadingMsg = await ctx.reply('🔄 Generating signal...');
     const signal = await signalGenerator.generateSignal(symbol);
 
     // Add signal to dashboard using structured data from SignalResult
@@ -1067,6 +1068,10 @@ bot.command('signal', async (ctx) => {
   } catch (error) {
     console.error(`Error generating signal for ${symbol}:`, error);
     ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
@@ -1194,8 +1199,9 @@ ${technicalSection}`);
 ${backtestSection}`);
 
     // Generate and send charts
+    let loadingChartsMsg: any;
     try {
-      await ctx.reply('🔄 Generating charts...');
+      loadingChartsMsg = await ctx.reply('🔄 Generating charts...');
       const timeframes = ['1h', '4h', '1d'];
 
       for (const tf of timeframes) {
@@ -1238,6 +1244,10 @@ ${backtestSection}`);
     } catch (chartError) {
       console.error('Chart generation error in /analyze:', chartError);
       await ctx.reply('⚠️ Could not generate chart images, but analysis continues...');
+    } finally {
+      if (loadingChartsMsg) {
+        try { await ctx.deleteMessage(loadingChartsMsg.message_id); } catch (e) { /* ignore */ }
+      }
     }
 
     await ctx.reply(`${recommendationSection}`);
@@ -3499,8 +3509,9 @@ bot.command('volume', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /volume BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply('🔄 Analyzing volume data...');
+    loadingMsg = await ctx.reply('🔄 Analyzing volume data...');
     // Use existing analyzer method
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
     ctx.reply(
@@ -3509,6 +3520,10 @@ bot.command('volume', async (ctx) => {
   } catch (error) {
     console.error('Volume analysis error:', error);
     ctx.reply(`❌ Error analyzing volume for ${symbol}. Please try again later.`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
@@ -3522,8 +3537,9 @@ bot.command('sr', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /sr BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply('🔄 Calculating support and resistance levels...');
+    loadingMsg = await ctx.reply('🔄 Calculating support and resistance levels...');
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
     ctx.reply(
       `🎯 Support/Resistance for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for detailed levels.`
@@ -3531,6 +3547,10 @@ bot.command('sr', async (ctx) => {
   } catch (error) {
     console.error('Support/Resistance analysis error:', error);
     ctx.reply(`❌ Error analyzing support/resistance for ${symbol}. Please try again later.`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
@@ -3546,8 +3566,9 @@ bot.command('chart', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /chart BTCUSDT 4h');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Generating ${timeframe} chart for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Generating ${timeframe} chart for ${symbol}...`);
 
     // Get data
     const data = await dataManager.getRecentData(symbol, timeframe, 100);
@@ -3582,6 +3603,10 @@ bot.command('chart', async (ctx) => {
   } catch (error) {
     console.error('Chart generation error:', error);
     ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
