@@ -334,41 +334,55 @@ export class BacktestEngine {
         data: OHLCVCandle[]
     ): BacktestResult {
         const totalTrades = trades.length;
-        const profitableTrades = trades.filter(t => (t.profit || 0) > 0).length;
+
+        let profitableTrades = 0;
+        let totalProfit = 0;
+        let totalDuration = 0;
+        let durationCount = 0;
+
+        let bestTrade: Trade | null = null;
+        let worstTrade: Trade | null = null;
+
+        let sumPositiveReturns = 0;
+        let countPositiveReturns = 0;
+        let sumNegativeReturns = 0;
+        let countNegativeReturns = 0;
+
+        // ⚡ Bolt Optimization: Replace multiple array traversals (.reduce, .filter, .map)
+        // with a single O(N) pass for calculating core aggregate metrics.
+        for (let i = 0; i < totalTrades; i++) {
+            const current = trades[i];
+            const pnl = current.profit || 0;
+
+            totalProfit += pnl;
+
+            if (pnl > 0) {
+                profitableTrades++;
+                sumPositiveReturns += pnl;
+                countPositiveReturns++;
+            } else if (pnl < 0) {
+                sumNegativeReturns += pnl;
+                countNegativeReturns++;
+            }
+
+            if (current.closeDate) {
+                totalDuration += current.closeDate.getTime() - current.openDate.getTime();
+                durationCount++;
+            }
+
+            if (!bestTrade || pnl > (bestTrade.profit || -Infinity)) bestTrade = current;
+            if (!worstTrade || pnl < (worstTrade.profit || Infinity)) worstTrade = current;
+        }
+
         const lossTrades = totalTrades - profitableTrades;
-
-        const totalProfit = trades.reduce((sum, t) => sum + (t.profit || 0), 0);
         const totalProfitPct = (totalProfit / startingBalance) * 100;
-
         const avgProfit = totalTrades > 0 ? totalProfit / totalTrades : 0;
         const avgProfitPct = totalTrades > 0 ? totalProfitPct / totalTrades : 0;
-
         const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
 
-        // Calculate trade durations
-        const durations = trades
-            .filter(t => t.closeDate)
-            .map(t => t.closeDate!.getTime() - t.openDate.getTime());
-        const avgTradeDuration = durations.length > 0
-            ? durations.reduce((sum, d) => sum + d, 0) / durations.length / (1000 * 60) // minutes
-            : 0;
-
-        // Find best and worst trades
-        const bestTrade = trades.reduce((best, current) =>
-            (current.profit || 0) > (best?.profit || -Infinity) ? current : best, null as Trade | null);
-        const worstTrade = trades.reduce((worst, current) =>
-            (current.profit || 0) < (worst?.profit || Infinity) ? current : worst, null as Trade | null);
-
-        // Calculate additional metrics
-        const profits = trades.map(t => t.profit || 0);
-        const positiveReturns = profits.filter(p => p > 0);
-        const negativeReturns = profits.filter(p => p < 0);
-
-        const avgPositiveReturn = positiveReturns.length > 0
-            ? positiveReturns.reduce((sum, p) => sum + p, 0) / positiveReturns.length : 0;
-        const avgNegativeReturn = negativeReturns.length > 0
-            ? negativeReturns.reduce((sum, p) => sum + p, 0) / negativeReturns.length : 0;
-
+        const avgTradeDuration = durationCount > 0 ? (totalDuration / durationCount) / (1000 * 60) : 0;
+        const avgPositiveReturn = countPositiveReturns > 0 ? sumPositiveReturns / countPositiveReturns : 0;
+        const avgNegativeReturn = countNegativeReturns > 0 ? sumNegativeReturns / countNegativeReturns : 0;
         const profitFactor = avgNegativeReturn !== 0 ? Math.abs(avgPositiveReturn / avgNegativeReturn) : 0;
 
         // Simple Sharpe ratio calculation (using daily returns)

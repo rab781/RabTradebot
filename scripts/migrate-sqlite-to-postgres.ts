@@ -4,6 +4,7 @@ import Database from 'better-sqlite3';
 import * as fs from 'fs';
 import * as path from 'path';
 
+// eslint-disable-next-line @typescript-eslint/no-var-requires
 const { Client } = require('pg');
 
 type JsonMap = Record<string, unknown>;
