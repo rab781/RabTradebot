@@ -1454,7 +1454,7 @@ bot.command('backtest', async (ctx) => {
   }
 
   try {
-    ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
+    const loadingMsg = await ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
 
     // Download historical data
     const endDate = new Date();
@@ -1549,6 +1549,12 @@ bot.command('backtest', async (ctx) => {
     }
 
     // Format results
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     const resultMessage = `
 📊 BACKTEST RESULTS for ${symbol}
 Strategy: ${strategy.name}
@@ -1613,7 +1619,7 @@ bot.command('papertrade', async (ctx) => {
   }
 
   try {
-    ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
+    const loadingMsg = await ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
 
     // Ensure user exists in database
     const user = await ensureUser(ctx);
@@ -1636,6 +1642,12 @@ bot.command('papertrade', async (ctx) => {
 
     // Start paper trading
     await paperEngine.start(symbol, '5m', 500);
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
 
     ctx.reply(`✅ Paper trading started for ${symbol}!
 💰 Initial balance: $${paperConfig.initialBalance}
@@ -1816,7 +1828,7 @@ bot.command('optimize', async (ctx) => {
   }
 
   try {
-    ctx.reply(`🔄 Starting strategy optimization for ${symbol}...
+    const loadingMsg = await ctx.reply(`🔄 Starting strategy optimization for ${symbol}...
 This may take several minutes. ⏳`);
 
     // Download historical data
@@ -1887,6 +1899,12 @@ ${Object.entries(analysis.parameterImportance)
 Tested ${results.length} parameter combinations.
         `;
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(message);
   } catch (error) {
     console.error('Optimization error:', error);
@@ -1911,7 +1929,7 @@ bot.command('download', async (ctx) => {
   }
 
   try {
-    ctx.reply(`🔄 Downloading ${days} days of data for ${symbol}...`);
+    const loadingMsg = await ctx.reply(`🔄 Downloading ${days} days of data for ${symbol}...`);
 
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
@@ -1950,6 +1968,12 @@ ${quality.gaps.length > 0 ? `Gaps: ${quality.gaps.length}` : ''}
 Data cached for future use. 💾
         `;
 
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     ctx.reply(message);
   } catch (error) {
     console.error('Download error:', error);
@@ -1968,7 +1992,7 @@ bot.command('datainfo', async (ctx) => {
   }
 
   try {
-    ctx.reply(`🔄 Checking data quality for ${symbol}...`);
+    const loadingMsg = await ctx.reply(`🔄 Checking data quality for ${symbol}...`);
 
     // Get recent data for analysis
     const recentData = await dataManager.getRecentData(symbol, '5m', 100);
@@ -1994,6 +2018,12 @@ Cached Datasets: ${dataManager.getCacheSize()}
 
 ${quality.issues.length > 0 ? `\n⚠️ ISSUES:\n${quality.issues.slice(0, 3).join('\n')}` : ''}
         `;
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
 
     ctx.reply(message);
   } catch (error) {
@@ -2788,7 +2818,7 @@ bot.command('impact', async (ctx) => {
 
   try {
     console.log(`[AI] [/impact] request symbol=${symbol} user=${ctx.message.from.id}`);
-    ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
+    const loadingMsg = await ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
 
     const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
     const newsItems = result.traditionalNews.articles;
@@ -2798,10 +2828,20 @@ bot.command('impact', async (ctx) => {
     );
 
     if (newsItems.length === 0 && result.redditSentiment.posts.length === 0) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
       return ctx.reply(`❌ No recent impactful news found for ${symbol}`);
     }
 
     if (!analysis) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
       return ctx.reply(`⚡ QUICK IMPACT: ${symbol}
 
 📊 Combined Sentiment: ${result.combinedSentiment.label}
@@ -2836,6 +2876,12 @@ ${newsItems
   .join('\n')}
 
 💡 Use /pnews ${symbol} for detailed analysis`;
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
 
     ctx.reply(quickSummary);
   } catch (error) {
