@@ -27,7 +27,7 @@ describe('F6: RateLimiter', () => {
         });
 
         const snapshot = limiter.getSnapshot();
-        expect(snapshot.restTokens).toBeLessThanOrEqual(10);
+        expect(snapshot.restTokens).toBeLessThan(11);
     });
 
     it('syncs ORDER tokens from order count header', () => {
@@ -39,7 +39,7 @@ describe('F6: RateLimiter', () => {
         });
 
         const snapshot = limiter.getSnapshot();
-        expect(snapshot.orderTokens).toBeLessThanOrEqual(1);
+        expect(snapshot.orderTokens).toBeLessThan(2);
     });
 
     it('ignores invalid headers gracefully', () => {
