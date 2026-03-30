@@ -357,8 +357,21 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Replacing array.reduce() with for loops avoids
+        // closure overhead and intermediate array creation for O(N) execution.
+        let sumScore = 0;
+        const n = results.length;
+        for (let i = 0; i < n; i++) {
+            sumScore += results[i].score;
+        }
+        const avgScore = sumScore / n;
+
+        let sumSqDiff = 0;
+        for (let i = 0; i < n; i++) {
+            const diff = results[i].score - avgScore;
+            sumSqDiff += diff * diff;
+        }
+        const scoreStd = Math.sqrt(sumSqDiff / n);
         
         const summary = `
 Optimization Analysis Summary:
@@ -389,12 +402,25 @@ ${Object.entries(parameterImportance)
             return 0;
         }
 
+        // ⚡ Bolt Optimization: Replacing 5 sequential .reduce() passes with
+        // a single O(N) for-loop eliminates 4 full traversals and thousands of
+        // callback closure allocations, drastically speeding up Pearson correlation math.
         const n = x.length;
-        const sumX = x.reduce((a, b) => a + b, 0);
-        const sumY = y.reduce((a, b) => a + b, 0);
-        const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
-        const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
-        const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
+        let sumX = 0;
+        let sumY = 0;
+        let sumXY = 0;
+        let sumX2 = 0;
+        let sumY2 = 0;
+
+        for (let i = 0; i < n; i++) {
+            const xi = x[i];
+            const yi = y[i];
+            sumX += xi;
+            sumY += yi;
+            sumXY += xi * yi;
+            sumX2 += xi * xi;
+            sumY2 += yi * yi;
+        }
 
         const numerator = n * sumXY - sumX * sumY;
         const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
@@ -700,10 +726,29 @@ Trade-offs Identified:
                 continue;
             }
 
-            const performances = neighborhood.map(r => r.score);
-            const bestPerf = Math.max(...performances);
-            const mean = performances.reduce((a, b) => a + b, 0) / performances.length;
-            const stdDev = Math.sqrt(performances.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / performances.length);
+            // ⚡ Bolt Optimization: Calculate sum, maximum, and extract performance metrics
+            // all inside a single, pre-allocated O(N) loop rather than chaining
+            // map() + Math.max(...array) + reduce(), preventing call-stack overflow on large arrays.
+            const nPerfs = neighborhood.length;
+            const performances = new Array(nPerfs);
+            let bestPerf = -Infinity;
+            let sumPerf = 0;
+
+            for (let i = 0; i < nPerfs; i++) {
+                const perf = neighborhood[i].score;
+                performances[i] = perf;
+                if (perf > bestPerf) bestPerf = perf;
+                sumPerf += perf;
+            }
+
+            const mean = sumPerf / nPerfs;
+
+            let sumSqDiff = 0;
+            for (let i = 0; i < nPerfs; i++) {
+                const diff = performances[i] - mean;
+                sumSqDiff += diff * diff;
+            }
+            const stdDev = Math.sqrt(sumSqDiff / nPerfs);
 
             // Sensitivity score: coefficient of variation (std/mean)
             const sensitivityScore = mean !== 0 ? stdDev / mean : 0;
@@ -777,10 +822,30 @@ Trade-offs Identified:
             }
 
             // Calculate metrics from shuffled trades
-            const totalProfit = shuffledTrades.reduce((sum, t) => sum + t.profit, 0);
-            const maxDrawdown = Math.max(...shuffledTrades.map(t => t.maxDrawdown));
-            const avgProfit = totalProfit / shuffledTrades.length;
-            const variance = shuffledTrades.reduce((sum, t) => sum + Math.pow(t.profit - avgProfit, 2), 0) / shuffledTrades.length;
+            // ⚡ Bolt Optimization: Calculate statistical indicators via basic
+            // for-loops. Removing map() + Math.max(...array) avoids exceeding the call
+            // stack on large data sets, while removing chained reduce()s gives an O(N) speedup.
+            let totalProfit = 0;
+            let maxDrawdown = -Infinity;
+            const numTrades = shuffledTrades.length;
+
+            for (let i = 0; i < numTrades; i++) {
+                const t = shuffledTrades[i];
+                totalProfit += t.profit;
+                if (t.maxDrawdown > maxDrawdown) {
+                    maxDrawdown = t.maxDrawdown;
+                }
+            }
+
+            const avgProfit = totalProfit / numTrades;
+
+            let sumSqDiff = 0;
+            for (let i = 0; i < numTrades; i++) {
+                const diff = shuffledTrades[i].profit - avgProfit;
+                sumSqDiff += diff * diff;
+            }
+
+            const variance = sumSqDiff / numTrades;
             const stdDev = Math.sqrt(variance);
             const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
 

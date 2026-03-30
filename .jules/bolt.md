@@ -62,3 +62,7 @@
 ## 2026-03-05 - [Parallelizing Multiple Database Calls in Loops]
 **Learning:** In time-critical execution paths like the `RiskMonitorLoop` circuit breaker, closing multiple active trades sequentially with a `for...of` loop creates a cascading latency effect because each trade exit waits for previous network and database transactions to finish.
 **Action:** Always parallelize independent asynchronous operations (like iterating over independent items and executing network calls on each) using `Promise.all` combined with `.map()`. Include an internal `try...catch` block within the `.map()` to prevent a single failure from halting the execution of the other independent tasks.
+
+## 2026-03-30 - [O(N) vs Multiple Traversals for Statistical Metrics]
+**Learning:** In optimization and Monte Carlo simulation routines (like `StrategyOptimizer`), calculating compound statistical metrics such as standard deviation, variance, mean, and Pearson correlation using sequentially chained `Array.prototype.reduce()` or `.map().reduce()` causes a massive performance bottleneck due to repeatedly traversing the dataset and invoking thousands of callback closures.
+**Action:** Replace sequential array method chains used for statistical accumulation with single-pass `for` loops. Pre-allocate intermediate scalar variables and track multiple sums or squared differences simultaneously in one linear pass to reduce time complexity to pure O(N) and eliminate V8 callback overhead.
