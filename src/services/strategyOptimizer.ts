@@ -390,11 +390,24 @@ ${Object.entries(parameterImportance)
         }
 
         const n = x.length;
-        const sumX = x.reduce((a, b) => a + b, 0);
-        const sumY = y.reduce((a, b) => a + b, 0);
-        const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
-        const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
-        const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
+        let sumX = 0;
+        let sumY = 0;
+        let sumXY = 0;
+        let sumX2 = 0;
+        let sumY2 = 0;
+
+        // ⚡ Bolt Optimization: Replace 5 separate O(N) array traversals (reduce)
+        // and closures with a single pre-allocated O(N) loop to drastically
+        // reduce intermediate array allocation and CPU overhead.
+        for (let i = 0; i < n; i++) {
+            const xi = x[i];
+            const yi = y[i];
+            sumX += xi;
+            sumY += yi;
+            sumXY += xi * yi;
+            sumX2 += xi * xi;
+            sumY2 += yi * yi;
+        }
 
         const numerator = n * sumXY - sumX * sumY;
         const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
@@ -777,10 +790,27 @@ Trade-offs Identified:
             }
 
             // Calculate metrics from shuffled trades
-            const totalProfit = shuffledTrades.reduce((sum, t) => sum + t.profit, 0);
-            const maxDrawdown = Math.max(...shuffledTrades.map(t => t.maxDrawdown));
-            const avgProfit = totalProfit / shuffledTrades.length;
-            const variance = shuffledTrades.reduce((sum, t) => sum + Math.pow(t.profit - avgProfit, 2), 0) / shuffledTrades.length;
+            let totalProfit = 0;
+            let maxDrawdown = -Infinity;
+            let profitSumSq = 0;
+
+            // ⚡ Bolt Optimization: Calculate totalProfit, maxDrawdown, and sum of squares
+            // in a single loop to avoid multiple expensive .reduce, .map, and Math.max
+            // traversals for every Monte Carlo simulation step.
+            const len = shuffledTrades.length;
+            for (let i = 0; i < len; i++) {
+                const t = shuffledTrades[i];
+                totalProfit += t.profit;
+                profitSumSq += t.profit * t.profit;
+                if (t.maxDrawdown > maxDrawdown) {
+                    maxDrawdown = t.maxDrawdown;
+                }
+            }
+
+            const avgProfit = totalProfit / len;
+            // Var(X) = E[X^2] - (E[X])^2
+            const avgProfitSq = profitSumSq / len;
+            const variance = Math.max(0, avgProfitSq - (avgProfit * avgProfit));
             const stdDev = Math.sqrt(variance);
             const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
 

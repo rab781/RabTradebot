@@ -62,3 +62,7 @@
 ## 2026-03-05 - [Parallelizing Multiple Database Calls in Loops]
 **Learning:** In time-critical execution paths like the `RiskMonitorLoop` circuit breaker, closing multiple active trades sequentially with a `for...of` loop creates a cascading latency effect because each trade exit waits for previous network and database transactions to finish.
 **Action:** Always parallelize independent asynchronous operations (like iterating over independent items and executing network calls on each) using `Promise.all` combined with `.map()`. Include an internal `try...catch` block within the `.map()` to prevent a single failure from halting the execution of the other independent tasks.
+
+## 2025-05-25 - [Optimize O(N) Array Operations in Monte Carlo]
+**Learning:** In `src/services/strategyOptimizer.ts`, the Monte Carlo simulation executes a loop thousands of times, internally running `.reduce`, `.map`, and `Math.max` on large array combinations. Using multiple O(N) chained array operations created excessive overhead in this hot loop, exacerbating CPU time due to function closure allocations and repeated loops over the same elements.
+**Action:** When working inside hot simulation/backtesting loops, pre-calculate elements mathematically instead of writing multiple higher-order functional map/reduces. Summing `totalProfit` and `profitSumSq` in a single pre-allocated O(N) `for` loop, then using `Var(X) = E[X^2] - (E[X])^2` eliminates 3 distinct array traversal passes and function closure overhead.
