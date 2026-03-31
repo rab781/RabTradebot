@@ -253,7 +253,7 @@ function buildCategoryMenuInline(symbol: string, category: string) {
       return Markup.inlineKeyboard([
         [
           Markup.button.callback('🔴 Start Live Trade (Real $)', 'run:livestart'),
-          Markup.button.callback('🔴 Stop Live (Real $)', 'run:livestop'),
+          Markup.button.callback('⏹ Stop Live (Real $)', 'run:livestop'),
         ],
         [Markup.button.callback('💼 Live Portfolio (Real $)', 'run:liveportfolio')],
         back,
@@ -665,10 +665,12 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
     case 'papertrade': {
       const ptSession = getUserSession(telegramId);
       if (ptSession.paperTrading?.isActive()) { await ctx.reply('📈 Paper trading already active.\nUse /stoptrading to stop.'); break; }
+      const loading = await ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
       const ptConfig: PaperTradingConfig = { initialBalance: 1000, maxOpenTrades: 3, feeOpen: 0.001, feeClose: 0.001, stakeCurrency: 'USDT', updateInterval: 5000 };
       const paperEngine = new PaperTradingEngine(strategy, ptConfig, String(dbUserId));
       ptSession.paperTrading = paperEngine;
       await paperEngine.start(symbol, '5m', 500);
+      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
       await ctx.reply(`✅ Paper trading started — ${symbol}\n💰 Balance: $1000 | Strategy: ${strategy.name}\n\nUse 💼 Portfolio to monitor.`);
       break;
     }
@@ -1612,12 +1614,14 @@ bot.command('papertrade', async (ctx) => {
     );
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
 
     // Ensure user exists in database
     const user = await ensureUser(ctx);
     if (!user) {
+      if (loadingMsg) { try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ } }
       return ctx.reply('❌ Failed to create user session.');
     }
 
@@ -1655,6 +1659,10 @@ Use /stoptrading to stop trading`);
       symbol,
     });
     ctx.reply(`❌ Error starting paper trading: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
