@@ -6,29 +6,24 @@
 
 ## Why This Exists
 
-Retail traders often lack access to the institutional-grade tools necessary to make data-driven decisions in volatile crypto markets. Navigating multiple platforms for technical indicators, news sentiment, and strategy backtesting is time-consuming and fragmented. This bot consolidates multi-timeframe analysis, AI-powered news sentiment (via Chutes AI), and risk management into a single, accessible Telegram interface—leveling the playing field without the cost of premium subscriptions.
+Retail traders often lack access to the institutional-grade tools necessary to make data-driven decisions in volatile crypto markets. You waste time navigating multiple platforms for technical indicators, news sentiment, and strategy backtesting. This bot consolidates multi-timeframe analysis, AI-powered news sentiment (via Chutes AI), and risk management into a single, accessible Telegram interface—leveling the playing field without the cost of premium subscriptions.
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+You get the bot up and running in under 2 minutes:
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
 npm install
-
-# Copy the environment template and add your Telegram bot token
 cp .env.example .env
+
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
-
-# Build the project (generates the dist/ directory)
+npx prisma generate
+npx prisma migrate dev
 npm run build
-
-# Start the bot
 npm start
 ```
-
-Open Telegram, find your bot, and send `/start`.
 
 ## Installation
 
@@ -39,14 +34,44 @@ Open Telegram, find your bot, and send `/start`.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/crypto-signal-bot.git
-cd crypto-signal-bot
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
 
 # 2. Install dependencies
 npm install
+
+# 3. Configure environment variables
+cp .env.example .env
+# Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
+
+# 4. Set up the database
+npx prisma generate
+npx prisma migrate dev
+
+# 5. Build and start the bot
+npm run build
+npm start
 ```
 
-## Configuration
+## Usage
+
+You interact with the bot via Telegram commands.
+
+### Basic Example
+
+To get a complete market analysis for a specific pair, you send the following command to the bot:
+
+```
+/analyze BTCUSDT
+```
+
+**What you get:**
+- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
+- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
+- **Backtesting Results**: 30-day strategy performance
+- **Recommendations**: Entry/exit levels with reasoning
+
+### Configuration
 
 Configure the bot by editing the `.env` file.
 
@@ -59,42 +84,24 @@ Configure the bot by editing the `.env` file.
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
-## Usage
-
-Interact with the bot via Telegram commands.
-
-### Basic Example
-
-To get a complete market analysis for a specific pair:
-
-```
-/analyze BTCUSDT
-```
-
-**What you get:**
-- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
-- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
-- **Backtesting Results**: 30-day strategy performance
-- **Recommendations**: Entry/exit levels with reasoning
-
 ### Advanced Usage
 
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
+You can run complex trading workflows, including simulated trading and strategy optimization.
 
 **Start a Paper Trading Session:**
-```
+```text
 /papertrade ETHUSDT
 ```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+*Starts a virtual trading session with $1000 simulated balance using real market data. You track it using `/portfolio`.*
 
 **Backtest a Strategy:**
-```
+```text
 /backtest SOLUSDT 30
 ```
 *Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
 
 **Optimize Strategy Parameters:**
-```
+```text
 /optimize ADAUSDT 60
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
