@@ -768,19 +768,39 @@ Trade-offs Identified:
         const drawdownResults: number[] = [];
         const sharpeResults: number[] = [];
 
+        // ⚡ Bolt Optimization: Pre-allocate array to avoid O(N) object spread inside the hot loop
+        const shuffledTrades = [...trades];
+        const len = shuffledTrades.length;
+
         for (let sim = 0; sim < numSimulations; sim++) {
-            // Fisher-Yates shuffle
-            const shuffledTrades = [...trades];
-            for (let i = shuffledTrades.length - 1; i > 0; i--) {
+            // Fisher-Yates shuffle (in-place)
+            for (let i = len - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [shuffledTrades[i], shuffledTrades[j]] = [shuffledTrades[j], shuffledTrades[i]];
+                const temp = shuffledTrades[i];
+                shuffledTrades[i] = shuffledTrades[j];
+                shuffledTrades[j] = temp;
             }
 
-            // Calculate metrics from shuffled trades
-            const totalProfit = shuffledTrades.reduce((sum, t) => sum + t.profit, 0);
-            const maxDrawdown = Math.max(...shuffledTrades.map(t => t.maxDrawdown));
-            const avgProfit = totalProfit / shuffledTrades.length;
-            const variance = shuffledTrades.reduce((sum, t) => sum + Math.pow(t.profit - avgProfit, 2), 0) / shuffledTrades.length;
+            // ⚡ Bolt Optimization: Calculate metrics in a single O(N) pass using running sums and variance identities
+            // Var(X) = E[X^2] - (E[X])^2
+            let totalProfit = 0;
+            let sumProfitSq = 0;
+            let maxDrawdown = -Infinity;
+
+            for (let i = 0; i < len; i++) {
+                const t = shuffledTrades[i];
+                totalProfit += t.profit;
+                sumProfitSq += t.profit * t.profit;
+                if (t.maxDrawdown > maxDrawdown) {
+                    maxDrawdown = t.maxDrawdown;
+                }
+            }
+
+            const avgProfit = totalProfit / len;
+            const avgProfitSq = sumProfitSq / len;
+
+            // Variance using identity, with Math.max(0) to prevent floating-point negative zero errors
+            const variance = Math.max(0, avgProfitSq - (avgProfit * avgProfit));
             const stdDev = Math.sqrt(variance);
             const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
 
