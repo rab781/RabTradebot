@@ -764,29 +764,48 @@ Trade-offs Identified:
             };
         }
 
-        const profitResults: number[] = [];
-        const drawdownResults: number[] = [];
-        const sharpeResults: number[] = [];
+        // ⚡ Bolt Optimization: Pre-allocate result arrays to avoid .push() overhead
+        const profitResults = new Array<number>(numSimulations);
+        const drawdownResults = new Array<number>(numSimulations);
+        const sharpeResults = new Array<number>(numSimulations);
+
+        // ⚡ Bolt Optimization: Clone once outside the loop to prevent O(N) memory allocation inside the hot loop
+        const shuffledTrades = [...trades];
+        const numTrades = shuffledTrades.length;
 
         for (let sim = 0; sim < numSimulations; sim++) {
-            // Fisher-Yates shuffle
-            const shuffledTrades = [...trades];
-            for (let i = shuffledTrades.length - 1; i > 0; i--) {
+            // In-place Fisher-Yates shuffle
+            for (let i = numTrades - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [shuffledTrades[i], shuffledTrades[j]] = [shuffledTrades[j], shuffledTrades[i]];
+                const temp = shuffledTrades[i];
+                shuffledTrades[i] = shuffledTrades[j];
+                shuffledTrades[j] = temp;
             }
 
-            // Calculate metrics from shuffled trades
-            const totalProfit = shuffledTrades.reduce((sum, t) => sum + t.profit, 0);
-            const maxDrawdown = Math.max(...shuffledTrades.map(t => t.maxDrawdown));
-            const avgProfit = totalProfit / shuffledTrades.length;
-            const variance = shuffledTrades.reduce((sum, t) => sum + Math.pow(t.profit - avgProfit, 2), 0) / shuffledTrades.length;
+            // ⚡ Bolt Optimization: Calculate metrics in a single O(N) pass, avoiding .reduce(), .map(), and multiple closures
+            let totalProfit = 0;
+            let sumProfitSq = 0;
+            let maxDrawdown = -Infinity;
+
+            for (let i = 0; i < numTrades; i++) {
+                const t = shuffledTrades[i];
+                const p = t.profit;
+                totalProfit += p;
+                sumProfitSq += p * p;
+                if (t.maxDrawdown > maxDrawdown) {
+                    maxDrawdown = t.maxDrawdown;
+                }
+            }
+
+            const avgProfit = totalProfit / numTrades;
+            // Mathematical identity: Var(X) = E[X^2] - (E[X])^2
+            const variance = Math.max(0, (sumProfitSq / numTrades) - (avgProfit * avgProfit));
             const stdDev = Math.sqrt(variance);
             const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
 
-            profitResults.push(totalProfit);
-            drawdownResults.push(maxDrawdown);
-            sharpeResults.push(sharpe);
+            profitResults[sim] = totalProfit;
+            drawdownResults[sim] = maxDrawdown;
+            sharpeResults[sim] = sharpe;
         }
 
         // Calculate percentiles
