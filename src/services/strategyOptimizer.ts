@@ -390,14 +390,26 @@ ${Object.entries(parameterImportance)
         }
 
         const n = x.length;
-        const sumX = x.reduce((a, b) => a + b, 0);
-        const sumY = y.reduce((a, b) => a + b, 0);
-        const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
-        const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
-        const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
+
+        // ⚡ Bolt Optimization: Replace 5 separate O(N) .reduce() iterations with 1 O(N) loop
+        let sumX = 0;
+        let sumY = 0;
+        let sumXY = 0;
+        let sumX2 = 0;
+        let sumY2 = 0;
+
+        for (let i = 0; i < n; i++) {
+            const xi = x[i];
+            const yi = y[i];
+            sumX += xi;
+            sumY += yi;
+            sumXY += xi * yi;
+            sumX2 += xi * xi;
+            sumY2 += yi * yi;
+        }
 
         const numerator = n * sumXY - sumX * sumY;
-        const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
+        const denominator = Math.sqrt(Math.max(0, (n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY)));
 
         if (denominator === 0) {
             return 0;
@@ -764,29 +776,52 @@ Trade-offs Identified:
             };
         }
 
-        const profitResults: number[] = [];
-        const drawdownResults: number[] = [];
-        const sharpeResults: number[] = [];
+        // ⚡ Bolt Optimization: Pre-allocate arrays instead of using push
+        const profitResults: number[] = new Array(numSimulations);
+        const drawdownResults: number[] = new Array(numSimulations);
+        const sharpeResults: number[] = new Array(numSimulations);
+
+        const numTrades = trades.length;
+        // ⚡ Bolt Optimization: Clone once outside the hot loop to avoid repeated O(N) allocations
+        const shuffledTrades = [...trades];
 
         for (let sim = 0; sim < numSimulations; sim++) {
-            // Fisher-Yates shuffle
-            const shuffledTrades = [...trades];
-            for (let i = shuffledTrades.length - 1; i > 0; i--) {
+            // Fisher-Yates shuffle in-place
+            for (let i = numTrades - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [shuffledTrades[i], shuffledTrades[j]] = [shuffledTrades[j], shuffledTrades[i]];
+                const temp = shuffledTrades[i];
+                shuffledTrades[i] = shuffledTrades[j];
+                shuffledTrades[j] = temp;
             }
 
             // Calculate metrics from shuffled trades
-            const totalProfit = shuffledTrades.reduce((sum, t) => sum + t.profit, 0);
-            const maxDrawdown = Math.max(...shuffledTrades.map(t => t.maxDrawdown));
-            const avgProfit = totalProfit / shuffledTrades.length;
-            const variance = shuffledTrades.reduce((sum, t) => sum + Math.pow(t.profit - avgProfit, 2), 0) / shuffledTrades.length;
+            // ⚡ Bolt Optimization: Single-pass for loop replacing multiple .reduce() and .map() calls
+            let totalProfit = 0;
+            let sumProfitSq = 0;
+            let maxDrawdown = -Infinity;
+
+            for (let i = 0; i < numTrades; i++) {
+                const t = shuffledTrades[i];
+                totalProfit += t.profit;
+                sumProfitSq += t.profit * t.profit;
+                if (t.maxDrawdown > maxDrawdown) {
+                    maxDrawdown = t.maxDrawdown;
+                }
+            }
+
+            const avgProfit = totalProfit / numTrades;
+            // Var(X) = E[X^2] - (E[X])^2
+            const expectedSq = sumProfitSq / numTrades;
+            let variance = expectedSq - (avgProfit * avgProfit);
+            // Prevent NaN from floating-point negative zero errors
+            variance = Math.max(0, variance);
+
             const stdDev = Math.sqrt(variance);
             const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
 
-            profitResults.push(totalProfit);
-            drawdownResults.push(maxDrawdown);
-            sharpeResults.push(sharpe);
+            profitResults[sim] = totalProfit;
+            drawdownResults[sim] = maxDrawdown;
+            sharpeResults[sim] = sharpe;
         }
 
         // Calculate percentiles
