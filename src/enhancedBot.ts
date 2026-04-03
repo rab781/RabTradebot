@@ -789,16 +789,12 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       break;
     }
     case 'datainfo': {
-      const loadingMsg = await ctx.reply(`🔄 Checking data for ${symbol}...`);
-      try {
-        const recentData = await dataManager.getRecentData(symbol, '5m', 100);
-        const summary = dataManager.getDataSummary(recentData);
-        const quality = dataManager.validateDataQuality(recentData);
-        const lastClose = recentData[recentData.length - 1]?.close ?? 0;
-        await ctx.reply(`📊 Data Info — ${symbol}\n\nLatest: $${lastClose.toFixed(2)}\nRange: $${summary.priceRange.min.toFixed(2)} - $${summary.priceRange.max.toFixed(2)}\nQuality: ${quality.isValid ? '✅ Valid' : '❌ Issues'} | Gaps: ${quality.gaps.length}`);
-      } finally {
-        try { await bot.telegram.deleteMessage(chatId, loadingMsg.message_id); } catch (_) { /* ignore */ }
-      }
+      await ctx.reply(`🔄 Checking data for ${symbol}...`);
+      const recentData = await dataManager.getRecentData(symbol, '5m', 100);
+      const summary = dataManager.getDataSummary(recentData);
+      const quality = dataManager.validateDataQuality(recentData);
+      const lastClose = recentData[recentData.length - 1]?.close ?? 0;
+      await ctx.reply(`📊 Data Info — ${symbol}\n\nLatest: $${lastClose.toFixed(2)}\nRange: $${summary.priceRange.min.toFixed(2)} - $${summary.priceRange.max.toFixed(2)}\nQuality: ${quality.isValid ? '✅ Valid' : '❌ Issues'} | Gaps: ${quality.gaps.length}`);
       break;
     }
     case 'livestart': {
@@ -1264,12 +1260,11 @@ ${backtestSection}`);
     // Add scraped news analysis (and AI if configured)
     try {
       console.log(`[SCRAPE] [/analyze] news-enrichment start symbol=${symbol}`);
-      const loadingNewsMsg = await ctx.reply(`🔄 Adding scraped news sentiment analysis...`);
+      await ctx.reply(`🔄 Adding scraped news sentiment analysis...`);
       const newsResult = await newsAnalyzer.analyzeComprehensiveNews(symbol, analysisResult.currentPrice);
       console.log(
         `[SCRAPE] [/analyze] news-enrichment result symbol=${symbol} articles=${newsResult.traditionalNews.articles.length} reddit=${newsResult.redditSentiment.posts.length} ai=${newsResult.aiAnalysis ? 'yes' : 'no'}`
       );
-      try { await ctx.deleteMessage(loadingNewsMsg.message_id); } catch (e) { /* ignore */ }
 
       if (
         newsResult.traditionalNews.articles.length === 0 &&
