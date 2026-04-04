@@ -3775,13 +3775,13 @@ Use /mlstats for detailed ML performance
 Use /strategystats to compare strategies
         `;
 
-    await ctx.reply(statsMessage);
-
     try {
       await ctx.deleteMessage(loadingMsg.message_id);
     } catch (e) {
       /* ignore */
     }
+
+    await ctx.reply(statsMessage);
   } catch (error) {
     console.error('Stats error:', error);
     await db.logError({
@@ -3842,13 +3842,13 @@ Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
 💡 Use /mlpredict to make new predictions
         `;
 
-    await ctx.reply(statsMessage);
-
     try {
       await ctx.deleteMessage(loadingMsg.message_id);
     } catch (e) {
       /* ignore */
     }
+
+    await ctx.reply(statsMessage);
   } catch (error) {
     console.error('ML stats error:', error);
     await db.logError({
@@ -3923,13 +3923,13 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
 💡 Use /backtest to run new backtests
         `;
 
-    await ctx.reply(statsMessage);
-
     try {
       await ctx.deleteMessage(loadingMsg.message_id);
     } catch (e) {
       /* ignore */
     }
+
+    await ctx.reply(statsMessage);
   } catch (error) {
     console.error('Strategy stats error:', error);
     await db.logError({
@@ -3951,6 +3951,12 @@ bot.command('leaderboard', async (ctx) => {
     const loadingMsg = await ctx.reply('🏆 Loading leaderboard...');
 
     // This would require aggregation queries - simplified version
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     await ctx.reply(`
 🏆 PERFORMANCE LEADERBOARD
 
