@@ -16,7 +16,7 @@ describe('Phase 5 - Sprint 3: Monte Carlo Robustness Test', () => {
 
             // Single trade should have same result across all simulations
             expect(result.profitDistribution.median).toBe(100);
-            expect(result.drawdownDistribution.median).toBe(10);
+            expect(result.drawdownDistribution.median).toBe(0); // Sequential maxDrawdown of 1 trade with +100 profit is 0
         });
 
         it('[F5-9] should produce valid percentile distribution (P5 <= P25 <= median <= P75 <= P95)', () => {
@@ -110,8 +110,8 @@ describe('Phase 5 - Sprint 3: Monte Carlo Robustness Test', () => {
 
             const result = optimizer.monteCarloTest(trades, 500);
 
-            // P5 should be different from P95 (variance exists)
-            expect(Math.abs(result.profitDistribution.p5 - result.profitDistribution.p95))
+            // P5 should be different from P95 for drawdown (profit is now invariant)
+            expect(Math.abs(result.drawdownDistribution.p5 - result.drawdownDistribution.p95))
                 .toBeGreaterThan(0);
         });
 

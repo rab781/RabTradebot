@@ -62,3 +62,7 @@
 ## 2026-03-05 - [Parallelizing Multiple Database Calls in Loops]
 **Learning:** In time-critical execution paths like the `RiskMonitorLoop` circuit breaker, closing multiple active trades sequentially with a `for...of` loop creates a cascading latency effect because each trade exit waits for previous network and database transactions to finish.
 **Action:** Always parallelize independent asynchronous operations (like iterating over independent items and executing network calls on each) using `Promise.all` combined with `.map()`. Include an internal `try...catch` block within the `.map()` to prevent a single failure from halting the execution of the other independent tasks.
+
+## 2026-03-05 - [Monte Carlo Hot-Loop Optimization]
+**Learning:** In the `StrategyOptimizer`'s `monteCarloTest`, repeatedly cloning arrays (`[...trades]`) inside the simulation loop creates immense allocation overhead. Furthermore, metrics like average profit, variance, and Sharpe ratio are permutation-invariant and repeatedly re-calculating them per simulation using array methods is inefficient.
+**Action:** When designing Monte Carlo simulations, clone the data array once outside the simulation loop and perform in-place Fisher-Yates shuffles per iteration. Mathematically pre-calculate invariant elements in a single O(N) pass, and use the shuffled sequence strictly for computing path-dependent metrics like sequential max drawdown.
