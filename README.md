@@ -10,7 +10,7 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+Get the bot up and running in under 5 minutes.
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
@@ -20,6 +20,10 @@ npm install
 # Copy the environment template and add your Telegram bot token
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
+
+# Setup database and generate Prisma client
+npx prisma generate
+npx prisma migrate dev
 
 # Build the project (generates the dist/ directory)
 npm run build
@@ -39,16 +43,26 @@ Open Telegram, find your bot, and send `/start`.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/crypto-signal-bot.git
-cd crypto-signal-bot
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
 
 # 2. Install dependencies
 npm install
+
+# 3. Setup environment variables
+cp .env.example .env
+# Edit .env and set TELEGRAM_BOT_TOKEN and other API keys if desired
+
+# 4. Generate database schema and perform migrations
+npx prisma generate
+npx prisma migrate dev
 ```
 
-## Configuration
+## Usage
 
-Configure the bot by editing the `.env` file.
+### Configuration
+
+Configure the bot by editing the `.env` file. You must set your Telegram Bot Token at a minimum.
 
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
@@ -59,13 +73,9 @@ Configure the bot by editing the `.env` file.
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
-## Usage
-
-Interact with the bot via Telegram commands.
-
 ### Basic Example
 
-To get a complete market analysis for a specific pair:
+Interact with the bot via Telegram commands. To get a complete market analysis for a specific pair, send:
 
 ```
 /analyze BTCUSDT
