@@ -62,7 +62,8 @@ app.get('/api/dashboard', (req: Request, res: Response) => {
         const data = stateManager.getDashboardData();
         res.json(data);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        withLogContext({ service: 'webServer' }).error(`Dashboard API error: ${error.message}`);
+        res.status(500).json({ error: 'An internal server error occurred' });
     }
 });
 
@@ -73,7 +74,8 @@ app.get('/api/trades', (req: Request, res: Response) => {
         const trades = stateManager.getTrades(limit);
         res.json(trades);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        withLogContext({ service: 'webServer' }).error(`Trades API error: ${error.message}`);
+        res.status(500).json({ error: 'An internal server error occurred' });
     }
 });
 
@@ -83,7 +85,8 @@ app.get('/api/trades/open', (req: Request, res: Response) => {
         const openTrades = stateManager.getOpenTrades();
         res.json(openTrades);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        withLogContext({ service: 'webServer' }).error(`Open trades API error: ${error.message}`);
+        res.status(500).json({ error: 'An internal server error occurred' });
     }
 });
 
@@ -94,7 +97,8 @@ app.get('/api/signals', (req: Request, res: Response) => {
         const signals = stateManager.getSignals(limit);
         res.json(signals);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        withLogContext({ service: 'webServer' }).error(`Signals API error: ${error.message}`);
+        res.status(500).json({ error: 'An internal server error occurred' });
     }
 });
 
@@ -105,7 +109,8 @@ app.get('/api/news', (req: Request, res: Response) => {
         const news = stateManager.getNews(limit);
         res.json(news);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        withLogContext({ service: 'webServer' }).error(`News API error: ${error.message}`);
+        res.status(500).json({ error: 'An internal server error occurred' });
     }
 });
 
@@ -115,7 +120,8 @@ app.get('/api/portfolio', (req: Request, res: Response) => {
         const portfolio = stateManager.getPortfolio();
         res.json(portfolio);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        withLogContext({ service: 'webServer' }).error(`Portfolio API error: ${error.message}`);
+        res.status(500).json({ error: 'An internal server error occurred' });
     }
 });
 
@@ -125,7 +131,8 @@ app.get('/api/stats', (req: Request, res: Response) => {
         const stats = stateManager.getStats();
         res.json(stats);
     } catch (error: any) {
-        res.status(500).json({ error: error.message });
+        withLogContext({ service: 'webServer' }).error(`Stats API error: ${error.message}`);
+        res.status(500).json({ error: 'An internal server error occurred' });
     }
 });
 
