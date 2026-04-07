@@ -731,13 +731,30 @@ export class FeatureEngineeringService {
         candles15m: OHLCVCandle[],
         candles4h: OHLCVCandle[],
     ): MultiTFFeatureSet[] {
-        const closes15m = candles15m.map(c => c.close);
-        const volumes15m = candles15m.map(c => c.volume);
-        const highs15m = candles15m.map(c => c.high);
-        const lows15m = candles15m.map(c => c.low);
-        const closes4h = candles4h.map(c => c.close);
-        const highs4h = candles4h.map(c => c.high);
-        const lows4h = candles4h.map(c => c.low);
+        // ⚡ Bolt Optimization: Replace 7 O(N) .map() calls with pre-allocated single-pass loops
+        const len15m = candles15m.length;
+        const closes15m = new Array<number>(len15m);
+        const volumes15m = new Array<number>(len15m);
+        const highs15m = new Array<number>(len15m);
+        const lows15m = new Array<number>(len15m);
+        for (let i = 0; i < len15m; i++) {
+            const c = candles15m[i];
+            closes15m[i] = c.close;
+            volumes15m[i] = c.volume;
+            highs15m[i] = c.high;
+            lows15m[i] = c.low;
+        }
+
+        const len4h = candles4h.length;
+        const closes4h = new Array<number>(len4h);
+        const highs4h = new Array<number>(len4h);
+        const lows4h = new Array<number>(len4h);
+        for (let i = 0; i < len4h; i++) {
+            const c = candles4h[i];
+            closes4h[i] = c.close;
+            highs4h[i] = c.high;
+            lows4h[i] = c.low;
+        }
 
         const rsi15m   = closes15m.length >= 15  ? RSI.calculate({ period: 14, values: closes15m }) : [];
         const macd15m  = closes15m.length >= 35  ? MACD.calculate({ values: closes15m, fastPeriod: 12, slowPeriod: 26, signalPeriod: 9, SimpleMAOscillator: false, SimpleMASignal: false }) : [];
