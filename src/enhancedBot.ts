@@ -3732,13 +3732,14 @@ bot.command('delalert', async (ctx) => {
 
 // Stats command - User trading statistics
 bot.command('stats', async (ctx) => {
+  let loadingMsg: any;
   try {
     const user = await ensureUser(ctx);
     if (!user) {
       return ctx.reply('❌ Failed to load user data.');
     }
 
-    const loadingMsg = await ctx.reply('📊 Loading statistics...');
+    loadingMsg = await ctx.reply('📊 Loading statistics...');
 
     // Get trade stats
     const tradeStats = await db.getUserTradeStats(user.id);
@@ -3777,11 +3778,6 @@ Use /strategystats to compare strategies
 
     await ctx.reply(statsMessage);
 
-    try {
-      await ctx.deleteMessage(loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
   } catch (error) {
     console.error('Stats error:', error);
     await db.logError({
@@ -3791,6 +3787,14 @@ Use /strategystats to compare strategies
       stackTrace: (error as Error).stack,
     });
     ctx.reply(`❌ Error loading statistics: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
   }
 
   return;
@@ -3798,11 +3802,12 @@ Use /strategystats to compare strategies
 
 // ML Stats command - Detailed ML performance
 bot.command('mlstats', async (ctx) => {
+  let loadingMsg: any;
   const args = ctx.message.text.split(' ');
   const symbol = args[1]?.toUpperCase();
 
   try {
-    const loadingMsg = await ctx.reply('🤖 Loading ML statistics...');
+    loadingMsg = await ctx.reply('🤖 Loading ML statistics...');
 
     // Get overall prediction stats
     const overallStats = await db.getPredictionStats();
@@ -3844,11 +3849,6 @@ Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
 
     await ctx.reply(statsMessage);
 
-    try {
-      await ctx.deleteMessage(loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
   } catch (error) {
     console.error('ML stats error:', error);
     await db.logError({
@@ -3859,6 +3859,14 @@ Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
       symbol,
     });
     ctx.reply(`❌ Error loading ML statistics: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
   }
 
   return;
@@ -3866,11 +3874,12 @@ Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
 
 // Strategy Stats command - Compare strategy performance
 bot.command('strategystats', async (ctx) => {
+  let loadingMsg: any;
   const args = ctx.message.text.split(' ');
   const symbol = args[1]?.toUpperCase();
 
   try {
-    const loadingMsg = await ctx.reply('📊 Loading strategy statistics...');
+    loadingMsg = await ctx.reply('📊 Loading strategy statistics...');
 
     // Get all strategy metrics
     const sampleMetrics = await db.getStrategyMetrics('SampleStrategy', symbol);
@@ -3878,11 +3887,6 @@ bot.command('strategystats', async (ctx) => {
 
     if (sampleMetrics.length === 0 && openclawMetrics.length === 0) {
       await ctx.reply('❌ No strategy data found. Run some backtests first with /backtest');
-      try {
-        await ctx.deleteMessage(loadingMsg.message_id);
-      } catch (e) {
-        /* ignore */
-      }
       return;
     }
 
@@ -3925,11 +3929,6 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
 
     await ctx.reply(statsMessage);
 
-    try {
-      await ctx.deleteMessage(loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
   } catch (error) {
     console.error('Strategy stats error:', error);
     await db.logError({
@@ -3940,6 +3939,14 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
       symbol,
     });
     ctx.reply(`❌ Error loading strategy statistics: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
   }
 
   return;
@@ -3947,8 +3954,9 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
 
 // Leaderboard command - Best performing symbols
 bot.command('leaderboard', async (ctx) => {
+  let loadingMsg: any;
   try {
-    const loadingMsg = await ctx.reply('🏆 Loading leaderboard...');
+    loadingMsg = await ctx.reply('🏆 Loading leaderboard...');
 
     // This would require aggregation queries - simplified version
     await ctx.reply(`
@@ -3964,14 +3972,17 @@ bot.command('leaderboard', async (ctx) => {
 💡 Use /strategystats to compare strategies
         `);
 
-    try {
-      await ctx.deleteMessage(loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
   } catch (error) {
     console.error('Leaderboard error:', error);
     ctx.reply(`❌ Error loading leaderboard: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
   }
 
   return;
