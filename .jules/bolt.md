@@ -5,6 +5,7 @@
 ## 2025-05-18 - [Optimizing Daily Returns Calculation in BacktestEngine]
 **Learning:** `Array.reduce` inside of an `Array.from(Map.entries())` loop combined with `toISOString().split('T')[0]` inside a loop is incredibly slow when calculating daily returns for many trades. Creating arrays and splitting strings within iterations caused an O(n) task to be much slower than necessary (taking ~80ms instead of ~5ms for 50,000 trades).
 **Action:** When grouping objects by day in a high-frequency or large dataset loop, bypass intermediate string operations and arrays. Use integer keys like `Math.floor(timestamp / 86400000)` combined with a single `Map` to accumulate values linearly.
+
 ## 2025-05-18 - [Hot-path Object.entries allocation overhead]
 **Learning:** In backtesting and paper trading engines, calling `Object.entries(this.strategy.minimalRoi)` inside `checkRoi` created massive allocation overhead because it ran for every open trade on every simulated candle, slowing down evaluations significantly.
 **Action:** Pre-compute and sort strategy configurations (like `minimalRoi`) in the constructor into a static array (`this.sortedRoi`), bypassing the repeated dynamic object allocation for a ~35x speedup in the evaluation method.
@@ -20,6 +21,7 @@
 ## 2025-05-18 - [Optimizing Multiple Custom Indicator Loops in Strategies]
 **Learning:** In strategy files like `OpenClawStrategy.ts`, calculating multiple custom indicators (like `bbWidth`, `volumeRatio`, `volatility`, etc.) in separate iterative loops that use `Array.push` and nested array calculations (`Array.slice`, `Array.reduce`) creates massive allocation overhead and O(N*M) time complexity.
 **Action:** Consolidate these iterations into a single, pre-allocated `for` loop (`new Array(length).fill(0)`), pre-calculate variables like `returns` once to avoid repeated slices/reduces inside rolling windows, and combine the index lookups to reduce garbage collection pressure. This can yield a >3x speedup on custom indicator population in strategies.
+
 ## 2025-05-24 - [O(N*M) Allocation bottlenecks in Indicator Calculations]
 **Learning:** In `OpenClawStrategy.ts`, calculating rolling volatility (standard deviation) over a dataset by using nested loops that repeatedly instantiate arrays (`const returns = []`), push to them, and then compute metrics via `.reduce()` creates massive O(N*M) overhead from closure creation and garbage collection.
 **Action:** Optimize rolling indicator loops by pre-allocating result arrays (`new Array(len).fill(0)`), pre-calculating the base unit (e.g., all step-to-step returns) in a single O(N) pass, and then using a rolling loop of primitive variables to compute the sum and variance.
@@ -59,6 +61,11 @@
 ## 2025-05-25 - [Optimize Rolling Variance / Volatility Calculation]
 **Learning:** Calculating rolling variance/volatility using nested loops to find the mean and sum of squared differences creates an O(N*K) bottleneck (where N is data length and K is the period). In `OpenClawStrategy.ts`, computing standard deviation for every candle using an inner loop over the 20-period history caused massive CPU overhead.
 **Action:** Replace nested loops for rolling standard deviations with a sliding window tracking `rollingSum` and `rollingSumSq` (sum of returns and sum of squared returns). Add the new value, subtract the `i-period` value, and derive the variance mathematically in O(1) step time: `(rollingSumSq - ((rollingSum * rollingSum) / period)) / period`. Always wrap variance in `Math.max(0, variance)` before `Math.sqrt` to prevent floating point edge-case NaNs.
+
 ## 2026-03-05 - [Parallelizing Multiple Database Calls in Loops]
 **Learning:** In time-critical execution paths like the `RiskMonitorLoop` circuit breaker, closing multiple active trades sequentially with a `for...of` loop creates a cascading latency effect because each trade exit waits for previous network and database transactions to finish.
 **Action:** Always parallelize independent asynchronous operations (like iterating over independent items and executing network calls on each) using `Promise.all` combined with `.map()`. Include an internal `try...catch` block within the `.map()` to prevent a single failure from halting the execution of the other independent tasks.
+
+## 2026-03-05 - [O(N) Overhead in Simulation Inner Loops]
+**Learning:** In Monte Carlo robustness simulations (like in `StrategyOptimizer`), repeated array copying (`[...trades]`) and mapping/reducing (`.reduce()`, `.map()`) inside the hot inner simulation loop create devastating memory allocation and callback overhead across thousands of iterations.
+**Action:** Clone base arrays only once outside the loop. Use in-place shuffling algorithms (like Fisher-Yates), replace multi-pass array closures with pre-allocated basic single `for` loops, and apply variance identities mathematically to drastically reduce execution time and garbage collection pauses.
