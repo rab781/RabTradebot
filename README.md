@@ -1,4 +1,4 @@
-# Advanced Crypto Trading Bot
+# RabTradebot: Advanced Crypto Trading Bot
 
 > A comprehensive Telegram bot that provides professional-grade cryptocurrency trading signals, market analysis, backtesting, and paper trading capabilities directly in your chat.
 
@@ -10,7 +10,7 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+Get the bot up and running in under 2 minutes.
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
@@ -20,6 +20,10 @@ npm install
 # Copy the environment template and add your Telegram bot token
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
+
+# Generate database client and run migrations
+npx prisma generate
+npx prisma migrate dev
 
 # Build the project (generates the dist/ directory)
 npm run build
@@ -39,14 +43,20 @@ Open Telegram, find your bot, and send `/start`.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/crypto-signal-bot.git
-cd crypto-signal-bot
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
 
 # 2. Install dependencies
 npm install
+
+# 3. Setup database
+npx prisma generate
+npx prisma migrate dev
 ```
 
-## Configuration
+## Usage
+
+### Configuration
 
 Configure the bot by editing the `.env` file.
 
@@ -59,19 +69,15 @@ Configure the bot by editing the `.env` file.
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
-## Usage
-
-Interact with the bot via Telegram commands.
-
 ### Basic Example
 
-To get a complete market analysis for a specific pair:
+To get a complete market analysis for a specific pair, send the following command to your bot:
 
 ```
 /analyze BTCUSDT
 ```
 
-**What you get:**
+**What you receive:**
 - **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
 - **Multi-timeframe Analysis**: 1H, 4H, 1D trends
 - **Backtesting Results**: 30-day strategy performance
@@ -85,7 +91,7 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 /papertrade ETHUSDT
 ```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+*Starts a virtual trading session with a simulated balance using real market data. Track it using `/portfolio`.*
 
 **Backtest a Strategy:**
 ```
@@ -124,14 +130,14 @@ The bot supports complex trading workflows, including simulated trading and stra
 
 - **Language**: TypeScript
 - **Bot Framework**: Telegraf
-- **Database**: Prisma ORM with SQLite
+- **Database**: Prisma ORM with SQLite / Postgres
 - **Market Data**: Binance REST & WebSocket APIs
 - **AI/ML**: TensorFlow.js (GRU models), Chutes AI (News Sentiment)
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+We welcome contributions! Please see `CONTRIBUTING.md` for details on the code of conduct and the process for submitting pull requests.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project is licensed under the MIT License - see the `LICENSE` file for details.
