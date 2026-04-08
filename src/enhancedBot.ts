@@ -253,16 +253,16 @@ function buildCategoryMenuInline(symbol: string, category: string) {
       return Markup.inlineKeyboard([
         [
           Markup.button.callback('🔴 Start Live Trade (Real $)', 'run:livestart'),
-          Markup.button.callback('🔴 Stop Live (Real $)', 'run:livestop'),
+          Markup.button.callback('⏹️ Stop Live', 'run:livestop'),
         ],
-        [Markup.button.callback('💼 Live Portfolio (Real $)', 'run:liveportfolio')],
+        [Markup.button.callback('💼 Live Portfolio', 'run:liveportfolio')],
         back,
       ]);
     case 'orders':
       return Markup.inlineKeyboard([
         [
           Markup.button.callback('📋 Open Orders', 'run:orders'),
-          Markup.button.callback('💼 Live Portfolio (Real $)', 'run:liveportfolio'),
+          Markup.button.callback('💼 Live Portfolio', 'run:liveportfolio'),
         ],
         back,
       ]);
