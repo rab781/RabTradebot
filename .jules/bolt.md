@@ -62,3 +62,7 @@
 ## 2026-03-05 - [Parallelizing Multiple Database Calls in Loops]
 **Learning:** In time-critical execution paths like the `RiskMonitorLoop` circuit breaker, closing multiple active trades sequentially with a `for...of` loop creates a cascading latency effect because each trade exit waits for previous network and database transactions to finish.
 **Action:** Always parallelize independent asynchronous operations (like iterating over independent items and executing network calls on each) using `Promise.all` combined with `.map()`. Include an internal `try...catch` block within the `.map()` to prevent a single failure from halting the execution of the other independent tasks.
+
+## 2026-04-08 - [Optimize Hot-Path Array Allocation in Feature Engineering]
+**Learning:** In `FeatureEngineeringService.addMultiTimeframeFeatures`, extracting OHLCV columns (closes, highs, etc.) by chaining multiple `.map()` calls on the same candle arrays causes redundant O(N) passes and excessive intermediate array allocations.
+**Action:** Extract columnar data using pre-allocated `for` loops (e.g., `new Array(len)`) and a single-pass extraction over the array to significantly reduce allocation overhead and garbage collection pressure in data preparation paths.
