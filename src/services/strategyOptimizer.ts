@@ -764,29 +764,59 @@ Trade-offs Identified:
             };
         }
 
-        const profitResults: number[] = [];
-        const drawdownResults: number[] = [];
-        const sharpeResults: number[] = [];
+        const profitResults: number[] = new Array(numSimulations);
+        const drawdownResults: number[] = new Array(numSimulations);
+        const sharpeResults: number[] = new Array(numSimulations);
+
+        // Pre-calculate permutation-invariant metrics using a single O(N) pass
+        let sumProfit = 0;
+        let sumProfitSq = 0;
+        const n = trades.length;
+
+        for (let i = 0; i < n; i++) {
+            const p = trades[i].profit;
+            sumProfit += p;
+            sumProfitSq += p * p;
+        }
+
+        const avgProfit = sumProfit / n;
+        const variance = Math.max(0, (sumProfitSq - (sumProfit * sumProfit) / n) / n);
+        const stdDev = Math.sqrt(variance);
+        const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
+        const invariantTotalProfit = sumProfit;
+
+        // Clone array once for in-place shuffling
+        const shuffledTrades = [...trades];
 
         for (let sim = 0; sim < numSimulations; sim++) {
-            // Fisher-Yates shuffle
-            const shuffledTrades = [...trades];
-            for (let i = shuffledTrades.length - 1; i > 0; i--) {
+            // In-place Fisher-Yates shuffle
+            for (let i = n - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [shuffledTrades[i], shuffledTrades[j]] = [shuffledTrades[j], shuffledTrades[i]];
+                const temp = shuffledTrades[i];
+                shuffledTrades[i] = shuffledTrades[j];
+                shuffledTrades[j] = temp;
             }
 
-            // Calculate metrics from shuffled trades
-            const totalProfit = shuffledTrades.reduce((sum, t) => sum + t.profit, 0);
-            const maxDrawdown = Math.max(...shuffledTrades.map(t => t.maxDrawdown));
-            const avgProfit = totalProfit / shuffledTrades.length;
-            const variance = shuffledTrades.reduce((sum, t) => sum + Math.pow(t.profit - avgProfit, 2), 0) / shuffledTrades.length;
-            const stdDev = Math.sqrt(variance);
-            const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
+            // Calculate path-dependent sequential max drawdown
+            let peak = 0;
+            let currentBalance = 0;
+            let maxDrawdown = 0;
 
-            profitResults.push(totalProfit);
-            drawdownResults.push(maxDrawdown);
-            sharpeResults.push(sharpe);
+            for (let i = 0; i < n; i++) {
+                currentBalance += shuffledTrades[i].profit;
+                if (currentBalance > peak) {
+                    peak = currentBalance;
+                } else {
+                    const drawdown = peak - currentBalance;
+                    if (drawdown > maxDrawdown) {
+                        maxDrawdown = drawdown;
+                    }
+                }
+            }
+
+            profitResults[sim] = invariantTotalProfit;
+            drawdownResults[sim] = maxDrawdown;
+            sharpeResults[sim] = sharpe;
         }
 
         // Calculate percentiles
