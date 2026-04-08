@@ -2498,9 +2498,10 @@ bot.command('news', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /news BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
     console.log(`[SCRAPE] [/news] request symbol=${symbol} user=${ctx.message.from.id}`);
-    const loadingMsg = await ctx.reply(`🔄 Scraping latest news + community posts for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Scraping latest news + community posts for ${symbol}...`);
 
     // Always use real scraped pipeline
     const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
@@ -2509,7 +2510,7 @@ bot.command('news', async (ctx) => {
     );
 
     if (result.traditionalNews.articles.length === 0 && result.redditSentiment.posts.length === 0) {
-      await ctx.deleteMessage(loadingMsg.message_id).catch(() => {});
+      if (loadingMsg) await ctx.deleteMessage(loadingMsg.message_id).catch(() => {});
       return ctx.reply(`📰 No recent scraped news/posts found for ${symbol}`);
     }
 
