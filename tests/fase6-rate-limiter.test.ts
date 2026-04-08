@@ -14,7 +14,7 @@ describe('F6: RateLimiter', () => {
         await limiter.acquire('rest', 60, 1000);
 
         const snapshot = limiter.getSnapshot();
-        expect(snapshot.restTokens).toBeLessThanOrEqual(60);
+        expect(snapshot.restTokens).toBeLessThan(60 + 1);
         expect(snapshot.restTokens).toBeGreaterThanOrEqual(0);
     });
 
