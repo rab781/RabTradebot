@@ -10,25 +10,18 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
-
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
 npm install
-
-# Copy the environment template and add your Telegram bot token
 cp .env.example .env
-# Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
-# Build the project (generates the dist/ directory)
+# Edit .env to add your TELEGRAM_BOT_TOKEN
+npx prisma generate
+npx prisma migrate dev
 npm run build
-
-# Start the bot
 npm start
 ```
-
-Open Telegram, find your bot, and send `/start`.
 
 ## Installation
 
@@ -37,37 +30,48 @@ Open Telegram, find your bot, and send `/start`.
 - npm 9+
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
+1. Clone the repository
 ```bash
-# 1. Clone the repository
-git clone https://github.com/yourusername/crypto-signal-bot.git
-cd crypto-signal-bot
-
-# 2. Install dependencies
-npm install
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
 ```
 
-## Configuration
+2. Install dependencies
+```bash
+npm install
+# Note: The project internally uses pnpm, but npm is fully supported for user setup.
+```
 
-Configure the bot by editing the `.env` file.
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
-
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+3. Set up the database
+```bash
+npx prisma generate
+npx prisma migrate dev
+```
 
 ## Usage
 
-Interact with the bot via Telegram commands.
+Interact with the bot via Telegram commands or the built-in web dashboard.
+
+### Configuration
+
+Configure the bot by editing the `.env` file.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | *(None)* | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | *(None)* | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | *(None)* | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | *(None)* | Required for AI-powered news analysis and predictions |
+| `DATABASE_URL` | `string` | `file:./prisma/dev.db` | Connection string for Prisma database |
+| `WEB_PORT` | `number` | `3000` | Port for the web dashboard |
+
+> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
 ### Basic Example
 
-To get a complete market analysis for a specific pair:
+To get a complete market analysis for a specific pair, send this command to the bot:
 
-```
+```text
 /analyze BTCUSDT
 ```
 
@@ -82,56 +86,78 @@ To get a complete market analysis for a specific pair:
 The bot supports complex trading workflows, including simulated trading and strategy optimization.
 
 **Start a Paper Trading Session:**
-```
+```text
 /papertrade ETHUSDT
 ```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+*Starts a virtual trading session with a $1000 simulated balance using real market data. Track it using `/portfolio`.*
 
 **Backtest a Strategy:**
-```
+```text
 /backtest SOLUSDT 30
 ```
 *Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
 
 **Optimize Strategy Parameters:**
-```
+```text
 /optimize ADAUSDT 60
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
-## Telegram Command Reference
+## API Reference
 
-### Basic Analysis
-- `/signal [symbol]` - Trading signals
+The bot commands serve as the primary interface. See the full command list below.
+
+### Telegram Command Reference
+
+**Analysis & Signals:**
+- `/analyze [symbol]` - Complete market analysis
+- `/fullanalysis [symbol]` - Combined technical and news analysis
+- `/signal [symbol]` - Quick trading signals
+- `/chart [symbol] [timeframe]` - Generate interactive candlestick charts
 - `/volume [symbol]` - Volume analysis
 - `/sr [symbol]` - Support/resistance levels
-- `/chart [symbol]` - Generate interactive charts
 
-### Advanced Trading
-- `/backtest [symbol] [days]` - Strategy backtesting
+**AI & News (Requires Chutes AI):**
+- `/pnews [symbol]` - Comprehensive AI news analysis
+- `/impact [symbol]` - Quick AI impact prediction
+- `/news [symbol]` - Basic news analysis
+
+**Trading & Simulation:**
 - `/papertrade [symbol]` - Start paper trading simulation
-- `/portfolio` - View current positions and balance
+- `/stoptrading` - Stop current paper trading session
+- `/portfolio` - View current paper trading positions and balance
 - `/performance` - Detailed performance metrics
+- `/livetrade start [symbol] confirm` - Start live trading (real funds)
+- `/livetrade stop` - Stop live trading
+- `/orders [symbol]` - View open Binance orders
+- `/liveportfolio` - View real balances and open orders
+
+**Strategy & Backtesting:**
+- `/backtest [symbol] [days]` - Strategy backtesting
 - `/optimize [symbol] [days]` - Optimize strategy parameters
-
-### Data & Status
-- `/download [symbol] [days]` - Download historical data
-- `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
+- `/strategystats [symbol]` - Compare strategy performance
+
+**System & Data:**
+- `/datainfo [symbol]` - Check data quality and summary
+- `/download [symbol] [days]` - Download historical data
+- `/healthcheck` - Full system health report
 - `/apistatus` - Check Binance API connectivity
+- `/pstatus` - Check Chutes AI status
+- `/mlstatus` - Check ML model status
 
-## Architecture & Tech Stack
+### Web Dashboard
 
-- **Language**: TypeScript
-- **Bot Framework**: Telegraf
-- **Database**: Prisma ORM with SQLite
-- **Market Data**: Binance REST & WebSocket APIs
-- **AI/ML**: TensorFlow.js (GRU models), Chutes AI (News Sentiment)
+A local web dashboard is automatically started with the bot.
+
+- **URL**: `http://localhost:3000` (configurable via `WEB_PORT`)
+- **API Endpoints**: Available under `/api/` (e.g., `/api/portfolio`, `/api/health`)
+- **WebSocket**: Real-time updates emitted for `trade`, `signal`, `news`, and `portfolio` events.
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT © [rab781](https://github.com/rab781)
