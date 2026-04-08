@@ -1,3 +1,7 @@
+## 2025-03-22 - [Differentiate destructive vs safe actions in inline menus]
+**Learning:** While it is important to add warning emojis (like 🔴) to destructive/real-money actions (like starting a live trade), it is equally important NOT to apply them to safe/cancellation actions (like stopping a trade or viewing a portfolio) within the same context. Overusing warning indicators causes cognitive dissonance and reduces their effectiveness.
+**Action:** Ensure visually distinct warning emojis and labels are applied ONLY to actual destructive/risky actions, while using safe/neutral emojis (like ⏹️ or 💼) for non-destructive actions, even if they pertain to the live trading system.
+
 ## 2025-03-18 - [Add visual distinction to Live Trading vs Sim]
 **Learning:** Telegram bots can benefit from visually distinct warning emojis for destructive/real-money actions (like starting a live trade) versus safe actions (like paper trading).
 **Action:** Update the 'livestart' and related buttons to use explicit warning/real money indicators like 🔴 to ensure users understand they are using real funds.
