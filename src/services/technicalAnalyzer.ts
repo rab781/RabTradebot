@@ -28,13 +28,13 @@ export class TechnicalAnalyzer {
     constructor() {
         // Initialize public service first
         this.publicService = new PublicCryptoService();
-        
+
         // Try to initialize private API, but don't fail if it doesn't work
         try {
             if (process.env.BINANCE_API_KEY && process.env.BINANCE_API_SECRET) {
                 this.binance = new BinanceFactory({
                     APIKEY: process.env.BINANCE_API_KEY,
-                    APISECRET: process.env.BINANCE_API_SECRET
+                    APISECRET: process.env.BINANCE_API_SECRET,
                 });
                 console.log('[TechnicalAnalyzer] Private API initialized');
             } else {
@@ -42,14 +42,17 @@ export class TechnicalAnalyzer {
                 this.usePublicOnly = true;
             }
         } catch (error) {
-            console.warn('[TechnicalAnalyzer] Failed to initialize private API, falling back to public API:', error);
+            console.warn(
+                '[TechnicalAnalyzer] Failed to initialize private API, falling back to public API:',
+                error
+            );
             this.usePublicOnly = true;
         }
     }
 
     private async retryApiCall<T>(apiCall: () => Promise<T>, maxRetries: number = 3): Promise<T> {
         let lastError: any;
-        
+
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
                 console.log(`[TechnicalAnalyzer] API call attempt ${attempt}/${maxRetries}`);
@@ -60,27 +63,30 @@ export class TechnicalAnalyzer {
                 return result;
             } catch (error: any) {
                 lastError = error;
-                console.error(`[TechnicalAnalyzer] API call failed (attempt ${attempt}/${maxRetries}):`, error.message || error);
-                
+                console.error(
+                    `[TechnicalAnalyzer] API call failed (attempt ${attempt}/${maxRetries}):`,
+                    error.message || error
+                );
+
                 if (attempt < maxRetries) {
                     const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s
                     console.log(`[TechnicalAnalyzer] Retrying in ${delay}ms...`);
-                    await new Promise(resolve => setTimeout(resolve, delay));
+                    await new Promise((resolve) => setTimeout(resolve, delay));
                 }
             }
         }
-        
+
         console.error(`[TechnicalAnalyzer] All API call attempts failed`);
         throw lastError;
     }
 
     async analyzeSymbol(symbol: string): Promise<string> {
         console.log(`[TechnicalAnalyzer] Starting analysis for ${symbol}`);
-        
+
         try {
             // Try to get candlestick data, prefer public API to avoid 403 errors
             let candlesData: any[];
-            
+
             if (this.usePublicOnly) {
                 console.log(`[TechnicalAnalyzer] Using public API only for ${symbol}`);
                 candlesData = await this.publicService.getCandlestickData(symbol, '1h', 100);
@@ -91,33 +97,50 @@ export class TechnicalAnalyzer {
                     candlesData = await this.publicService.getCandlestickData(symbol, '1h', 100);
                     console.log(`[TechnicalAnalyzer] Used public API for ${symbol}`);
                 } catch (publicApiError) {
-                    console.log(`[TechnicalAnalyzer] Public API failed for ${symbol}, trying private API...`);
+                    console.log(
+                        `[TechnicalAnalyzer] Public API failed for ${symbol}, trying private API...`
+                    );
                     // Fallback to private API
                     candlesData = await this.retryApiCall(async () => {
-                        return await this.binance.candlesticks(symbol, '1h' as TimeFrame, { limit: 100 });
+                        return await this.binance.candlesticks(symbol, '1h' as TimeFrame, {
+                            limit: 100,
+                        });
                     }, 2);
                     console.log(`[TechnicalAnalyzer] Used private API fallback for ${symbol}`);
                 }
             }
-            
-            console.log(`[TechnicalAnalyzer] Retrieved ${candlesData.length} candles for ${symbol}`);
-            
-            const candles: Candle[] = candlesData.map((candleData: any[]) => ({
-                timestamp: parseInt(candleData[0]),
-                open: parseFloat(candleData[1]),
-                high: parseFloat(candleData[2]),
-                low: parseFloat(candleData[3]),
-                close: parseFloat(candleData[4]),
-                volume: parseFloat(candleData[5])
-            }));
 
-            // Calculate indicators
-            const closePrices = candles.map(c => c.close);
-            const volumes = candles.map(c => c.volume);
-            
+            console.log(
+                `[TechnicalAnalyzer] Retrieved ${candlesData.length} candles for ${symbol}`
+            );
+
+            // ⚡ Bolt Optimization: Replace multiple .map() calls and array traversals
+            // with a single pre-allocated loop to reduce memory allocations and overhead.
+            const len = candlesData.length;
+            const candles: Candle[] = new Array(len);
+            const closePrices = new Array(len);
+            const volumes = new Array(len);
+
+            for (let i = 0; i < len; i++) {
+                const cData = candlesData[i];
+                const close = parseFloat(cData[4]);
+                const vol = parseFloat(cData[5]);
+
+                candles[i] = {
+                    timestamp: parseInt(cData[0]),
+                    open: parseFloat(cData[1]),
+                    high: parseFloat(cData[2]),
+                    low: parseFloat(cData[3]),
+                    close: close,
+                    volume: vol,
+                };
+                closePrices[i] = close;
+                volumes[i] = vol;
+            }
+
             const rsiValues = RSI.calculate({
                 values: closePrices,
-                period: 14
+                period: 14,
             });
             const currentRSI = rsiValues[rsiValues.length - 1];
 
@@ -127,21 +150,30 @@ export class TechnicalAnalyzer {
                 slowPeriod: 26,
                 signalPeriod: 9,
                 SimpleMAOscillator: false,
-                SimpleMASignal: false
+                SimpleMASignal: false,
             }) as MACDResult[];
 
             const currentMACD = macdResult[macdResult.length - 1];
             const previousMACD = macdResult[macdResult.length - 2];
 
             // Calculate trend strength
-            const volumeAvg = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+            // ⚡ Bolt Optimization: Avoid intermediate array creation from slice()
+            let volSum = 0;
+            const volLen = volumes.length;
+            const volStart = Math.max(0, volLen - 20);
+            const actualVolCount = volLen - volStart;
+
+            for (let i = volStart; i < volLen; i++) {
+                volSum += volumes[i];
+            }
+            const volumeAvg = actualVolCount > 0 ? volSum / actualVolCount : 0;
             const currentVolume = volumes[volumes.length - 1];
             const volumeStrength = currentVolume > volumeAvg ? 'Strong' : 'Weak';
 
             // Generate analysis and recommendations
             let analysis = `Technical Analysis for ${symbol}:\n\n`;
             analysis += `RSI (14): ${currentRSI.toFixed(2)}\n`;
-            
+
             if (currentMACD) {
                 analysis += `MACD Line: ${currentMACD.MACD.toFixed(4)}\n`;
                 analysis += `Signal Line: ${currentMACD.signal.toFixed(4)}\n`;
@@ -184,40 +216,57 @@ export class TechnicalAnalyzer {
 
             analysis += `\nSignal: ${signal}\n`;
             if (reasoning.length > 0) {
-                analysis += `Reasoning:\n${reasoning.map(r => '- ' + r).join('\n')}\n`;
+                analysis += `Reasoning:\n${reasoning.map((r) => '- ' + r).join('\n')}\n`;
             }
 
             // Add entry/exit recommendations
             if (signal.includes('BUY')) {
-                const stopLoss = Math.min(...candles.slice(-5).map(c => c.low));
+                // ⚡ Bolt Optimization: Avoid intermediate array creation
+                let stopLoss = Infinity;
+                const startIdx = Math.max(0, candles.length - 5);
+                for (let i = startIdx; i < candles.length; i++) {
+                    if (candles[i].low < stopLoss) stopLoss = candles[i].low;
+                }
                 const takeProfit = candles[candles.length - 1].close * 1.02; // 2% profit target
                 analysis += `\nEntry/Exit Levels:\n`;
                 analysis += `- Entry: Current price (${candles[candles.length - 1].close.toFixed(4)})\n`;
-                analysis += `- Stop Loss: ${stopLoss.toFixed(4)} (${((stopLoss - candles[candles.length - 1].close) / candles[candles.length - 1].close * 100).toFixed(2)}%)\n`;
+                analysis += `- Stop Loss: ${stopLoss.toFixed(4)} (${(((stopLoss - candles[candles.length - 1].close) / candles[candles.length - 1].close) * 100).toFixed(2)}%)\n`;
                 analysis += `- Take Profit: ${takeProfit.toFixed(4)} (2.00%)\n`;
             } else if (signal.includes('SELL')) {
-                const stopLoss = Math.max(...candles.slice(-5).map(c => c.high));
+                // ⚡ Bolt Optimization: Avoid intermediate array creation
+                let stopLoss = -Infinity;
+                const startIdx = Math.max(0, candles.length - 5);
+                for (let i = startIdx; i < candles.length; i++) {
+                    if (candles[i].high > stopLoss) stopLoss = candles[i].high;
+                }
                 const takeProfit = candles[candles.length - 1].close * 0.98; // 2% profit target
                 analysis += `\nEntry/Exit Levels:\n`;
                 analysis += `- Entry: Current price (${candles[candles.length - 1].close.toFixed(4)})\n`;
-                analysis += `- Stop Loss: ${stopLoss.toFixed(4)} (${((stopLoss - candles[candles.length - 1].close) / candles[candles.length - 1].close * 100).toFixed(2)}%)\n`;
+                analysis += `- Stop Loss: ${stopLoss.toFixed(4)} (${(((stopLoss - candles[candles.length - 1].close) / candles[candles.length - 1].close) * 100).toFixed(2)}%)\n`;
                 analysis += `- Take Profit: ${takeProfit.toFixed(4)} (-2.00%)\n`;
             }
 
             return analysis;
-
         } catch (error: any) {
             console.error(`[TechnicalAnalyzer] Error analyzing ${symbol}:`, error);
-            
+
             // Handle specific error types
             if (error.message && error.message.includes('403')) {
-                throw new Error(`API access denied for ${symbol}. This might be due to rate limits or invalid API credentials.`);
+                throw new Error(
+                    `API access denied for ${symbol}. This might be due to rate limits or invalid API credentials.`
+                );
             } else if (error.message && error.message.includes('400')) {
-                throw new Error(`Invalid symbol: ${symbol}. Please check if the symbol exists on Binance.`);
+                throw new Error(
+                    `Invalid symbol: ${symbol}. Please check if the symbol exists on Binance.`
+                );
             } else if (error.code === 'ENOTFOUND' || error.code === 'ECONNREFUSED') {
-                throw new Error(`Network error while fetching data for ${symbol}. Please check your internet connection.`);
+                throw new Error(
+                    `Network error while fetching data for ${symbol}. Please check your internet connection.`
+                );
             } else {
-                throw new Error(`Failed to analyze ${symbol}: ${error.message || 'Unknown error occurred'}`);
+                throw new Error(
+                    `Failed to analyze ${symbol}: ${error.message || 'Unknown error occurred'}`
+                );
             }
         }
     }
