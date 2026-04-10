@@ -1,8 +1,8 @@
 # 🗺️ ROADMAP TODO — RabTradebot Quant Trading Bot
 
-> **Target:** Dari 50/100 → 100/100 Full Quant Trading Bot
-> **Estimasi Total:** ~8 Minggu
-> **Last Updated:** 2026-03-26
+> **Target:** Dari 50/100 → 100/100 Full Quant Trading Bot → 130/100 (Elite Tier)
+> **Estimasi Total:** ~10 Minggu
+> **Last Updated:** 2026-04-10
 
 ---
 
@@ -19,11 +19,14 @@
 | 6 | Production Infrastructure | 🔄 In Progress | +3 pts | 92% |
 | 7 | Multi-Agent LLM Intelligence | ⏳ Pending | +10 pts | 0% |
 | 8 | Web Dashboard (Kinetic Observatory) | ⏳ Pending | +10 pts | 0% |
+| 9 | Analysis Pipeline Hardening | ⏳ Pending | +5 pts | 0% |
+| 10 | News Intelligence Upgrade | ⏳ Pending | +5 pts | 0% |
 
 **Scorecard Saat Ini: 94 / 100** ✅ (Fase 0 + Fase 1 + Fase 2 + Fase 3 + Fase 4 + Fase 5 complete)
 
 > **Note:** Fase 7 menambah dimensi baru sistem (LLM-based multi-agent reasoning). Total target nilai naik dari 100 → ~110/100 (bonus tier).
 > **Note:** Fase 8 menambah Web Dashboard berbasis Stitch design system ("Kinetic Observatory"). Target akhir: **120/100** (ultra bonus tier).
+> **Note:** Fase 9 & 10 ditambahkan berdasarkan **analisis output bot real (2026-04-10)** — memperbaiki pipeline analisis yang sudah berjalan. Target tertinggi: **130/100** (elite tier).
 
 ---
 
@@ -944,7 +947,381 @@
 
 ---
 
+## 🛡️ FASE 9 — Analysis Pipeline Hardening *(Baru: 2026-04-10)*
+
+> **Estimasi:** 4–6 Hari
+> **Prioritas:** 🔴 High — Berdasarkan bug nyata dari output bot produksi
+> **Target Score:** Bonus +5 pts (125/100)
+> **Trigger:** Analisis output bot `XRPUSDT` pada 2026-04-10 menemukan 6 gap kritis yang menurunkan kualitas sinyal secara diam-diam.
+
+### 🔍 Temuan dari Output Bot (Root Cause Analysis)
+
+Dari log output bot pada 2026-04-10:
+```
+[PublicCryptoService] Successfully fetched 56 candles for XRPUSDT   ← hanya 56 dari 100 yang diminta!
+Generating chart for XRPUSDT - 1d | Patterns: 0, S/R: 0            ← timeframe 1d kosong!
+Yahoo Finance failed, trying Alpha Vantage...                        ← fallback gagal 4x ulangan!
+Alpha Vantage failed, trying Binance...                              ← provider chain tidak efisien!
+[SCRAPE] [DONE] symbol=XRPUSDT rss=25 cryptopanic=0 reddit=0       ← reddit 0, cryptopanic 0!
+[AI] [START] symbol=XRPUSDT articles=25 reddit=0                   ← AI dimulai tapi tidak ada [DONE]!
+```
+
+| # | Bug Teridentifikasi | Lokasi | Severity |
+|---|---|---|---|
+| B1 | Hanya 56/100 candles ter-fetch — kline 1d mungkin interval terlalu pendek di API | `publicCryptoService.ts` | 🔴 HIGH |
+| B2 | Chart 1d menghasilkan 0 patterns & 0 S/R — data tidak cukup untuk deteksi | `imageChartService.ts` + `advancedAnalyzer.ts` | 🔴 HIGH |
+| B3 | Yahoo Finance & Alpha Vantage gagal berulang — provider chain tidak ada caching | `simpleComprehensiveAnalyzer.ts` + `TradingViewService.ts` | 🟠 MEDIUM |
+| B4 | Reddit = 0 saat produksi — kemungkinan rate-limited atau IP banned | `newsAnalyzer.ts` | 🟠 MEDIUM |
+| B5 | `[AI] [START]` tapi tidak ada `[AI] [DONE]` dalam output — kemungkinan timeout tanpa error | `newsAnalyzer.ts` + `chutesService.ts` | 🔴 HIGH |
+| B6 | Tidak ada response caching — setiap `/analyze` memanggil semua API ulang dari nol | Semua service | 🟡 LOW |
+
+---
+
+### 9.1 Fix: Candle Limit & Timeframe Data Quality
+
+- [ ] **[F9-1]** Debug & fix kenapa hanya 56/100 candles ter-fetch untuk interval `4h`
+  - File: `src/services/publicCryptoService.ts`
+  - Investigasi: apakah parameter `limit` tidak dikirim dengan benar di query string
+  - Fix: validasi bahwa `params.limit` terbaca di Axios request (log actual URL yang dikirim)
+  - Tambah assertion: jika `response.data.length < limit * 0.8` → log warning dengan detail
+
+- [ ] **[F9-2]** Implementasi minimum candle threshold per timeframe
+  - File: `src/services/advancedAnalyzer.ts` → method `findSupportResistance()`
+  - Jika candles < 30 → throw error deskriptif: `"Insufficient data: only X candles available, minimum 30 required"`
+  - Caller (chart generator) warna abu-abu chart dengan watermark `"Insufficient Data"` alih-alih chart kosong
+
+- [ ] **[F9-3]** Implementasi adaptive candle limit per timeframe di `getCandlestickData()`
+  - File: `src/services/publicCryptoService.ts`
+  - Tabel limit optimal: `1m`→500, `5m`→288, `15m`→192, `1h`→168, `4h`→100, `1d`→365
+  - Jika interval tidak dikenali → gunakan limit yang diminta (default behavior)
+  - Tambah validasi di method agar tidak exceed max Binance API limit (1000)
+
+- [ ] **[F9-4]** Fix timeframe `1d` yang menghasilkan 0 deteksi pattern
+  - File: `src/services/imageChartService.ts`
+  - Root Cause: kemungkinan data 1d di-fetch dengan jumlah candle yang sama dengan `4h` (100 candle 1d = 100 hari, tapi pattern detection butuh minimal 60 candle)
+  - Fix: tingkatkan default limit untuk fetch `1d` ke 200 candle
+  - Pastikan S/R detection algorithm tidak gagal saat harga terlalu dekat antar candle
+
+---
+
+### 9.2 Fix: External Data Provider Fallback Chain
+
+- [ ] **[F9-5]** Audit & perbaiki fallback chain Yahoo Finance → Alpha Vantage → Binance
+  - File: `src/services/TradingViewService.ts` (atau file yang memanggilnya)
+  - Masalah: retry terjadi 4x untuk 3 symbol berbeda — seharusnya per symbol hanya 1 pass, bukan retry loop pada seluruh pipeline
+  - Fix: setiap provider harus wrap dalam `try/catch` terpisah dengan timeout eksplisit (≤ 5 detik)
+  - Tambah log: `[Provider] ${providerName} failed in ${ms}ms: ${error.message}` agar diagnosis lebih cepat
+
+- [ ] **[F9-6]** Tambah per-symbol provider caching (cache mana provider yang berhasil terakhir)
+  - File: `src/services/TradingViewService.ts` atau buat `src/services/providerRouter.ts` baru
+  - Simpan mapping `symbol → lastSuccessfulProvider` di memory (Map<string, string>)
+  - Saat request baru masuk untuk symbol yang sama → coba provider terakhir yang berhasil PERTAMA
+  - TTL cache: 30 menit (setelah itu reset ke urutan default lagi)
+  - Manfaat: eliminasi 70-80% waktu retry yang terbuang
+
+- [ ] **[F9-7]** Tambah circuit breaker per provider eksternal
+  - Buat `src/services/providerCircuitBreaker.ts`
+  - State machine: `CLOSED` → `OPEN` (setelah 3 fail berturut) → `HALF_OPEN` (setelah 5 menit)
+  - Jika provider dalam state `OPEN` → skip langsung, jangan buang waktu dengan request
+  - Tambah metric: total failures, last failure time, circuit state ke output `/healthcheck`
+
+- [ ] **[F9-8]** Ganti Yahoo Finance dengan Binance Public API sebagai provider PERTAMA
+  - File: `src/services/TradingViewService.ts`
+  - Urutan baru: `PublicCryptoService (Binance)` → `CoinGecko API` → `Yahoo Finance` → `Alpha Vantage`
+  - Binance public API tidak butuh API key dan coverage crypto-nya sempurna
+  - CoinGecko free tier: `https://api.coingecko.com/api/v3/coins/{id}/ohlc?vs_currency=usd&days=30`
+
+---
+
+### 9.3 Fix: Chutes AI Timeout & Error Visibility
+
+- [ ] **[F9-9]** Fix `[AI] [START]` yang tidak menghasilkan `[AI] [DONE]` atau `[AI] [ERROR]`
+  - File: `src/services/newsAnalyzer.ts` → method `analyzeComprehensiveNews()`
+  - Masalah probable: timeout di `chutesService.analyzeRealNews()` tidak di-catch dengan benar
+  - Fix: wrap call ke `chutesService` dalam `Promise.race([call, timeout(30000)])` eksplisit
+  - Tambah try/catch yang **selalu** log salah satu dari:
+    - `[AI] [DONE] symbol=X sentiment=Y`
+    - `[AI] [TIMEOUT] symbol=X after 30s`
+    - `[AI] [ERROR] symbol=X message=Z`
+  - **Tidak boleh ada [AI] [START] tanpa pasangan [AI] [DONE/TIMEOUT/ERROR]**
+
+- [ ] **[F9-10]** Tambah telemetry timing untuk setiap AI call
+  - File: `src/services/newsAnalyzer.ts`
+  - Log `[AI] [TIMING] symbol=X duration=Xms tokens_used=X` setelah setiap call berhasil
+  - Ini membantu identifikasi apakah model lambat atau ada bottleneck jaringan
+  - Simpan timing ke DB jika tabel `ErrorLog` tersedia
+
+- [ ] **[F9-11]** Implementasi AI fallback saat Chutes timeout
+  - File: `src/services/newsAnalyzer.ts`
+  - Jika Chutes AI timeout/error → fallback ke **keyword-based sentiment** yang sudah ada
+  - Tambah flag di result: `aiAnalysis.source: 'chutes'|'keyword_fallback'`
+  - User di Telegram menerima tetap hasil analisis, bukan error kosong
+
+---
+
+### 9.4 Fix: In-Memory Response Cache
+
+- [ ] **[F9-12]** Implementasi TTL cache untuk data market yang mahal di-fetch
+  - Buat `src/services/marketDataCache.ts`
+  - Gunakan simple `Map<string, { data: any; expiry: number }>` (tidak perlu Redis untuk tahap ini)
+  - TTL defaults:
+    - Candlestick data `1h/4h`: cache 5 menit
+    - Candlestick data `1d`: cache 30 menit
+    - Ticker 24hr: cache 1 menit
+    - Recent trades: cache 30 detik
+  - Method: `cache.get(key)` → return data jika belum expired, null jika expired
+  - Method: `cache.set(key, data, ttlMs)` → simpan ke map
+
+- [ ] **[F9-13]** Integrasikan `marketDataCache` ke `PublicCryptoService`
+  - File: `src/services/publicCryptoService.ts`
+  - Sebelum fetch → cek cache. Jika hit: return cached data + log `[Cache HIT]`
+  - Setelah fetch sukses → simpan ke cache + log `[Cache SET]`
+  - Kalkulasi hit rate per session: tampilkan di `/healthcheck` sebagai `cache_hit_rate: X%`
+
+- [ ] **[F9-14]** Integrasikan cache ke `advancedAnalyzer.ts`
+  - Semua call ke `getCandlestickData()` dan `get24hrTicker()` harus melalui cache
+  - Hindari redundant fetch untuk symbol yang sama dalam satu analisis run
+
+- [ ] **[F9-15]** Tambah cache invalidation endpoint (untuk testing dan debug)
+  - Command Telegram: `/clearcache [symbol?]` — admin only
+  - Jika symbol disertakan → invalidate hanya cache untuk symbol tersebut
+  - Jika tidak disertakan → flush semua cache
+  - Response: `Cache cleared: X entries removed`
+
+---
+
+### 9.5 Observability & Logging Improvements
+
+- [ ] **[F9-16]** Strukturkan log `/analyze` dengan prefix yang konsisten
+  - Saat ini: beberapa log memakai `[AdvancedAnalyzer]`, beberapa `[PublicCryptoService]`, dll.
+  - Standard baru: `[SVC:NamaService] [ACTION] detail`
+  - Contoh: `[SVC:PublicCrypto] [FETCH] XRPUSDT klines 4h limit=100 → 56 candles in 320ms`
+  - Log wajib include: symbol, action, result count, latency ms
+
+- [ ] **[F9-17]** Tambah summary log di akhir setiap analisis run
+  - File: `src/services/simpleComprehensiveAnalyzer.ts`
+  - Format:
+    ```
+    [ANALYZE:DONE] symbol=XRPUSDT total_time=4521ms
+      candles_1h=168 candles_4h=100 candles_1d=200
+      sr_supports=3 sr_resistances=5
+      news_articles=25 reddit=0
+      ai=done|timeout|skip cache_hits=X/Y
+    ```
+  - Ini membuat diagnosis masalah jauh lebih mudah tanpa buka setiap log line
+
+- [ ] **[F9-18]** Tambah timing breakdown per komponen di log
+  - Ukur dan log waktu yang dihabiskan tiap bagian:
+    - Fetch candles: `XXms`
+    - S/R detection: `XXms`
+    - Volume analysis: `XXms`
+    - News fetch: `XXms`
+    - AI analysis: `XXms`
+    - Chart generation: `XXms`
+  - Ini membantu identifikasi bottleneck yang paling memakan waktu
+
+---
+
+### 📋 Definisi "Done" Fase 9
+
+- [ ] Output log `/analyze XRPUSDT` menampilkan jumlah candles ≥ 90% dari yang diminta
+- [ ] Chart 1d tidak lagi menghasilkan "Patterns: 0, S/R: 0" untuk symbol major (BTC, ETH, XRP)
+- [ ] Tidak ada lagi "Yahoo Finance failed, trying Alpha Vantage..." ulangan > 1x per symbol
+- [ ] Setiap `[AI] [START]` selalu memiliki pasangan `[AI] [DONE]` atau `[AI] [ERROR]`
+- [ ] Cache hit rate > 40% pada analisis kedua symbol yang sama dalam 5 menit
+- [ ] Summary log muncul di akhir setiap `/analyze` dengan total_time dan breakdown
+
+---
+
+## 📰 FASE 10 — News Intelligence Upgrade *(Baru: 2026-04-10)*
+
+> **Estimasi:** 5–7 Hari
+> **Prioritas:** 🟡 Menengah — High impact pada kualitas sinyal fundamental
+> **Target Score:** Bonus +5 pts (130/100)
+> **Trigger:** Reddit = 0 dan CryptoPanic = 0 dalam output bot → 2 dari 3 data sumber gagal, kualitas analisis berita menurun drastis.
+
+### 🔍 Temuan dari Output Bot (Root Cause Analysis)
+
+```
+[SCRAPE] [DONE] symbol=XRPUSDT rss=25 cryptopanic=0 reddit=0 totalArticles=25
+```
+
+- **RSS = 25** ✅ Ini angka kecil tapi berfungsi (hanya dari 4 sumber: CoinTelegraph, Decrypt, CryptoSlate, CoinDesk)
+- **CryptoPanic = 0** ❌ `CRYPTOPANIC_API_KEY` tidak terkonfigurasi di `.env` → tidak pernah dicoba
+- **Reddit = 0** ❌ Reddit API memblokir request dari bot (user-agent detected, rate limit, GDPR region)
+- **Tidak ada sumber onchain/social lain** ❌ Tidak ada Twitter/X, Telegram channel, Fear & Greed Index
+
+---
+
+### 10.1 Perbaikan Reddit Data Collection
+
+- [ ] **[F10-1]** Implementasi Reddit OAuth2 (user-less auth) sebagai pengganti scraping anonymous
+  - File: `src/services/newsAnalyzer.ts` → method `fetchSubreddit()`
+  - Daftar Reddit App di `https://www.reddit.com/prefs/apps` → pilih `script` type
+  - Tambah ke `.env`: `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT`
+  - Endpoint: `POST https://www.reddit.com/api/v1/access_token` untuk dapat bearer token
+  - Token valid 1 jam → cache token, auto-refresh saat expired
+
+- [ ] **[F10-2]** Update `fetchSubreddit()` untuk gunakan authenticated API
+  - Request: `GET https://oauth.reddit.com/r/{subreddit}/search?q={coin}&sort=hot&limit=10&t=day`
+  - Header: `Authorization: bearer {access_token}`, `User-Agent: {REDDIT_USER_AGENT}`
+  - Rate limit: 60 request/menit untuk authenticated → jauh lebih aman dari anonymous (10 req/menit)
+
+- [ ] **[F10-3]** Tambah subreddit baru yang relevan ke `COIN_SUBREDDITS`
+  - File: `src/services/newsAnalyzer.ts`
+  - Tambah: `LINK: 'Chainlink'`, `UNI: 'Uniswap'`, `ATOM: 'cosmosnetwork'`, `NEAR: 'NEARProtocol'`
+  - Tambah universal fallback subreddits: `'algotrading'` (komunitas trading aktif)
+  - Tambah check: jika coin tidak ada di mapping → gunakan keyword search di `r/CryptoCurrency`
+
+- [ ] **[F10-4]** Implementasi Reddit sentiment scoring yang lebih canggih
+  - File: `src/services/newsAnalyzer.ts` → method `scoreReddit()`
+  - Sekarang: hanya title + score (upvote)
+  - Update: tambah bobot `numComments` (viral discussion indicator)
+  - Formula baru: `weight = log2(max(post.score, 1) + 1) * (1 + log2(max(post.numComments, 1) / 10))`
+  - Tambah decay factor: post > 12 jam lalu → weight * 0.5 (berita lama kurang relevan)
+
+---
+
+### 10.2 Tambah Sumber Berita Baru
+
+- [ ] **[F10-5]** Tambah CryptoPanic ke pipeline secara aktif
+  - File: `src/services/newsAnalyzer.ts` → method `fetchCryptoPanic()`
+  - Masalah: saat ini `if (!this.cryptoPanicKey) return []` → tidak ada warning
+  - Fix: tambah log `[SCRAPE] [CRYPTOPANIC] No API key configured, skipping`
+  - Pastikan `CRYPTOPANIC_API_KEY` terdokumentasi di `.env.example` dengan link signup
+  - Signup free tier: `https://cryptopanic.com/api/` — 50 posts/hari gratis
+
+- [ ] **[F10-6]** Tambah sumber RSS baru yang lebih spesifik crypto
+  - File: `src/services/newsAnalyzer.ts` → `RSS_SOURCES` array
+  - Tambahkan:
+    ```
+    { url: 'https://bitcoinmagazine.com/.rss/full/',          name: 'BitcoinMagazine' }
+    { url: 'https://thedefiant.io/feed',                      name: 'TheDefiant'      }
+    { url: 'https://blockworks.co/feed',                      name: 'Blockworks'      }
+    { url: 'https://www.coindesk.com/arc/outboundfeeds/rss/', name: 'CoinDesk'        } // sudah ada, pastikan tidak duplikat
+    { url: 'https://ambcrypto.com/feed/',                     name: 'AMBCrypto'       }
+    ```
+  - Update filter agar artikel relevan tanpa kata kunci "bitcoin" jika sedang analisis altcoin lain
+
+- [ ] **[F10-7]** Integrasi Fear & Greed Index sebagai sinyal macro
+  - API: `https://api.alternative.me/fng/?limit=7` (FREE, tidak perlu API key)
+  - Return: nilai 0–100 (0=Extreme Fear, 100=Extreme Greed) + label
+  - Tambah ke `NewsAnalysisResult` interface: `fearGreedIndex: { value: number, label: string, trend: 'improving'|'worsening'|'stable' }`
+  - Tampilkan di output `/analyze`: `📊 Fear & Greed Index: 72 (Greed) ↑ improving`
+
+- [ ] **[F10-8]** Integrasi Coindar untuk upcoming crypto events/catalysts
+  - API: `https://coindar.org/api/v2/events?access_token={TOKEN}&filter_coins={COIN}&filter_date_start={today}`
+  - Register free: `https://coindar.org/`
+  - Tambah ke `.env.example`: `COINDAR_API_KEY`
+  - Return: upcoming events dalam 7 hari (listing, halving, conference, partnership, etc.)
+  - Tambah ke `NewsAnalysisResult`: `upcomingEvents: Array<{ title, date, importance: 1-5 }>`
+  - Ini adalah **catalyst detector** — event besar bisa trigger breakout sebelum harga bergerak
+
+---
+
+### 10.3 Sentiment Scoring yang Lebih Akurat
+
+- [ ] **[F10-9]** Ganti keyword matching dengan **rule-based NLP** yang lebih akurat
+  - File: `src/services/newsAnalyzer.ts` → method `scoreTexts()`
+  - Masalah saat ini: kata "down" dalam "doubled down" diberi skor negatif (false negative)
+  - Fix: tambah **negation handling** — jika kata positif/negatif didahului negasi (`not`, `no`, `never`, etc.) → balik skor
+  - Tambah **context windows**: jika `fail` muncul tapi diikuti `to fail again` → neutral
+  - Tambah **intensity modifiers**: `massive rally` > `rally` (bobot 1.5x untuk modifier kata: massive, huge, major, significant)
+
+- [ ] **[F10-10]** Implementasi **domain-specific crypto sentiment lexicon**
+  - File baru: `src/data/cryptoSentimentLexicon.json`
+  - Buat lexicon dengan skor +/- untuk kata-kata spesifik crypto:
+    - Positif: `"etf approval": +5`, `"institutional buy": +3`, `"mainnet launch": +2`, `"partnership": +1.5`
+    - Negatif: `"sec lawsuit": -5`, `"exchange hack": -4`, `"rug pull": -5`, `"regulatory ban": -4`
+    - Neutral (override): `"correction normal", "dip buying"` → tidak dihitung negatif
+  - Buat `CryptoLexiconScorer` class yang lookup tabel ini sebelum keyword matching biasa
+
+- [ ] **[F10-11]** Implementasi article deduplication yang lebih cerdas
+  - File: `src/services/newsAnalyzer.ts`
+  - Masalah saat ini: tidak ada dedup antar RSS sources → artikel yang sama dari CoinDesk bisa muncul di CryptoSlate juga
+  - Fix: implementasi **fuzzy title matching** — jika `similarity(title1, title2) > 80%` → buang satu
+  - Library: `npm install string-similarity` (lightweight, no dependency)
+  - Ambil artikel dengan sumber lebih otoritatif jika duplikat terdeteksi
+
+- [ ] **[F10-12]** Tambah sentiment weighting berdasarkan source authority
+  - File: `src/services/newsAnalyzer.ts`
+  - Buat ranking authority: `CoinDesk > BitcoinMagazine > CoinTelegraph > AMBCrypto > others`
+  - Artikel dari sumber authority tinggi → sentiment score * 1.5x weight
+  - Tambah field `authorityWeight` ke `NewsItem` interface
+
+---
+
+### 10.4 Telegram Output Improvement untuk News
+
+- [ ] **[F10-13]** Perbaiki format output berita di Telegram
+  - File: `src/services/newsAnalyzer.ts` → method `formatBasicAnalysis()`
+  - Sekarang: daftar headline biasa tanpa ranking relevansi
+  - Update: sorting artikel berdasarkan relevance score (kombinasi: recency + sentiment intensity + source authority)
+  - Tampilkan **top 3 artikel** dengan format:
+    ```
+    📈 [CoinDesk] XRP Breaks $2.50 Resistance: Bullish Momentum Confirmed
+       ⏰ 2 jam lalu | 🎯 Relevance: 94% | Sentiment: 🟢 Bullish
+    ```
+
+- [ ] **[F10-14]** Tambah "Event Alert" ke output analisis
+  - Jika ada upcoming event dalam 24 jam (dari Coindar) → tambah section khusus:
+    ```
+    ⚡ UPCOMING CATALYST (< 24h):
+    • XRP: [5/5 importance] "Ripple v. SEC Settlement Hearing" — in 8 hours
+    ⚠️ High volatility expected around this event
+    ```
+
+- [ ] **[F10-15]** Tambah `/news <symbol>` command yang dedicated
+  - File: `src/enhancedBot.ts`
+  - Berbeda dari `/analyze` yang comprehensive, `/news XRPUSDT` fokus hanya pada:
+    1. Top 5 artikel terbaru + click-able links
+    2. Reddit top discussions (jika ada)
+    3. Fear & Greed Index saat ini
+    4. Upcoming events dalam 7 hari
+    5. Combined sentiment score + label
+  - Jauh lebih cepat dari `/analyze` penuh (tidak generate chart, tidak run ML)
+  - Execution target: < 5 detik
+
+---
+
+### 10.5 Persistensi & Monitoring News Data
+
+- [ ] **[F10-16]** Buat tabel `NewsArticle` di Prisma schema
+  - File: `prisma/schema.prisma`
+  - Fields: `id, symbol, title, url, source, publishedAt, sentimentScore, authorityWeight, fetchedAt`
+  - Index: `(symbol, publishedAt)` untuk query efisien
+  - Simpan artikel yang di-fetch agar bisa di-backtest kualitas sentiment signal
+
+- [ ] **[F10-17]** Implementasi historical sentiment scoring
+  - Setelah N hari, kita bisa compare: "saat sentiment = very positive, apa yang terjadi pada harga?"
+  - Buat method `evaluateSentimentAccuracy(lookbackDays: number)` di `NewsAnalyzer`
+  - Bandingkan `sentimentScore` dengan `priceChange24h` pada hari yang sama
+  - Tampilkan di `/mlstats`: `"News Sentiment Signal Accuracy (last 30d): 67%"`
+
+- [ ] **[F10-18]** Tambah news data ke feature engineering untuk ML model
+  - File: `src/services/featureEngineering.ts`
+  - Tambah feature baru (3 features):
+    - `sentimentScore` — nilai -1 hingga +1 dari combined news+reddit
+    - `fearGreedIndex` — nilai 0–100 dinormalisasi ke 0–1
+    - `hasUpcomingCatalyst` — binary 0/1 (ada event besar dalam 24 jam?)
+  - Update `featureCount` di `SimpleGRUModel` sesuai penambahan
+  - Ini berpotensi meningkatkan akurasi ML karena incorporates fundamental data
+
+---
+
+### 📋 Definisi "Done" Fase 10
+
+- [ ] `[SCRAPE] [DONE] reddit=X` menampilkan X > 0 untuk semua symbol major
+- [ ] Fear & Greed Index muncul di output `/analyze` dan diperbarui setiap request
+- [ ] RSS berhasil fetch dari minimal 6 sumber (saat ini 4)
+- [ ] Deduplication berjalan: tidak ada artikel yang sama muncul dari 2 sumber berbeda
+- [ ] `/news XRPUSDT` berfungsi dan selesai dalam < 5 detik
+- [ ] Setidaknya 1 historical sentiment record tersimpan per analisis di DB
+
+---
+
 ## 📝 APPENDIX A — File Baru yang Perlu Dibuat
+
 
 | File | Fase | Deskripsi |
 |------|------|-----------|
@@ -986,6 +1363,10 @@
 | `src/web/src/pages/aiAnalysis.ts` | F8 | Halaman AI Analysis & Sentiment |
 | `src/web/src/pages/backtesting.ts` | F8 | Halaman Backtesting & Strategy Lab |
 | `src/web/src/pages/portfolio.ts` | F8 | Halaman Portfolio & Performance |
+| `src/services/marketDataCache.ts` | F9 | TTL in-memory cache untuk data market |
+| `src/services/providerCircuitBreaker.ts` | F9 | Circuit breaker per data provider eksternal |
+| `src/services/providerRouter.ts` | F9 | Smart routing & per-symbol provider caching |
+| `src/data/cryptoSentimentLexicon.json` | F10 | Domain-specific crypto sentiment lexicon |
 
 ---
 
@@ -1011,6 +1392,17 @@
 | `prisma/schema.prisma` | F7 | Tambah tabel `AgentAnalysisLog` |
 | `package.json` | F8 | Tambah script `build:web`, `dev:web`, `build:all` |
 | `ecosystem.config.js` | F8 | Tambah env var `WEB_DASHBOARD_URL` |
+| `src/services/publicCryptoService.ts` | F9 | Fix candle limit, adaptive limit per timeframe, cache integration |
+| `src/services/advancedAnalyzer.ts` | F9 | Minimum candle threshold, fix 1d pattern detection |
+| `src/services/imageChartService.ts` | F9 | Tingkatkan limit 1d ke 200, handle insufficient data gracefully |
+| `src/services/TradingViewService.ts` | F9 | Fix provider fallback chain, tambah circuit breaker, ganti urutan priority |
+| `src/services/simpleComprehensiveAnalyzer.ts` | F9 | Summary log, timing breakdown, integrate marketDataCache |
+| `src/services/newsAnalyzer.ts` | F9,F10 | Fix AI timeout log, Reddit OAuth2, tambah sumber RSS, sentiment lexicon |
+| `src/services/chutesService.ts` | F9 | Tambah Promise.race timeout wrapper, log [DONE]/[ERROR] konsisten |
+| `src/services/featureEngineering.ts` | F10 | Tambah 3 features baru: sentimentScore, fearGreedIndex, hasUpcomingCatalyst |
+| `src/ml/simpleGRUModel.ts` | F10 | Update featureCount sesuai penambahan dari F10-18 |
+| `prisma/schema.prisma` | F10 | Tambah tabel `NewsArticle` |
+| `src/enhancedBot.ts` | F10 | Tambah command `/news <symbol>`, `/clearcache` |
 
 ---
 
@@ -1049,6 +1441,21 @@ CHUTES_MODEL_DEEP=Qwen/Qwen3-235B-A22B          # Model untuk reasoning berat
 CHUTES_MODEL_QUICK=Qwen/Qwen3-30B-A3B           # Model untuk tugas cepat
 MAX_DEBATE_ROUNDS=1                              # Jumlah putaran debat LLM
 AGENT_TIMEOUT_MS=30000                           # Timeout per LLM call
+
+# News Intelligence (Fase 10)                     # BARU
+REDDIT_CLIENT_ID=your_reddit_client_id           # OAuth2 Reddit App Client ID
+REDDIT_CLIENT_SECRET=your_reddit_client_secret   # OAuth2 Reddit App Client Secret
+REDDIT_USER_AGENT=RabTradebot/1.0 (by /u/your_username)  # Reddit API User-Agent
+CRYPTOPANIC_API_KEY=your_cryptopanic_key         # Free: cryptopanic.com/api/
+COINDAR_API_KEY=your_coindar_key                 # Free: coindar.org (catalyst events)
+
+# Analysis Pipeline (Fase 9)                      # BARU
+MARKET_DATA_CACHE_ENABLED=true                   # Toggle in-memory cache
+CANDLE_CACHE_TTL_MIN=5                           # Cache TTL untuk 1h/4h candles (menit)
+CANDLE_CACHE_TTL_DAILY=30                        # Cache TTL untuk 1d candles (menit)
+PROVIDER_CIRCUIT_BREAKER_THRESHOLD=3             # Failures sebelum circuit open
+PROVIDER_CIRCUIT_RESET_MS=300000                 # 5 menit reset circuit breaker
+AI_ANALYSIS_TIMEOUT_MS=30000                     # Timeout Chutes AI call (ms)
 
 # Logging
 LOG_LEVEL=info                                   # debug | info | warn | error
@@ -1165,9 +1572,13 @@ Fase 8 (Web Dashboard) ◄─── Bisa dikerjakan PARALEL sejak Fase 3 selesai
 | Infrastructure | 2/10 | 9/10 |
 | Multi-Agent LLM | 0/10 | 9/10 |
 | Web Dashboard | 0/10 | 9/10 |
-| **TOTAL** | **54/140** | **123/140** ≈ **120/100** (Ultra Bonus Tier) |
+| **Analysis Pipeline Reliability** *(F9 — Baru)* | 3/10 | 9/10 |
+| **News Intelligence Quality** *(F10 — Baru)* | 2/10 | 9/10 |
+| **TOTAL** | **54/160** | **143/160** ≈ **130/100** (Elite Tier) |
 
 ---
 
 *Dokumen ini adalah living document — update status setiap task saat selesai dikerjakan.*
 *Legend: ⏳ Pending | 🔄 In Progress | ✅ Done | ❌ Cancelled | ⏸️ Blocked*
+*Fase 9 & 10 ditambahkan pada 2026-04-10 berdasarkan analisis output bot real XRPUSDT — 6 bug kritis teridentifikasi.*
+
