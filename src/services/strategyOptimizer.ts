@@ -768,21 +768,73 @@ Trade-offs Identified:
         const drawdownResults: number[] = [];
         const sharpeResults: number[] = [];
 
+        // ⚡ Bolt Optimization: Pre-calculate permutation-invariant metrics
+        // Metrics like total profit, avg profit, variance, and sharpe ratio are independent
+        // of trade ordering, so we can calculate them once in an O(N) pass outside the loop.
+        const tradesLen = trades.length;
+        let totalProfit = 0;
+
+        for (let i = 0; i < tradesLen; i++) {
+            totalProfit += trades[i].profit;
+        }
+
+        const avgProfit = totalProfit / tradesLen;
+
+        let sumSqDiff = 0;
+        for (let i = 0; i < tradesLen; i++) {
+            const diff = trades[i].profit - avgProfit;
+            sumSqDiff += diff * diff;
+        }
+
+        const variance = sumSqDiff / tradesLen;
+        const stdDev = Math.sqrt(variance);
+        const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
+
+        // Pre-calculate max intra-trade drawdown (permutation-invariant)
+        let maxIntraTradeDrawdown = 0;
+        for (let i = 0; i < tradesLen; i++) {
+            if (trades[i].maxDrawdown > maxIntraTradeDrawdown) {
+                maxIntraTradeDrawdown = trades[i].maxDrawdown;
+            }
+        }
+
+        // ⚡ Bolt Optimization: Move array cloning outside the loop
+        // We can reuse a single pre-allocated array and do an in-place Fisher-Yates shuffle.
+        const shuffledTrades = [...trades];
+
         for (let sim = 0; sim < numSimulations; sim++) {
-            // Fisher-Yates shuffle
-            const shuffledTrades = [...trades];
-            for (let i = shuffledTrades.length - 1; i > 0; i--) {
+            // Fisher-Yates shuffle in-place
+            for (let i = tradesLen - 1; i > 0; i--) {
                 const j = Math.floor(Math.random() * (i + 1));
-                [shuffledTrades[i], shuffledTrades[j]] = [shuffledTrades[j], shuffledTrades[i]];
+                const temp = shuffledTrades[i];
+                shuffledTrades[i] = shuffledTrades[j];
+                shuffledTrades[j] = temp;
             }
 
-            // Calculate metrics from shuffled trades
-            const totalProfit = shuffledTrades.reduce((sum, t) => sum + t.profit, 0);
-            const maxDrawdown = Math.max(...shuffledTrades.map(t => t.maxDrawdown));
-            const avgProfit = totalProfit / shuffledTrades.length;
-            const variance = shuffledTrades.reduce((sum, t) => sum + Math.pow(t.profit - avgProfit, 2), 0) / shuffledTrades.length;
-            const stdDev = Math.sqrt(variance);
-            const sharpe = stdDev !== 0 ? avgProfit / stdDev : 0;
+            // ⚡ Bolt Optimization: Calculate order-dependent maxDrawdown with a single O(N) pass
+            // Sequential calculation using cumulative equity curve inside the loop
+            let currentEquity = 0;
+            let peakEquity = 0;
+            let currentDrawdown = 0;
+            let maxDrawdown = 0;
+
+            for (let i = 0; i < tradesLen; i++) {
+                currentEquity += shuffledTrades[i].profit;
+
+                if (currentEquity > peakEquity) {
+                    peakEquity = currentEquity;
+                } else {
+                    currentDrawdown = peakEquity - currentEquity;
+                    if (currentDrawdown > maxDrawdown) {
+                        maxDrawdown = currentDrawdown;
+                    }
+                }
+            }
+
+            // ⚡ Bolt Optimization: Use pre-calculated max intra-trade drawdown
+            if (maxIntraTradeDrawdown > maxDrawdown) {
+                maxDrawdown = maxIntraTradeDrawdown;
+            }
 
             profitResults.push(totalProfit);
             drawdownResults.push(maxDrawdown);

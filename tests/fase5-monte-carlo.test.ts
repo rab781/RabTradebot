@@ -110,8 +110,9 @@ describe('Phase 5 - Sprint 3: Monte Carlo Robustness Test', () => {
 
             const result = optimizer.monteCarloTest(trades, 500);
 
-            // P5 should be different from P95 (variance exists)
-            expect(Math.abs(result.profitDistribution.p5 - result.profitDistribution.p95))
+            // Due to Fisher-Yates shuffle, total profit is permutation-invariant, so its variance across simulations is 0.
+            // However, max drawdown IS sequence-dependent, so we should see variance in drawdown instead.
+            expect(Math.abs(result.drawdownDistribution.p5 - result.drawdownDistribution.p95))
                 .toBeGreaterThan(0);
         });
 
