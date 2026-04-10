@@ -1101,8 +1101,9 @@ Example: /analyze BTCUSDT
 • Chart links`);
   }
 
+  let loadingMessage: any;
   try {
-    const loadingMessage = await ctx.reply(`🔄 Performing comprehensive analysis for ${symbol}...
+    loadingMessage = await ctx.reply(`🔄 Performing comprehensive analysis for ${symbol}...
 
 ⏳ This may take 30-60 seconds as we:
 • Fetch market data from multiple sources
@@ -1325,12 +1326,6 @@ Confidence: ${newsResult.combinedSentiment.confidence.toFixed(1)}%
       await ctx.reply(`💡 For news analysis, try: /pnews ${symbol}`);
     }
 
-    // Delete loading message
-    try {
-      await ctx.deleteMessage(loadingMessage.message_id);
-    } catch (error) {
-      // Ignore if can't delete
-    }
   } catch (error) {
     console.error(`Comprehensive analysis error for ${symbol}:`, error);
     ctx.reply(`❌ Error performing comprehensive analysis for ${symbol}.
@@ -1341,6 +1336,15 @@ This could be due to:
 • Technical analysis issues
 
 Please check the symbol and try again, or contact support if the issue persists.`);
+  } finally {
+    // Delete loading message
+    if (loadingMessage) {
+      try {
+        await ctx.deleteMessage(loadingMessage.message_id);
+      } catch (error) {
+        // Ignore if can't delete
+      }
+    }
   }
 
   return;
