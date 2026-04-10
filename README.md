@@ -39,8 +39,8 @@ Open Telegram, find your bot, and send `/start`.
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourusername/crypto-signal-bot.git
-cd crypto-signal-bot
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
 
 # 2. Install dependencies
 npm install
