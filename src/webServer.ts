@@ -47,7 +47,7 @@ app.use((req: Request, res: Response, next: NextFunction) => {
 });
 
 app.use(cors(corsOptions));
-app.use(express.json());
+app.use(express.json({ limit: '1mb' })); // 🛡️ Sentinel: Prevent Payload DoS by bounding JSON size
 app.use(express.static(path.join(__dirname, '../public')));
 
 app.get('/', (req: Request, res: Response) => {
