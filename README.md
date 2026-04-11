@@ -10,25 +10,28 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+You can get the bot up and running in under 5 minutes.
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
 npm install
 
-# Copy the environment template and add your Telegram bot token
+# Copy the environment template and configure your secrets
 cp .env.example .env
-# Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
-# Build the project (generates the dist/ directory)
+# Generate Prisma client and migrate the database
+npx prisma generate
+npx prisma migrate dev
+
+# Build the project
 npm run build
 
 # Start the bot
 npm start
 ```
 
-Open Telegram, find your bot, and send `/start`.
+Once running, open Telegram, find your bot, and send `/start`.
 
 ## Installation
 
@@ -37,35 +40,52 @@ Open Telegram, find your bot, and send `/start`.
 - npm 9+
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
-```bash
-# 1. Clone the repository
-git clone https://github.com/rab781/RabTradebot.git
-cd RabTradebot
+Follow these steps to install the project locally:
 
-# 2. Install dependencies
-npm install
-```
+1. **Clone the repository**
+   ```bash
+   git clone https://github.com/rab781/RabTradebot.git
+   cd RabTradebot
+   ```
+
+2. **Install dependencies**
+   ```bash
+   npm install
+   ```
+
+3. **Set up the database**
+   The bot uses Prisma as its ORM with SQLite (or PostgreSQL for production). You must generate the Prisma client and apply migrations before building the project.
+   ```bash
+   npx prisma generate
+   npx prisma migrate dev
+   ```
 
 ## Configuration
 
-Configure the bot by editing the `.env` file.
+Configure the bot by editing the `.env` file you created during setup.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+### Required Configuration
 
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | none | Your Telegram bot token from @BotFather. |
+
+### Optional Configuration
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `BINANCE_API_KEY` | `string` | none | Required for live trading and better rate limits. |
+| `BINANCE_API_SECRET` | `string` | none | Required for live trading and better rate limits. |
+| `CHUTES_API_KEY` | `string` | none | Required for AI-powered news analysis and impact predictions. |
+| `DATABASE_URL` | `string` | `file:./prisma/dev.db` | Database connection string. Use `postgresql://...` for production. |
+
+> **Note**: The bot automatically falls back to the public Binance API if you do not provide private credentials.
 
 ## Usage
 
-Interact with the bot via Telegram commands.
+### Basic Usage
 
-### Basic Example
-
-To get a complete market analysis for a specific pair:
+Interact with the bot via Telegram commands. To get a complete market analysis for a specific pair, send:
 
 ```
 /analyze BTCUSDT
@@ -85,13 +105,13 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 /papertrade ETHUSDT
 ```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+*Starts a virtual trading session with a $1000 simulated balance using real market data. Track your progress using `/portfolio`.*
 
 **Backtest a Strategy:**
 ```
 /backtest SOLUSDT 30
 ```
-*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
+*Tests the default strategy's performance over the last 30 days and returns your win rate, drawdown, and total profit.*
 
 **Optimize Strategy Parameters:**
 ```
@@ -99,22 +119,26 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
-## Telegram Command Reference
+## API Reference
 
-### Basic Analysis
+The web dashboard and APIs use standard REST endpoints and WebSocket for real-time updates. Check the API specifications in the dashboard once started, or run the application and visit the dashboard at `http://localhost:3000/api`.
+
+### Telegram Commands
+
+**Basic Analysis**
 - `/signal [symbol]` - Trading signals
 - `/volume [symbol]` - Volume analysis
 - `/sr [symbol]` - Support/resistance levels
 - `/chart [symbol]` - Generate interactive charts
 
-### Advanced Trading
+**Advanced Trading**
 - `/backtest [symbol] [days]` - Strategy backtesting
 - `/papertrade [symbol]` - Start paper trading simulation
 - `/portfolio` - View current positions and balance
 - `/performance` - Detailed performance metrics
 - `/optimize [symbol] [days]` - Optimize strategy parameters
 
-### Data & Status
+**Data & Status**
 - `/download [symbol] [days]` - Download historical data
 - `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
