@@ -17,6 +17,7 @@ import { FeatureEngineeringService, FeatureSet } from '../services/featureEngine
 import { LSTMModelManager, PredictionResult } from '../ml/lstmModel';
 import * as fs from 'fs';
 import * as path from 'path';
+import { logger } from '../utils/logger';
 
 export type MarketRegime = 'trending_bull' | 'trending_bear' | 'ranging' | 'volatile';
 
@@ -109,10 +110,10 @@ export class OpenClawStrategy implements IStrategy {
             if (this.config.modelPath && fs.existsSync(this.config.modelPath)) {
                 this.mlModel = new LSTMModelManager();
                 await this.mlModel.loadModel(this.config.modelPath);
-                console.log('✅ ML Model loaded successfully');
+                logger.info('✅ ML Model loaded successfully');
             }
         } catch (error) {
-            console.warn('⚠️  Failed to load ML model:', error);
+            logger.warn({ err: error }, '⚠️  Failed to load ML model:');
             this.config.useMachineLearning = false;
         }
     }
@@ -494,7 +495,7 @@ export class OpenClawStrategy implements IStrategy {
             try {
                 features = this.featureService.extractFeatures(candles, metadata.pair);
             } catch (error) {
-                console.warn('Feature extraction failed:', error);
+                logger.warn({ err: error }, 'Feature extraction failed:');
             }
         }
 

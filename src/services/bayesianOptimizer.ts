@@ -1,6 +1,7 @@
 import { IStrategy, StrategyOptimizationResult } from '../types/strategy';
 import { OHLCVCandle } from '../types/dataframe';
 import { StrategyOptimizer, OptimizationConfig, OptimizationSpace } from './strategyOptimizer';
+import { logger } from '../utils/logger';
 
 /**
  * Tree Parzen Estimator (TPE) - Bayesian Optimization Algorithm
@@ -38,13 +39,13 @@ export class BayesianOptimizer {
      * 5. Repeat until maxEvals
      */
     async optimize(): Promise<StrategyOptimizationResult[]> {
-        console.log(`Starting Bayesian Optimization (TPE) with max ${this.config.maxEvals} evaluations`);
+        logger.info(`Starting Bayesian Optimization (TPE) with max ${this.config.maxEvals} evaluations`);
 
         const results: StrategyOptimizationResult[] = [];
         const initialRandomEvals = Math.min(10, Math.ceil(this.config.maxEvals * 0.2));
 
         // Phase 1: Random exploration
-        console.log(`Phase 1: Random exploration with ${initialRandomEvals} evaluations...`);
+        logger.info(`Phase 1: Random exploration with ${initialRandomEvals} evaluations...`);
         const randomParams = this.generateRandomParams(initialRandomEvals);
 
         for (let i = 0; i < randomParams.length; i++) {
@@ -54,12 +55,12 @@ export class BayesianOptimizer {
             this.evaluationHistory.push({ params, score: result.score });
 
             if ((i + 1) % 5 === 0) {
-                console.log(`Random phase: ${i + 1}/${initialRandomEvals}`);
+                logger.info(`Random phase: ${i + 1}/${initialRandomEvals}`);
             }
         }
 
         // Phase 2: Guided exploration with TPE
-        console.log(`Phase 2: Guided exploration with TPE for ${this.config.maxEvals - initialRandomEvals} evaluations...`);
+        logger.info(`Phase 2: Guided exploration with TPE for ${this.config.maxEvals - initialRandomEvals} evaluations...`);
 
         for (let i = initialRandomEvals; i < this.config.maxEvals; i++) {
             // Split results into good (top 25%) and bad (bottom 75%)
@@ -75,17 +76,17 @@ export class BayesianOptimizer {
             // Progress logging
             if ((i + 1) % 10 === 0 || i === this.config.maxEvals - 1) {
                 const bestScore = Math.max(...results.map(r => r.score));
-                console.log(`TPE phase: ${i + 1}/${this.config.maxEvals} (Best: ${bestScore.toFixed(4)})`);
+                logger.info(`TPE phase: ${i + 1}/${this.config.maxEvals} (Best: ${bestScore.toFixed(4)})`);
             }
         }
 
         // Sort by score
         results.sort((a, b) => b.score - a.score);
 
-        console.log(`Bayesian Optimization completed!`);
-        console.log(`Best ${Math.min(5, results.length)} results:`);
+        logger.info(`Bayesian Optimization completed!`);
+        logger.info(`Best ${Math.min(5, results.length)} results:`);
         for (let i = 0; i < Math.min(5, results.length); i++) {
-            console.log(`${i + 1}. Score: ${results[i].score.toFixed(4)}, Params: ${JSON.stringify(results[i].params)}`);
+            logger.info(`${i + 1}. Score: ${results[i].score.toFixed(4)}, Params: ${JSON.stringify(results[i].params)}`);
         }
 
         return results;

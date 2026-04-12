@@ -2,6 +2,7 @@ import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
 import axios, { AxiosProxyConfig } from 'axios';
 import * as fs from 'fs';
 import * as https from 'https';
+import { logger } from '../utils/logger';
 
 export interface HistoricalDataConfig {
     symbol: string;
@@ -27,9 +28,9 @@ export class DataManager {
             try {
                 const ca = fs.readFileSync(caCertPath, 'utf-8');
                 this.secureAgent = new https.Agent({ ca, rejectUnauthorized: true });
-                console.log(`[DataManager] Loaded custom CA certificate from ${caCertPath}`);
+                logger.info(`[DataManager] Loaded custom CA certificate from ${caCertPath}`);
             } catch (error) {
-                console.error(`[DataManager] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
+                logger.error(`[DataManager] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
             }
         }
 
@@ -37,9 +38,9 @@ export class DataManager {
         if (proxyUrl) {
             this.proxyConfig = this.parseProxyUrl(proxyUrl);
             if (this.proxyConfig) {
-                console.log(`[DataManager] Using proxy ${this.proxyConfig.protocol}://${this.proxyConfig.host}:${this.proxyConfig.port}`);
+                logger.info(`[DataManager] Using proxy ${this.proxyConfig.protocol}://${this.proxyConfig.host}:${this.proxyConfig.port}`);
             } else {
-                console.error('[DataManager] BINANCE_PROXY_URL is invalid and will be ignored');
+                logger.error('[DataManager] BINANCE_PROXY_URL is invalid and will be ignored');
             }
         }
     }
@@ -111,7 +112,7 @@ export class DataManager {
                 throw error;
             }
 
-            console.warn('[DataManager] TLS certificate validation failed, retrying with insecure TLS fallback.');
+            logger.warn('[DataManager] TLS certificate validation failed, retrying with insecure TLS fallback.');
             return axios.get(url, {
                 ...requestConfig,
                 proxy: undefined,
@@ -167,11 +168,11 @@ export class DataManager {
         
         // Check cache first
         if (this.dataCache.has(cacheKey)) {
-            console.log(`Retrieved cached data for ${config.symbol}`);
+            logger.info(`Retrieved cached data for ${config.symbol}`);
             return this.dataCache.get(cacheKey)!;
         }
 
-        console.log(`Downloading historical data for ${config.symbol} from ${config.startDate} to ${config.endDate}`);
+        logger.info(`Downloading historical data for ${config.symbol} from ${config.startDate} to ${config.endDate}`);
 
         try {
             const interval = this.convertTimeframeToInterval(config.timeframe);
@@ -228,11 +229,11 @@ export class DataManager {
             // Cache the result
             this.dataCache.set(cacheKey, filteredCandles);
 
-            console.log(`Downloaded ${filteredCandles.length} candles for ${config.symbol}`);
+            logger.info(`Downloaded ${filteredCandles.length} candles for ${config.symbol}`);
             return filteredCandles;
 
         } catch (error) {
-            console.error(`Error downloading data for ${config.symbol}:`, error);
+            logger.error({ err: error }, `Error downloading data for ${config.symbol}:`);
             throw error;
         }
     }
@@ -264,13 +265,13 @@ export class DataManager {
             return candles;
 
         } catch (error) {
-            console.error(`Error fetching recent data for ${symbol} from Binance:`, error);
+            logger.error({ err: error }, `Error fetching recent data for ${symbol} from Binance:`);
 
             try {
-                console.log(`[DataManager] Falling back to CryptoCompare for ${symbol} ${timeframe}`);
+                logger.info(`[DataManager] Falling back to CryptoCompare for ${symbol} ${timeframe}`);
                 return await this.getRecentDataFromCryptoCompare(symbol, timeframe, limit);
             } catch (fallbackError) {
-                console.error(`Error fetching recent data for ${symbol} from fallback source:`, fallbackError);
+                logger.error({ err: fallbackError }, `Error fetching recent data for ${symbol} from fallback source:`);
                 throw fallbackError;
             }
         }
@@ -449,7 +450,7 @@ export class DataManager {
         };
         
         await fs.writeFile(filename, JSON.stringify(data, null, 2));
-        console.log(`Exported ${candles.length} candles to ${filename}`);
+        logger.info(`Exported ${candles.length} candles to ${filename}`);
     }
 
     async importFromJson(filename: string): Promise<OHLCVCandle[]> {
@@ -469,7 +470,7 @@ export class DataManager {
 
     clearCache(): void {
         this.dataCache.clear();
-        console.log('Data cache cleared');
+        logger.info('Data cache cleared');
     }
 
     getCacheSize(): number {

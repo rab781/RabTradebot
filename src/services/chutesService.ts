@@ -1,3 +1,4 @@
+import { logger } from '../utils/logger';
 import axios from 'axios';
 
 export interface ChutesNewsItem {
@@ -46,7 +47,7 @@ export class ChutesService {
     constructor() {
         this.apiKey = process.env.CHUTES_API_KEY || '';
         if (!this.apiKey) {
-            console.warn('⚠️ CHUTES_API_KEY not found in environment variables');
+            logger.warn('⚠️ CHUTES_API_KEY not found in environment variables');
         }
     }
 
@@ -122,7 +123,7 @@ export class ChutesService {
         const cacheKey = this.getCacheKey(symbol, 'news');
         const cachedData = this.getCachedData(cacheKey);
         if (cachedData) {
-            console.log('✅ Using cached news data for', symbol);
+            logger.info({ symbol }, '✅ Using cached news data');
             return cachedData;
         }
 
@@ -170,12 +171,12 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
 
             // Check if response has valid structure
             if (!response.data?.choices?.[0]?.message?.content) {
-                console.error('Invalid Chutes API response structure:', JSON.stringify(response.data, null, 2));
+                logger.error({ response: JSON.stringify(response.data, null, 2) }, 'Invalid Chutes API response structure');
                 throw new Error('Invalid API response structure');
             }
 
             const content = this.cleanModelResponse(response.data.choices[0].message.content);
-            console.log('📰 Chutes API Response received for', symbol);
+            logger.info({ symbol }, '📰 Chutes API Response received');
 
             // Parse JSON response
             let newsItems: ChutesNewsItem[] = [];
@@ -195,7 +196,7 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
                                item.impactLevel : 'MEDIUM'
                 }));
             } catch (parseError) {
-                console.warn('⚠️ Failed to parse JSON response, extracting manually...');
+                logger.warn('⚠️ Failed to parse JSON response, extracting manually...');
                 newsItems = this.extractNewsFromText(content, symbol);
             }
 
@@ -206,12 +207,12 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
 
             // Cache the results
             this.setCachedData(cacheKey, filteredNews);
-            console.log(`✅ Found ${filteredNews.length} news items for ${symbol}`);
+            logger.info(`✅ Found ${filteredNews.length} news items for ${symbol}`);
 
             return filteredNews;
 
         } catch (error: any) {
-            console.error('❌ Chutes API error:', error.message);
+            logger.error({ err: error.message }, '❌ Chutes API error:');
 
             if (error.response?.status === 401) {
                 throw new Error('Invalid Chutes API key');
@@ -237,7 +238,7 @@ Focus on: price movements, partnerships, regulations, whale activity, exchange n
         const cacheKey = this.getCacheKey(symbol, 'analysis');
         const cachedData = this.getCachedData(cacheKey);
         if (cachedData) {
-            console.log('✅ Using cached analysis data for', symbol);
+            logger.info({ symbol }, '✅ Using cached analysis data');
             return cachedData;
         }
 
@@ -372,12 +373,12 @@ Be thorough, data-driven, and provide actionable insights.`;
 
             // Cache the analysis
             this.setCachedData(cacheKey, analysis);
-            console.log(`✅ Analysis completed for ${symbol}`);
+            logger.info(`✅ Analysis completed for ${symbol}`);
 
             return analysis;
 
         } catch (error: any) {
-            console.error('❌ Chutes analysis error:', error.message);
+            logger.error({ err: error.message }, '❌ Chutes analysis error:');
             throw new Error(`Failed to analyze news impact: ${error.message}`);
         }
     }
@@ -586,7 +587,7 @@ Latest: ${news[0].title}`;
         const cacheKey = this.getCacheKey(symbol, `real_news_${articles.length}_${redditPosts.length}`);
         const cached = this.getCachedData(cacheKey);
         if (cached) {
-            console.log('✅ Using cached real-news analysis for', symbol);
+            logger.info({ symbol }, '✅ Using cached real-news analysis');
             return cached;
         }
 
@@ -711,11 +712,11 @@ Return JSON:
             };
 
             this.setCachedData(cacheKey, analysis);
-            console.log(`✅ Real-news AI analysis completed for ${symbol} (${articles.length} articles, ${redditPosts.length} reddit posts)`);
+            logger.info(`✅ Real-news AI analysis completed for ${symbol} (${articles.length} articles, ${redditPosts.length} reddit posts)`);
             return analysis;
 
         } catch (error: any) {
-            console.error('❌ Chutes real-news analysis error:', error.message);
+            logger.error({ err: error.message }, '❌ Chutes real-news analysis error:');
             throw new Error(`Real-news analysis failed: ${error.message}`);
         }
     }

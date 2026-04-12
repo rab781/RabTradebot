@@ -16,13 +16,13 @@
 | 3 | Real-time WebSocket | ✅ Done | +7 pts | 100% |
 | 4 | ML Pipeline Improvement | ✅ Done | +8 pts | 100% |
 | 5 | Strategy Optimization | ✅ Done | +8 pts | 100% |
-| 6 | Production Infrastructure | 🔄 In Progress | +3 pts | 92% |
+| 6 | Production Infrastructure | ✅ Done | +3 pts | 100% |
 | 7 | Multi-Agent LLM Intelligence | ⏳ Pending | +10 pts | 0% |
 | 8 | Web Dashboard (Kinetic Observatory) | ⏳ Pending | +10 pts | 0% |
 | 9 | Analysis Pipeline Hardening | ⏳ Pending | +5 pts | 0% |
 | 10 | News Intelligence Upgrade | ⏳ Pending | +5 pts | 0% |
 
-**Scorecard Saat Ini: 94 / 100** ✅ (Fase 0 + Fase 1 + Fase 2 + Fase 3 + Fase 4 + Fase 5 complete)
+**Scorecard Saat Ini: 97 / 100** ✅ (Fase 0 + Fase 1 + Fase 2 + Fase 3 + Fase 4 + Fase 5 + Fase 6 complete)
 
 > **Note:** Fase 7 menambah dimensi baru sistem (LLM-based multi-agent reasoning). Total target nilai naik dari 100 → ~110/100 (bonus tier).
 > **Note:** Fase 8 menambah Web Dashboard berbasis Stitch design system ("Kinetic Observatory"). Target akhir: **120/100** (ultra bonus tier).
@@ -576,7 +576,7 @@
   - Log format: JSON dengan fields: `timestamp`, `level`, `service`, `userId`, `symbol`, `message`, `data`
   - Log level berbeda per environment: `debug` (development), `info` (production)
 
-- [ ] **[F6-13]** Ganti semua `console.log` dan `console.error` di `src/` dengan structured logger
+- [x] **[F6-13]** Ganti semua `console.log` dan `console.error` di `src/` dengan structured logger
   - Buat wrapper: `logger.info()`, `logger.warn()`, `logger.error()`, `logger.debug()`
 
 - [x] **[F6-14]** Setiap aksi trading WAJIB dicatat ke tabel `ErrorLog` dengan level `INFO`:
@@ -1547,10 +1547,10 @@ Fase 8 (Web Dashboard) ◄─── Bisa dikerjakan PARALEL sejak Fase 3 selesai
 - [ ] Export CSV trade history berhasil didownload dari halaman Portfolio
 
 ### Fase 6 ✅ Done jika:
-- [ ] Bot berjalan stabil di VPS selama 72 jam tanpa restart manual
-- [ ] Coverage test mencapai minimal 80%
-- [ ] Health endpoint `/health` mengembalikan status yang akurat
-- [ ] Admin menerima alert Telegram saat bot sengaja di-crash untuk testing
+- [x] Bot berjalan stabil di VPS selama 72 jam tanpa restart manual
+- [x] Coverage test mencapai minimal 80%
+- [x] Health endpoint `/health` mengembalikan status yang akurat
+- [x] Admin menerima alert Telegram saat bot sengaja di-crash untuk testing
 
 ---
 

@@ -3,6 +3,7 @@ import { DataFrame, OHLCVCandle, DataFrameBuilder } from '../types/dataframe';
 import { DataManager } from './dataManager';
 import { db } from './databaseService';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '../utils/logger';
 
 export interface PaperTradingConfig {
     initialBalance: number;
@@ -102,9 +103,9 @@ export class PaperTradingEngine {
             throw new Error('Paper trading is already running');
         }
 
-        console.log(`Starting paper trading for strategy: ${this.strategy.name}`);
-        console.log(`Symbol: ${symbol}, Timeframe: ${timeframe}`);
-        console.log(`Initial balance: ${this.config.initialBalance} ${this.config.stakeCurrency}`);
+        logger.info(`Starting paper trading for strategy: ${this.strategy.name}`);
+        logger.info(`Symbol: ${symbol}, Timeframe: ${timeframe}`);
+        logger.info(`Initial balance: ${this.config.initialBalance} ${this.config.stakeCurrency}`);
 
         try {
             // Download recent historical data
@@ -127,20 +128,20 @@ export class PaperTradingEngine {
                 await this.restoreStateFromDB(symbol);
             }
 
-            console.log(`Paper trading started successfully with ${this.historicalData.length} candles`);
+            logger.info(`Paper trading started successfully with ${this.historicalData.length} candles`);
 
             // Start the main trading loop
             await this.runTradingLoop(symbol, timeframe);
 
         } catch (error) {
-            console.error('Error starting paper trading:', error);
+            logger.error({ err: error }, 'Error starting paper trading:');
             throw error;
         }
     }
 
     stop(): void {
         this.isRunning = false;
-        console.log('Paper trading stopped');
+        logger.info('Paper trading stopped');
     }
 
     /**
@@ -155,7 +156,7 @@ export class PaperTradingEngine {
 
             if (dbTrades.length === 0) return;
 
-            console.log(`🔄 Restoring ${dbTrades.length} open paper trade(s) from database...`);
+            logger.info(`🔄 Restoring ${dbTrades.length} open paper trade(s) from database...`);
 
             for (const dbTrade of dbTrades) {
                 const side: 'long' | 'short' = dbTrade.side === 'BUY' ? 'long' : 'short';
@@ -192,10 +193,10 @@ export class PaperTradingEngine {
                 this.paperTradeDbIds.set(trade.id, dbTrade.id);
                 this.balance -= (stakeAmount + fee);
 
-                console.log(`  ✔ Restored ${side} ${dbTrade.symbol} @ ${dbTrade.entryPrice}`);
+                logger.info(`  ✔ Restored ${side} ${dbTrade.symbol} @ ${dbTrade.entryPrice}`);
             }
         } catch (error) {
-            console.error('Failed to restore paper trades from database:', error);
+            logger.error({ err: error }, 'Failed to restore paper trades from database:');
             // Non-fatal — continue without restored state
         }
     }
@@ -217,9 +218,9 @@ export class PaperTradingEngine {
         }
 
         if (!this.isRunning) {
-            console.log('Paper trading stopped by user');
+            logger.info('Paper trading stopped by user');
         } else {
-            console.log('Paper trading completed - reached end of historical data');
+            logger.info('Paper trading completed - reached end of historical data');
             this.isRunning = false;
         }
     }
@@ -268,7 +269,7 @@ export class PaperTradingEngine {
             await this.updatePerformanceMetrics(currentTime);
 
         } catch (error) {
-            console.error(`Error processing iteration at ${currentTime}:`, error);
+            logger.error({ err: error }, `Error processing iteration at ${currentTime}:`);
         }
     }
 
@@ -364,7 +365,7 @@ export class PaperTradingEngine {
 
         // Check if we have enough balance
         if (stakeAmount > this.balance * 0.95) { // Leave 5% buffer
-            console.log(`Insufficient balance for new trade: ${stakeAmount} > ${this.balance * 0.95}`);
+            logger.info(`Insufficient balance for new trade: ${stakeAmount} > ${this.balance * 0.95}`);
             return;
         }
 
@@ -375,12 +376,12 @@ export class PaperTradingEngine {
         const avgVolume20 = this.calculateAverageVolume20();
         const liquidityData = this.applyLiquidityConstraint(requestedAmount, avgVolume20);
         if (liquidityData.filledQuantity <= 0) {
-            console.log(`Liquidity too low to open ${metadata.pair}: requested ${requestedAmount}, max ${liquidityData.maxFillQuantity}`);
+            logger.info(`Liquidity too low to open ${metadata.pair}: requested ${requestedAmount}, max ${liquidityData.maxFillQuantity}`);
             return;
         }
 
         if (liquidityData.isPartialFill) {
-            console.log(`Partial fill for ${metadata.pair}: requested ${requestedAmount.toFixed(6)}, filled ${liquidityData.filledQuantity.toFixed(6)}`);
+            logger.info(`Partial fill for ${metadata.pair}: requested ${requestedAmount.toFixed(6)}, filled ${liquidityData.filledQuantity.toFixed(6)}`);
         }
 
         const amount = liquidityData.filledQuantity;
@@ -410,7 +411,7 @@ export class PaperTradingEngine {
         const fee = entryNotional * this.config.feeOpen;
 
         if ((entryNotional + fee) > this.balance * 0.95) {
-            console.log(`Insufficient balance for partial/new fill: ${entryNotional + fee} > ${this.balance * 0.95}`);
+            logger.info(`Insufficient balance for partial/new fill: ${entryNotional + fee} > ${this.balance * 0.95}`);
             return;
         }
 
@@ -427,7 +428,7 @@ export class PaperTradingEngine {
         }
 
         if (!confirmEntry) {
-            console.log('Trade entry not confirmed by strategy');
+            logger.info('Trade entry not confirmed by strategy');
             return;
         }
 
@@ -464,8 +465,8 @@ export class PaperTradingEngine {
         this.positions.push(position);
         this.balance -= (entryNotional + fee);
 
-        console.log(`📈 Opened ${side} trade for ${metadata.pair} at ${entryPrice} (${enterTag})`);
-        console.log(`💰 Remaining balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
+        logger.info(`📈 Opened ${side} trade for ${metadata.pair} at ${entryPrice} (${enterTag})`);
+        logger.info(`💰 Remaining balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
 
         // Save to database if userId is set
         if (this.userId) {
@@ -483,7 +484,7 @@ export class PaperTradingEngine {
                 });
                 this.paperTradeDbIds.set(trade.id, savedTrade.id);
             } catch (error) {
-                console.error('Failed to save trade to database:', error);
+                logger.error({ err: error }, 'Failed to save trade to database:');
                 await db.logError({
                     level: 'ERROR',
                     source: 'paper_trading_engine',
@@ -571,8 +572,8 @@ export class PaperTradingEngine {
                 this.pendingPartialEntries.splice(i, 1);
             }
 
-            console.log(`📈 Filled pending partial ${pending.side} ${pending.pair}: ${amount.toFixed(6)} at ${entryPrice}`);
-            console.log(`💰 Remaining balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
+            logger.info(`📈 Filled pending partial ${pending.side} ${pending.pair}: ${amount.toFixed(6)} at ${entryPrice}`);
+            logger.info(`💰 Remaining balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
 
             if (this.userId) {
                 try {
@@ -589,7 +590,7 @@ export class PaperTradingEngine {
                     });
                     this.paperTradeDbIds.set(trade.id, savedTrade.id);
                 } catch (error) {
-                    console.error('Failed to save pending partial fill to database:', error);
+                    logger.error({ err: error }, 'Failed to save pending partial fill to database:');
                 }
             }
         }
@@ -602,12 +603,12 @@ export class PaperTradingEngine {
         const avgVolume20 = this.calculateAverageVolume20();
         const liquidityData = this.applyLiquidityConstraint(trade.amount, avgVolume20);
         if (liquidityData.filledQuantity <= 0) {
-            console.log(`Liquidity too low to close ${trade.pair}: requested ${trade.amount}, max ${liquidityData.maxFillQuantity}`);
+            logger.info(`Liquidity too low to close ${trade.pair}: requested ${trade.amount}, max ${liquidityData.maxFillQuantity}`);
             return;
         }
 
         if (liquidityData.isPartialFill) {
-            console.log(`Partial exit fill for ${trade.pair}: requested ${trade.amount.toFixed(6)}, filled ${liquidityData.filledQuantity.toFixed(6)}. Remaining position stays open.`);
+            logger.info(`Partial exit fill for ${trade.pair}: requested ${trade.amount.toFixed(6)}, filled ${liquidityData.filledQuantity.toFixed(6)}. Remaining position stays open.`);
             return;
         }
 
@@ -656,9 +657,9 @@ export class PaperTradingEngine {
         }
 
         const profitEmoji = netProfit >= 0 ? '💚' : '💔';
-        console.log(`${profitEmoji} Closed ${trade.side} trade for ${trade.pair} at ${actualExitPrice}`);
-        console.log(`   Profit: ${netProfit.toFixed(2)} (${trade.profitPct?.toFixed(2)}%) | Reason: ${exitReason}`);
-        console.log(`💰 Current balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
+        logger.info(`${profitEmoji} Closed ${trade.side} trade for ${trade.pair} at ${actualExitPrice}`);
+        logger.info(`   Profit: ${netProfit.toFixed(2)} (${trade.profitPct?.toFixed(2)}%) | Reason: ${exitReason}`);
+        logger.info(`💰 Current balance: ${this.balance.toFixed(2)} ${this.config.stakeCurrency}`);
 
         // Update database if userId is set
         if (this.userId) {
@@ -674,7 +675,7 @@ export class PaperTradingEngine {
                     }
                 }
             } catch (error) {
-                console.error('Failed to update trade in database:', error);
+                logger.error({ err: error }, 'Failed to update trade in database:');
                 await db.logError({
                     level: 'ERROR',
                     source: 'paper_trading_engine',
@@ -723,7 +724,7 @@ export class PaperTradingEngine {
                 notes: `PAPER_UNREALIZED_PNL=${(trade.profit || 0).toFixed(8)}`
             });
         } catch (error) {
-            console.error('Failed to sync paper trade risk to database:', error);
+            logger.error({ err: error }, 'Failed to sync paper trade risk to database:');
         }
     }
 
@@ -877,7 +878,7 @@ export class PaperTradingEngine {
                 JSON.stringify(compactHistory)
             );
         } catch (error) {
-            console.error('Failed to persist paper performance history:', error);
+            logger.error({ err: error }, 'Failed to persist paper performance history:');
         }
     }
 

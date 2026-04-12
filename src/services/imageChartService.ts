@@ -1,5 +1,6 @@
 import { ChartJSNodeCanvas } from 'chartjs-node-canvas';
 import { Chart, registerables, Plugin, ChartConfiguration } from 'chart.js';
+import { logger } from '../utils/logger';
 
 Chart.register(...registerables);
 
@@ -559,11 +560,11 @@ export class ImageChartService {
         };
 
         try {
-            console.log(`Generating chart for ${symbol} - ${timeframe} | Patterns: ${patterns.length}, S/R: ${srLevels.length}`);
+            logger.info(`Generating chart for ${symbol} - ${timeframe} | Patterns: ${patterns.length}, S/R: ${srLevels.length}`);
             const imageBuffer = await this.chartJSNodeCanvas.renderToBuffer(configuration);
             return { buffer: imageBuffer, patterns, srLevels };
         } catch (error: any) {
-            console.error('Error generating chart:', error.message);
+            logger.error({ err: error.message }, 'Error generating chart:');
             throw new Error('Failed to generate chart image');
         }
     }
@@ -653,7 +654,7 @@ export class ImageChartService {
             const imageBuffer = await this.chartJSNodeCanvas.renderToBuffer(configuration);
             return { buffer: imageBuffer, minBalance, maxBalance, changePct };
         } catch (error: any) {
-            console.error('Error generating equity curve chart:', error.message);
+            logger.error({ err: error.message }, 'Error generating equity curve chart:');
             throw new Error('Failed to generate equity curve chart');
         }
     }

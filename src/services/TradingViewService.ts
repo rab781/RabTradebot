@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as https from 'https';
 import { DataFrame } from '../types/dataframe';
+import { logger } from '../utils/logger';
 
 export interface TradingViewConfig {
     theme: 'light' | 'dark';
@@ -41,7 +42,7 @@ export class TradingViewService {
                 throw error;
             }
 
-            console.warn(
+            logger.warn(
                 '[TradingViewService] TLS certificate validation failed, retrying with insecure TLS fallback.'
             );
 
@@ -93,28 +94,28 @@ export class TradingViewService {
         try {
             return await this.getYahooFinanceData(symbol, interval);
         } catch (error) {
-            console.log('Yahoo Finance failed, trying Alpha Vantage...');
+            logger.info('Yahoo Finance failed, trying Alpha Vantage...');
         }
 
         // Try Alpha Vantage (FREE with API key)
         try {
             return await this.getAlphaVantageData(symbol, interval);
         } catch (error) {
-            console.log('Alpha Vantage failed, trying Binance...');
+            logger.info('Alpha Vantage failed, trying Binance...');
         }
 
         // Try Binance (FREE with generous limits)
         try {
             return await this.getBinanceData(symbol, interval);
         } catch (error) {
-            console.log('Binance failed, trying CryptoCompare...');
+            logger.info('Binance failed, trying CryptoCompare...');
         }
 
         // Try CryptoCompare (FREE public endpoint)
         try {
             return await this.getCryptoCompareData(symbol, interval);
         } catch (error) {
-            console.error('All data sources failed:', error);
+            logger.error({ err: error }, 'All data sources failed:');
             return null;
         }
     }
@@ -137,7 +138,7 @@ export class TradingViewService {
             const price = Number(response?.data?.USD);
             return Number.isFinite(price) && price > 0 ? price : null;
         } catch (error) {
-            console.warn(`[TradingViewService] Spot price fallback failed for ${symbol}:`, (error as any)?.message || error);
+            logger.warn({ err: error }, `[TradingViewService] Spot price fallback failed for ${symbol}:`);
             return null;
         }
     }

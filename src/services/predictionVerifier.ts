@@ -5,6 +5,7 @@
 
 import { db } from './databaseService';
 import { PublicCryptoService } from './publicCryptoService';
+import { logger } from '../utils/logger';
 
 export class PredictionVerificationService {
     private publicCrypto: PublicCryptoService;
@@ -20,11 +21,11 @@ export class PredictionVerificationService {
      */
     start() {
         if (this.intervalId) {
-            console.log('⚠️ Prediction verification already running');
+            logger.info('⚠️ Prediction verification already running');
             return;
         }
 
-        console.log('🔍 Starting prediction verification service...');
+        logger.info('🔍 Starting prediction verification service...');
         
         // Run immediately
         this.verifyPredictions();
@@ -42,7 +43,7 @@ export class PredictionVerificationService {
         if (this.intervalId) {
             clearInterval(this.intervalId);
             this.intervalId = null;
-            console.log('⏹️ Prediction verification service stopped');
+            logger.info('⏹️ Prediction verification service stopped');
         }
     }
 
@@ -55,11 +56,11 @@ export class PredictionVerificationService {
             const predictions = await db.getUnverifiedPredictions();
 
             if (predictions.length === 0) {
-                console.log('✅ No predictions to verify');
+                logger.info('✅ No predictions to verify');
                 return;
             }
 
-            console.log(`🔍 Verifying ${predictions.length} predictions...`);
+            logger.info(`🔍 Verifying ${predictions.length} predictions...`);
 
             let verified = 0;
             let errors = 0;
@@ -69,14 +70,14 @@ export class PredictionVerificationService {
                     await this.verifyPrediction(prediction);
                     verified++;
                 } catch (error) {
-                    console.error(`Failed to verify prediction ${prediction.id}:`, error);
+                    logger.error({ err: error }, `Failed to verify prediction ${prediction.id}:`);
                     errors++;
                 }
             }
 
-            console.log(`✅ Verified ${verified} predictions (${errors} errors)`);
+            logger.info(`✅ Verified ${verified} predictions (${errors} errors)`);
         } catch (error) {
-            console.error('Prediction verification error:', error);
+            logger.error({ err: error }, 'Prediction verification error:');
             await db.logError({
                 level: 'ERROR',
                 source: 'prediction_verification',
@@ -123,9 +124,9 @@ export class PredictionVerificationService {
                 actualPrice
             });
 
-            console.log(`✅ Verified ${prediction.symbol}: Predicted ${prediction.predictedDirection}, Actual ${actualDirection}`);
+            logger.info(`✅ Verified ${prediction.symbol}: Predicted ${prediction.predictedDirection}, Actual ${actualDirection}`);
         } catch (error) {
-            console.error(`Failed to verify prediction for ${prediction.symbol}:`, error);
+            logger.error({ err: error }, `Failed to verify prediction for ${prediction.symbol}:`);
             throw error;
         }
     }
@@ -137,7 +138,7 @@ export class PredictionVerificationService {
         try {
             const stats = await db.getPredictionStats(modelName, symbol);
             
-            console.log(`
+            logger.info(`
 📊 PREDICTION ACCURACY REPORT
 Model: ${modelName}
 ${symbol ? `Symbol: ${symbol}` : 'All Symbols'}
@@ -150,7 +151,7 @@ Avg Confidence: ${(stats.avgConfidence * 100).toFixed(2)}%
 
             return stats;
         } catch (error) {
-            console.error('Failed to generate accuracy report:', error);
+            logger.error({ err: error }, 'Failed to generate accuracy report:');
             throw error;
         }
     }

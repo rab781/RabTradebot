@@ -37,7 +37,7 @@ import { db } from './services/databaseService';
 import { predictionVerifier } from './services/predictionVerifier';
 import { healthMonitor } from './services/healthMonitor';
 import { rateLimiter } from './services/rateLimiter';
-import { withLogContext } from './utils/logger';
+import { logger, withLogContext } from './utils/logger';
 
 // Web Dashboard
 import { startWebServer, stateManager } from './webServer';
@@ -421,6 +421,39 @@ bot.command('go', async (ctx) => {
   const user = await ensureUser(ctx);
   if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
   return replyMainMenu(ctx, user.id, '🚀 Quick Menu');
+});
+
+bot.command('logs', async (ctx) => {
+  const user = await ensureUser(ctx);
+  if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
+  
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const path = require('path');
+    const logPath = path.join(process.cwd(), 'logs', 'pm2-out.log');
+    
+    if (!fs.existsSync(logPath)) {
+      return ctx.reply('❌ File log PM2 (logs/pm2-out.log) tidak ditemukan. Apakah PM2 berjalan?');
+    }
+    
+    const stats = fs.statSync(logPath);
+    const readSize = Math.min(stats.size, 4096);
+    const buffer = Buffer.alloc(readSize);
+    
+    const fd = fs.openSync(logPath, 'r');
+    fs.readSync(fd, buffer, 0, readSize, stats.size - readSize);
+    fs.closeSync(fd);
+    
+    const lines = buffer.toString('utf-8').split('\n');
+    const lastLines = lines.filter(l => l.trim().length > 0).slice(-20).join('\n');
+    
+    const escapedLogs = lastLines || 'Tidak ada log terbaru.';
+    return ctx.reply(`📝 *Daftar Logs Terakhir:*\n\`\`\`\n${escapedLogs}\n\`\`\``, { parse_mode: 'Markdown' });
+  } catch (error) {
+    return ctx.reply(`❌ Gagal membaca log: ${(error as Error).message}`);
+  }
 });
 
 // ── INLINE NAVIGATION ACTIONS ─────────────────────────────────────────────────
@@ -1038,7 +1071,7 @@ bot.command('signal', async (ctx) => {
   const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
   const userId = ctx.message.from.id;
 
-  console.log(
+  logger.info(
     `[${new Date().toISOString()}] User: ${username} (${userId}) requested signal for: ${symbol || 'undefined'}`
   );
 
@@ -1066,7 +1099,7 @@ bot.command('signal', async (ctx) => {
 
     ctx.reply(signal.text);
   } catch (error) {
-    console.error(`Error generating signal for ${symbol}:`, error);
+    logger.error({ err: error }, `Error generating signal for ${symbol}:`);
     ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);
   } finally {
     if (loadingMsg) {
@@ -1083,7 +1116,7 @@ bot.command('analyze', async (ctx) => {
   const username = ctx.message.from.username || ctx.message.from.first_name || 'Unknown';
   const userId = ctx.message.from.id;
 
-  console.log(
+  logger.info(
     `[${new Date().toISOString()}] User: ${username} (${userId}) requested comprehensive analysis for: ${symbol || 'undefined'}`
   );
 
@@ -1211,7 +1244,7 @@ ${backtestSection}`);
           const data = await dataManager.getRecentData(symbol, tf, 100);
 
           if (!data || data.length === 0) {
-            console.warn(`[Analyze] No chart data available for ${symbol} ${tf}`);
+            logger.warn(`[Analyze] No chart data available for ${symbol} ${tf}`);
             continue;
           }
 
@@ -1239,11 +1272,11 @@ ${backtestSection}`);
             { caption: `${symbol} ${tf} Chart${patternInfo}` }
           );
         } catch (tfChartError) {
-          console.error(`Chart generation failed for ${symbol} ${tf}:`, tfChartError);
+          logger.error({ err: tfChartError }, `Chart generation failed for ${symbol} ${tf}:`);
         }
       }
     } catch (chartError) {
-      console.error('Chart generation error in /analyze:', chartError);
+      logger.error({ err: chartError }, 'Chart generation error in /analyze:');
       await ctx.reply('⚠️ Could not generate chart images, but analysis continues...');
     } finally {
       if (loadingChartsMsg) {
@@ -1260,10 +1293,10 @@ ${backtestSection}`);
 
     // Add scraped news analysis (and AI if configured)
     try {
-      console.log(`[SCRAPE] [/analyze] news-enrichment start symbol=${symbol}`);
+      logger.info(`[SCRAPE] [/analyze] news-enrichment start symbol=${symbol}`);
       await ctx.reply(`🔄 Adding scraped news sentiment analysis...`);
       const newsResult = await newsAnalyzer.analyzeComprehensiveNews(symbol, analysisResult.currentPrice);
-      console.log(
+      logger.info(
         `[SCRAPE] [/analyze] news-enrichment result symbol=${symbol} articles=${newsResult.traditionalNews.articles.length} reddit=${newsResult.redditSentiment.posts.length} ai=${newsResult.aiAnalysis ? 'yes' : 'no'}`
       );
 
@@ -1322,12 +1355,12 @@ Confidence: ${newsResult.combinedSentiment.confidence.toFixed(1)}%
 💡 Set CHUTES_API_KEY to enable AI deep analysis from this scraped data.`);
       }
     } catch (newsError) {
-      console.error('News analysis error in /analyze:', newsError);
+      logger.error({ err: newsError }, 'News analysis error in /analyze:');
       await ctx.reply(`💡 For news analysis, try: /pnews ${symbol}`);
     }
 
   } catch (error) {
-    console.error(`Comprehensive analysis error for ${symbol}:`, error);
+    logger.error({ err: error }, `Comprehensive analysis error for ${symbol}:`);
     ctx.reply(`❌ Error performing comprehensive analysis for ${symbol}.
 
 This could be due to:
@@ -1542,7 +1575,7 @@ bot.command('backtest', async (ctx) => {
         worstTrade: result.worstTrade?.profit,
       });
     } catch (dbError) {
-      console.error('Error saving backtest to database:', dbError);
+      logger.error({ err: dbError }, 'Error saving backtest to database:');
       await db.logError({
         level: 'ERROR',
         source: 'backtest_command',
@@ -1585,7 +1618,7 @@ Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
 
     ctx.reply(resultMessage);
   } catch (error) {
-    console.error('Backtest error:', error);
+    logger.error({ err: error }, 'Backtest error:');
     await db.logError({
       level: 'ERROR',
       source: 'backtest_command',
@@ -1650,7 +1683,7 @@ Use /portfolio to check your positions
 Use /performance to see detailed metrics
 Use /stoptrading to stop trading`);
   } catch (error) {
-    console.error('Paper trading error:', error);
+    logger.error({ err: error }, 'Paper trading error:');
     await db.logError({
       level: 'ERROR',
       source: 'papertrade_command',
@@ -1797,7 +1830,7 @@ ${result.recentTrades
       { caption: '📉 Equity Curve (Paper Trading)' }
     );
   } catch (error) {
-    console.error('Failed to generate/send equity curve chart:', error);
+    logger.error({ err: error }, 'Failed to generate/send equity curve chart:');
   }
 
   await ctx.reply(message);
@@ -1893,7 +1926,7 @@ Tested ${results.length} parameter combinations.
 
     ctx.reply(message);
   } catch (error) {
-    console.error('Optimization error:', error);
+    logger.error({ err: error }, 'Optimization error:');
     ctx.reply(`❌ Error during optimization: ${(error as Error).message}`);
   }
 
@@ -1956,7 +1989,7 @@ Data cached for future use. 💾
 
     ctx.reply(message);
   } catch (error) {
-    console.error('Download error:', error);
+    logger.error({ err: error }, 'Download error:');
     ctx.reply(`❌ Error downloading data: ${(error as Error).message}`);
   }
 
@@ -2001,7 +2034,7 @@ ${quality.issues.length > 0 ? `\n⚠️ ISSUES:\n${quality.issues.slice(0, 3).jo
 
     ctx.reply(message);
   } catch (error) {
-    console.error('Data info error:', error);
+    logger.error({ err: error }, 'Data info error:');
     ctx.reply(`❌ Error checking data: ${(error as Error).message}`);
   }
 
@@ -2142,7 +2175,7 @@ ${enterLong === 1 ? '✅ Consider LONG entry\n📈 Bullish momentum detected' : 
 
     ctx.reply(message);
   } catch (error) {
-    console.error('OpenClaw error:', error);
+    logger.error({ err: error }, 'OpenClaw error:');
     ctx.reply(`❌ Error: ${(error as Error).message}`);
   }
 
@@ -2191,7 +2224,7 @@ bot.command('mlpredict', async (ctx) => {
       }));
       await db.cacheHistoricalData(cacheData.slice(-100)); // Cache last 100 candles
     } catch (cacheError) {
-      console.error('Failed to cache data:', cacheError);
+      logger.error({ err: cacheError }, 'Failed to cache data:');
     }
 
     if (candles.length < 100) {
@@ -2240,7 +2273,7 @@ bot.command('mlpredict', async (ctx) => {
         });
       }
     } catch (dbError) {
-      console.error('Failed to save prediction:', dbError);
+      logger.error({ err: dbError }, 'Failed to save prediction:');
     }
 
     let emoji = '⚪';
@@ -2300,7 +2333,7 @@ ${prediction.confidence > 0.4 ? `✅ ${recommendation} position recommended` : p
 
     ctx.reply(message);
   } catch (error) {
-    console.error('ML Predict error:', error);
+    logger.error({ err: error }, 'ML Predict error:');
     ctx.reply(`❌ Error: ${(error as Error).message}`);
   }
 
@@ -2400,7 +2433,7 @@ Sequence Length: 20
 
     ctx.reply(message);
   } catch (error) {
-    console.error('Train model error:', error);
+    logger.error({ err: error }, 'Train model error:');
     ctx.reply(`❌ Training failed: ${(error as Error).message}`);
   }
 
@@ -2503,12 +2536,12 @@ bot.command('news', async (ctx) => {
   }
 
   try {
-    console.log(`[SCRAPE] [/news] request symbol=${symbol} user=${ctx.message.from.id}`);
+    logger.info(`[SCRAPE] [/news] request symbol=${symbol} user=${ctx.message.from.id}`);
     const loadingMsg = await ctx.reply(`🔄 Scraping latest news + community posts for ${symbol}...`);
 
     // Always use real scraped pipeline
     const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
-    console.log(
+    logger.info(
       `[SCRAPE] [/news] result symbol=${symbol} articles=${result.traditionalNews.articles.length} reddit=${result.redditSentiment.posts.length} ai=${result.aiAnalysis ? 'yes' : 'no'}`
     );
 
@@ -2596,7 +2629,7 @@ ${ai.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n')}`
     // Delete loading message
     await ctx.deleteMessage(loadingMsg.message_id).catch(() => {});
   } catch (error) {
-    console.error('News analysis error:', error);
+    logger.error({ err: error }, 'News analysis error:');
     ctx.reply(`❌ Error analyzing news for ${symbol}. Please try again later.`);
   }
 
@@ -2646,12 +2679,12 @@ To enable advanced news analysis:
   // Process in background without blocking
   (async () => {
     try {
-      console.log(`[AI] [/pnews] request symbol=${symbol} user=${ctx.message.from.id}`);
+      logger.info(`[AI] [/pnews] request symbol=${symbol} user=${ctx.message.from.id}`);
       // Get scraped news + AI analysis from real data
       const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
       const newsItems = result.traditionalNews.articles;
       const analysis = result.aiAnalysis;
-      console.log(
+      logger.info(
         `[AI] [/pnews] result symbol=${symbol} articles=${newsItems.length} reddit=${result.redditSentiment.posts.length} ai=${analysis ? 'yes' : 'no'}`
       );
 
@@ -2755,7 +2788,7 @@ ${analysis.keyFactors.map((factor, index) => `${index + 1}. ${factor}`).join('\n
         // Ignore delete errors
       }
     } catch (error: any) {
-      console.error('Chutes news error:', error);
+      logger.error({ err: error }, 'Chutes news error:');
 
       if (error.message?.includes('API key')) {
         await ctx.reply(`❌ Chutes API authentication failed.
@@ -2791,13 +2824,13 @@ bot.command('impact', async (ctx) => {
   }
 
   try {
-    console.log(`[AI] [/impact] request symbol=${symbol} user=${ctx.message.from.id}`);
+    logger.info(`[AI] [/impact] request symbol=${symbol} user=${ctx.message.from.id}`);
     ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
 
     const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
     const newsItems = result.traditionalNews.articles;
     const analysis = result.aiAnalysis;
-    console.log(
+    logger.info(
       `[AI] [/impact] result symbol=${symbol} articles=${newsItems.length} reddit=${result.redditSentiment.posts.length} ai=${analysis ? 'yes' : 'no'}`
     );
 
@@ -2843,7 +2876,7 @@ ${newsItems
 
     ctx.reply(quickSummary);
   } catch (error) {
-    console.error('Quick impact error:', error);
+    logger.error({ err: error }, 'Quick impact error:');
     ctx.reply(`❌ Error getting impact analysis: ${(error as Error).message}`);
   }
 
@@ -2996,7 +3029,7 @@ ${news.newsItems
       // Ignore delete errors
     }
   } catch (error) {
-    console.error('Full analysis error:', error);
+    logger.error({ err: error }, 'Full analysis error:');
     ctx.reply(`❌ Error performing full analysis: ${(error as Error).message}`);
   }
 
@@ -3037,7 +3070,7 @@ To enable advanced news analysis:
 
     ctx.reply(message);
   } catch (error) {
-    console.error('Chutes status error:', error);
+    logger.error({ err: error }, 'Chutes status error:');
     ctx.reply('❌ Error checking Chutes status. Please try again later.');
   }
 
@@ -3063,7 +3096,7 @@ bot.command('apistatus', async (ctx) => {
 
     await ctx.reply(report);
   } catch (error) {
-    console.error('API status check error:', error);
+    logger.error({ err: error }, 'API status check error:');
     ctx.reply(`❌ Error checking API status: ${(error as Error).message}`);
   }
 
@@ -3211,7 +3244,7 @@ bot.command('orders', async (ctx) => {
 
     return ctx.reply(message.trim());
   } catch (error) {
-    console.error('orders command error:', error);
+    logger.error({ err: error }, 'orders command error:');
     return ctx.reply(`❌ Gagal ambil open orders: ${(error as Error).message}`);
   }
 });
@@ -3253,7 +3286,7 @@ bot.command('cancelorder', async (ctx) => {
 
     return ctx.reply(`✅ Order berhasil dibatalkan.\nSymbol: ${symbol}\nOrder ID: ${orderId}\nStatus: ${(result.status as string) || 'CANCELED'}`);
   } catch (error) {
-    console.error('cancelorder command error:', error);
+    logger.error({ err: error }, 'cancelorder command error:');
     return ctx.reply(`❌ Gagal cancel order: ${(error as Error).message}`);
   }
 });
@@ -3370,7 +3403,7 @@ bot.command('liveportfolio', async (ctx) => {
 
     return ctx.reply(message.trim());
   } catch (error) {
-    console.error('liveportfolio command error:', error);
+    logger.error({ err: error }, 'liveportfolio command error:');
     return ctx.reply(`❌ Gagal ambil live portfolio: ${(error as Error).message}`);
   }
 });
@@ -3469,7 +3502,7 @@ bot.command('livetrade', async (ctx) => {
     await runSignal();
     session.liveTrading.timer = setInterval(() => {
       runSignal().catch((error) => {
-        console.error('livetrade interval error:', error);
+        logger.error({ err: error }, 'livetrade interval error:');
       });
     }, signalIntervalMs);
 
@@ -3480,7 +3513,7 @@ bot.command('livetrade', async (ctx) => {
         `Gunakan /livetrade stop untuk menghentikan.`
     );
   } catch (error) {
-    console.error('livetrade start error:', error);
+    logger.error({ err: error }, 'livetrade start error:');
     await db.logError({
       level: 'ERROR',
       source: 'livetrade_command',
@@ -3522,7 +3555,7 @@ bot.command('volume', async (ctx) => {
       `📊 Volume Analysis for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for comprehensive analysis.`
     );
   } catch (error) {
-    console.error('Volume analysis error:', error);
+    logger.error({ err: error }, 'Volume analysis error:');
     ctx.reply(`❌ Error analyzing volume for ${symbol}. Please try again later.`);
   } finally {
     if (loadingMsg) {
@@ -3549,7 +3582,7 @@ bot.command('sr', async (ctx) => {
       `🎯 Support/Resistance for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for detailed levels.`
     );
   } catch (error) {
-    console.error('Support/Resistance analysis error:', error);
+    logger.error({ err: error }, 'Support/Resistance analysis error:');
     ctx.reply(`❌ Error analyzing support/resistance for ${symbol}. Please try again later.`);
   } finally {
     if (loadingMsg) {
@@ -3605,7 +3638,7 @@ bot.command('chart', async (ctx) => {
       { caption: `📈 ${symbol} ${timeframe} Chart${patternInfo}` }
     );
   } catch (error) {
-    console.error('Chart generation error:', error);
+    logger.error({ err: error }, 'Chart generation error:');
     ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
   } finally {
     if (loadingMsg) {
@@ -3664,7 +3697,7 @@ Parameters:
 
 You'll be notified when ${symbol} reaches $${price} or ${direction}.`);
   } catch (error) {
-    console.error('Alert creation error:', error);
+    logger.error({ err: error }, 'Alert creation error:');
     ctx.reply(`❌ Error creating alert: ${(error as Error).message}`);
 
     // Log error to database
@@ -3704,7 +3737,7 @@ bot.command('alerts', async (ctx) => {
 
     ctx.reply(message);
   } catch (error) {
-    console.error('Get alerts error:', error);
+    logger.error({ err: error }, 'Get alerts error:');
     ctx.reply('❌ Error retrieving alerts. Please try again later.');
   }
 
@@ -3723,7 +3756,7 @@ bot.command('delalert', async (ctx) => {
     priceAlertManager.removeAlert(userId, symbol);
     ctx.reply(`✅ Alert for ${symbol} has been removed.`);
   } catch (error) {
-    console.error('Delete alert error:', error);
+    logger.error({ err: error }, 'Delete alert error:');
     ctx.reply(`❌ Error removing alert: ${(error as Error).message}`);
   }
 
@@ -3787,7 +3820,7 @@ Use /strategystats to compare strategies
       /* ignore */
     }
   } catch (error) {
-    console.error('Stats error:', error);
+    logger.error({ err: error }, 'Stats error:');
     await db.logError({
       level: 'ERROR',
       source: 'stats_command',
@@ -3854,7 +3887,7 @@ Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
       /* ignore */
     }
   } catch (error) {
-    console.error('ML stats error:', error);
+    logger.error({ err: error }, 'ML stats error:');
     await db.logError({
       level: 'ERROR',
       source: 'mlstats_command',
@@ -3935,7 +3968,7 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
       /* ignore */
     }
   } catch (error) {
-    console.error('Strategy stats error:', error);
+    logger.error({ err: error }, 'Strategy stats error:');
     await db.logError({
       level: 'ERROR',
       source: 'strategystats_command',
@@ -3974,7 +4007,7 @@ bot.command('leaderboard', async (ctx) => {
       /* ignore */
     }
   } catch (error) {
-    console.error('Leaderboard error:', error);
+    logger.error({ err: error }, 'Leaderboard error:');
     ctx.reply(`❌ Error loading leaderboard: ${(error as Error).message}`);
   }
 

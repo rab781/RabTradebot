@@ -3,6 +3,7 @@ import { AdvancedAnalyzer } from './advancedAnalyzer';
 import { NewsAnalyzer } from './newsAnalyzer';
 import { RSI, MACD, BollingerBands, SMA, EMA, ADX, ATR } from 'technicalindicators';
 import { DataFrame } from '../types/dataframe';
+import { logger } from '../utils/logger';
 
 export interface SimpleAnalysisResult {
     symbol: string;
@@ -70,7 +71,7 @@ export class SimpleComprehensiveAnalyzer {
     }
 
     async analyzeComprehensive(symbol: string): Promise<SimpleAnalysisResult> {
-        console.log(`🔍 Starting comprehensive analysis for ${symbol}...`);
+        logger.info(`🔍 Starting comprehensive analysis for ${symbol}...`);
 
         try {
             // ⚡ Bolt Optimization: Parallelize independent data-fetching calls
@@ -195,7 +196,7 @@ export class SimpleComprehensiveAnalyzer {
             };
 
         } catch (error) {
-            console.error(`Error in comprehensive analysis for ${symbol}:`, error);
+            logger.error({ err: error }, `Error in comprehensive analysis for ${symbol}:`);
             throw error;
         }
     }
@@ -228,7 +229,7 @@ export class SimpleComprehensiveAnalyzer {
 
     // New method for comprehensive analysis compatible with /analyze command
     async analyzeComprehensiveForBot(symbol: string): Promise<any> {
-        console.log(`🔍 Starting real comprehensive analysis for ${symbol}...`);
+        logger.info(`🔍 Starting real comprehensive analysis for ${symbol}...`);
 
         try {
             // Use the existing real analysis method
@@ -318,7 +319,7 @@ export class SimpleComprehensiveAnalyzer {
             };
 
         } catch (error) {
-            console.error('Comprehensive analysis error:', error);
+            logger.error({ err: error }, 'Comprehensive analysis error:');
             throw error;
         }
     }
@@ -363,7 +364,7 @@ export class SimpleComprehensiveAnalyzer {
                     results[tf] = 'neutral';
                 }
             } catch (error) {
-                console.error(`Error analyzing timeframe ${tf}:`, error);
+                logger.error({ err: error }, `Error analyzing timeframe ${tf}:`);
                 results[tf] = 'neutral';
             }
         }));

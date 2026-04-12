@@ -7,14 +7,17 @@ BRANCH="main"
 printf "\n==> Pull latest code (%s)\n" "$BRANCH"
 git pull origin "$BRANCH"
 
-printf "\n==> Install production dependencies\n"
-npm ci --production
+printf "\n==> Install dependencies (including dev for build)\n"
+npm ci
 
 printf "\n==> Run Prisma migrations\n"
 npx prisma migrate deploy
 
 printf "\n==> Build project\n"
 npm run build
+
+printf "\n==> Prune devDependencies\n"
+npm prune --production
 
 printf "\n==> Restart PM2 app\n"
 if pm2 describe "$APP_NAME" >/dev/null 2>&1; then

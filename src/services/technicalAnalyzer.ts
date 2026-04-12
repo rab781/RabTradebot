@@ -4,6 +4,7 @@ import { RSI, MACD } from 'technicalindicators';
 import 'dotenv/config';
 import { TimeFrame } from '../types/trading';
 import { PublicCryptoService } from './publicCryptoService';
+import { logger } from '../utils/logger';
 
 interface Candle {
     open: number;
@@ -36,13 +37,13 @@ export class TechnicalAnalyzer {
                     APIKEY: process.env.BINANCE_API_KEY,
                     APISECRET: process.env.BINANCE_API_SECRET
                 });
-                console.log('[TechnicalAnalyzer] Private API initialized');
+                logger.info('[TechnicalAnalyzer] Private API initialized');
             } else {
-                console.log('[TechnicalAnalyzer] No API credentials found, using public API only');
+                logger.info('[TechnicalAnalyzer] No API credentials found, using public API only');
                 this.usePublicOnly = true;
             }
         } catch (error) {
-            console.warn('[TechnicalAnalyzer] Failed to initialize private API, falling back to public API:', error);
+            logger.warn({ err: error }, '[TechnicalAnalyzer] Failed to initialize private API, falling back to public API:');
             this.usePublicOnly = true;
         }
     }
@@ -52,55 +53,55 @@ export class TechnicalAnalyzer {
         
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                console.log(`[TechnicalAnalyzer] API call attempt ${attempt}/${maxRetries}`);
+                logger.info(`[TechnicalAnalyzer] API call attempt ${attempt}/${maxRetries}`);
                 const result = await apiCall();
                 if (attempt > 1) {
-                    console.log(`[TechnicalAnalyzer] API call succeeded on attempt ${attempt}`);
+                    logger.info(`[TechnicalAnalyzer] API call succeeded on attempt ${attempt}`);
                 }
                 return result;
             } catch (error: any) {
                 lastError = error;
-                console.error(`[TechnicalAnalyzer] API call failed (attempt ${attempt}/${maxRetries}):`, error.message || error);
+                logger.error(`[TechnicalAnalyzer] API call failed (attempt ${attempt}/${maxRetries}):`, error.message || error);
                 
                 if (attempt < maxRetries) {
                     const delay = Math.pow(2, attempt) * 1000; // Exponential backoff: 2s, 4s, 8s
-                    console.log(`[TechnicalAnalyzer] Retrying in ${delay}ms...`);
+                    logger.info(`[TechnicalAnalyzer] Retrying in ${delay}ms...`);
                     await new Promise(resolve => setTimeout(resolve, delay));
                 }
             }
         }
         
-        console.error(`[TechnicalAnalyzer] All API call attempts failed`);
+        logger.error(`[TechnicalAnalyzer] All API call attempts failed`);
         throw lastError;
     }
 
     async analyzeSymbol(symbol: string): Promise<string> {
-        console.log(`[TechnicalAnalyzer] Starting analysis for ${symbol}`);
+        logger.info(`[TechnicalAnalyzer] Starting analysis for ${symbol}`);
         
         try {
             // Try to get candlestick data, prefer public API to avoid 403 errors
             let candlesData: any[];
             
             if (this.usePublicOnly) {
-                console.log(`[TechnicalAnalyzer] Using public API only for ${symbol}`);
+                logger.info(`[TechnicalAnalyzer] Using public API only for ${symbol}`);
                 candlesData = await this.publicService.getCandlestickData(symbol, '1h', 100);
             } else {
                 try {
                     // First try with public API (more reliable)
-                    console.log(`[TechnicalAnalyzer] Trying public API first for ${symbol}`);
+                    logger.info(`[TechnicalAnalyzer] Trying public API first for ${symbol}`);
                     candlesData = await this.publicService.getCandlestickData(symbol, '1h', 100);
-                    console.log(`[TechnicalAnalyzer] Used public API for ${symbol}`);
+                    logger.info(`[TechnicalAnalyzer] Used public API for ${symbol}`);
                 } catch (publicApiError) {
-                    console.log(`[TechnicalAnalyzer] Public API failed for ${symbol}, trying private API...`);
+                    logger.info(`[TechnicalAnalyzer] Public API failed for ${symbol}, trying private API...`);
                     // Fallback to private API
                     candlesData = await this.retryApiCall(async () => {
                         return await this.binance.candlesticks(symbol, '1h' as TimeFrame, { limit: 100 });
                     }, 2);
-                    console.log(`[TechnicalAnalyzer] Used private API fallback for ${symbol}`);
+                    logger.info(`[TechnicalAnalyzer] Used private API fallback for ${symbol}`);
                 }
             }
             
-            console.log(`[TechnicalAnalyzer] Retrieved ${candlesData.length} candles for ${symbol}`);
+            logger.info(`[TechnicalAnalyzer] Retrieved ${candlesData.length} candles for ${symbol}`);
             
             const candles: Candle[] = candlesData.map((candleData: any[]) => ({
                 timestamp: parseInt(candleData[0]),
@@ -207,7 +208,7 @@ export class TechnicalAnalyzer {
             return analysis;
 
         } catch (error: any) {
-            console.error(`[TechnicalAnalyzer] Error analyzing ${symbol}:`, error);
+            logger.error({ err: error }, `[TechnicalAnalyzer] Error analyzing ${symbol}:`);
             
             // Handle specific error types
             if (error.message && error.message.includes('403')) {

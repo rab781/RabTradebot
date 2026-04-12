@@ -1,6 +1,7 @@
 import { DataFrame, DataFrameBuilder, OHLCVCandle } from '../types/dataframe';
 import { IStrategy, Trade, BacktestConfig, BacktestResult, StrategyMetadata } from '../types/strategy';
 import { v4 as uuidv4 } from 'uuid';
+import { logger } from '../utils/logger';
 
 export class BacktestEngine {
     private strategy: IStrategy;
@@ -18,10 +19,10 @@ export class BacktestEngine {
     }
 
     async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
-        console.log(`Starting backtest for strategy: ${this.strategy.name}`);
-        console.log(`Time range: ${this.config.timerange}`);
-        console.log(`Timeframe: ${this.config.timeframe}`);
-        console.log(`Starting balance: ${this.config.startingBalance}`);
+        logger.info(`Starting backtest for strategy: ${this.strategy.name}`);
+        logger.info(`Time range: ${this.config.timerange}`);
+        logger.info(`Timeframe: ${this.config.timeframe}`);
+        logger.info(`Starting balance: ${this.config.startingBalance}`);
 
         // Convert candles to DataFrame
         const dataframe = DataFrameBuilder.fromCandles(data);
@@ -250,7 +251,7 @@ export class BacktestEngine {
         };
 
         openTrades.push(trade);
-        console.log(`Opened ${side} trade for ${metadata.pair} at ${entryPrice} with tag: ${enterTag}`);
+        logger.info(`Opened ${side} trade for ${metadata.pair} at ${entryPrice} with tag: ${enterTag}`);
     }
 
     private closeTrade(trade: Trade, candle: OHLCVCandle, exitReason: string): void {
@@ -264,7 +265,7 @@ export class BacktestEngine {
         trade.profit = this.calculateTradeProfit(trade, exitPrice) - exitFee;
         trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
 
-        console.log(`Closed ${trade.side} trade for ${trade.pair} at ${exitPrice}, profit: ${trade.profit?.toFixed(2)} (${trade.profitPct?.toFixed(2)}%)`);
+        logger.info(`Closed ${trade.side} trade for ${trade.pair} at ${exitPrice}, profit: ${trade.profit?.toFixed(2)} (${trade.profitPct?.toFixed(2)}%)`);
     }
 
     private calculateTradeProfit(trade: Trade, currentPrice: number): number {

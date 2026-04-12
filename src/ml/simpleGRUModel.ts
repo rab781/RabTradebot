@@ -15,6 +15,7 @@
 
 import * as tf from '@tensorflow/tfjs';
 import { FeatureSet } from '../services/featureEngineering';
+import { logger } from '../utils/logger';
 
 // ─── Constants ─────────────────────────────────────────────────────────────────
 
@@ -142,7 +143,7 @@ export class SimpleGRUModel {
     // ── F4-7: Build improved architecture ─────────────────────────────────────
 
     buildModel(): void {
-        console.log('🚀 Building improved GRU model (Fase 4)...');
+        logger.info('🚀 Building improved GRU model (Fase 4)...');
 
         const input = tf.input({ shape: [this.sequenceLength, this.featureCount] });
 
@@ -189,7 +190,7 @@ export class SimpleGRUModel {
             metrics: ['accuracy'],
         });
 
-        console.log('✅ GRU Model built (2-layer, 3-class softmax)');
+        logger.info('✅ GRU Model built (2-layer, 3-class softmax)');
         this.model.summary();
     }
 
@@ -257,7 +258,7 @@ export class SimpleGRUModel {
 
             // Logging per-epoch (F4-18)
             if ((epoch + 1) % 5 === 0 || epoch === 0) {
-                console.log(
+                logger.info(
                     `Epoch ${epoch + 1}/${epochs} — loss: ${trainLoss?.toFixed(4)} acc: ${(trainAcc * 100)?.toFixed(1)}% | val_loss: ${valLoss?.toFixed(4)} val_acc: ${(valAcc * 100)?.toFixed(1)}%`,
                 );
             }
@@ -271,7 +272,7 @@ export class SimpleGRUModel {
             } else {
                 noImprovCount++;
                 if (noImprovCount >= patience) {
-                    console.log(`⏹ Early stopping at epoch ${epoch + 1} (best epoch: ${bestEpoch})`);
+                    logger.info(`⏹ Early stopping at epoch ${epoch + 1} (best epoch: ${bestEpoch})`);
                     break;
                 }
             }
@@ -416,7 +417,7 @@ export class SimpleGRUModel {
                 loss,
             });
 
-            console.log(`WFV Window ${window}: accuracy=${(accuracy * 100).toFixed(1)}% loss=${loss.toFixed(4)}`);
+            logger.info(`WFV Window ${window}: accuracy=${(accuracy * 100).toFixed(1)}% loss=${loss.toFixed(4)}`);
             window++;
         }
 
@@ -492,12 +493,12 @@ export class SimpleGRUModel {
     async saveModel(path: string): Promise<void> {
         if (!this.model) throw new Error('No model to save.');
         await this.model.save(path);
-        console.log(`✅ Model saved to ${path}`);
+        logger.info(`✅ Model saved to ${path}`);
     }
 
     async loadModel(path: string): Promise<void> {
         this.model = await tf.loadLayersModel(path + '/model.json');
-        console.log(`✅ Model loaded from ${path}`);
+        logger.info(`✅ Model loaded from ${path}`);
     }
 
     // ── F4-9: Class weights ───────────────────────────────────────────────────

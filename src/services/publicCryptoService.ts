@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as fs from 'fs';
 import * as https from 'https';
+import { logger } from '../utils/logger';
 
 export class PublicCryptoService {
     private readonly BASE_URL: string;
@@ -16,9 +17,9 @@ export class PublicCryptoService {
             try {
                 const ca = fs.readFileSync(caCertPath, 'utf-8');
                 this.secureAgent = new https.Agent({ ca, rejectUnauthorized: true });
-                console.log(`[PublicCryptoService] Loaded custom CA certificate from ${caCertPath}`);
+                logger.info(`[PublicCryptoService] Loaded custom CA certificate from ${caCertPath}`);
             } catch (error) {
-                console.error(`[PublicCryptoService] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
+                logger.error(`[PublicCryptoService] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
             }
         }
     }
@@ -51,7 +52,7 @@ export class PublicCryptoService {
                 throw error;
             }
 
-            console.warn(
+            logger.warn(
                 '[PublicCryptoService] TLS certificate validation failed, retrying with insecure TLS fallback.'
             );
 
@@ -64,7 +65,7 @@ export class PublicCryptoService {
 
     async getCandlestickData(symbol: string, interval: string = '1h', limit: number = 100): Promise<any[]> {
         try {
-            console.log(`[PublicCryptoService] Fetching candlestick data for ${symbol} (${interval}, limit: ${limit})`);
+            logger.info(`[PublicCryptoService] Fetching candlestick data for ${symbol} (${interval}, limit: ${limit})`);
             
             const response = await this.getWithTlsFallback(`${this.BASE_URL}/klines`, {
                 params: {
@@ -75,10 +76,10 @@ export class PublicCryptoService {
                 timeout: 10000
             });
 
-            console.log(`[PublicCryptoService] Successfully fetched ${response.data.length} candles for ${symbol}`);
+            logger.info(`[PublicCryptoService] Successfully fetched ${response.data.length} candles for ${symbol}`);
             return response.data;
         } catch (error: any) {
-            console.error(`[PublicCryptoService] Error fetching candlestick data for ${symbol}:`, error.message);
+            logger.error({ err: error.message }, `[PublicCryptoService] Error fetching candlestick data for ${symbol}:`);
             
             if (error.response?.status === 400) {
                 throw new Error(`Invalid symbol: ${symbol}. Please check if the symbol exists on Binance.`);
@@ -94,17 +95,17 @@ export class PublicCryptoService {
 
     async get24hrTicker(symbol: string): Promise<any> {
         try {
-            console.log(`[PublicCryptoService] Fetching 24hr ticker for ${symbol}`);
+            logger.info(`[PublicCryptoService] Fetching 24hr ticker for ${symbol}`);
             
             const response = await this.getWithTlsFallback(`${this.BASE_URL}/ticker/24hr`, {
                 params: { symbol },
                 timeout: 10000
             });
 
-            console.log(`[PublicCryptoService] Successfully fetched ticker for ${symbol}`);
+            logger.info(`[PublicCryptoService] Successfully fetched ticker for ${symbol}`);
             return response.data;
         } catch (error: any) {
-            console.error(`[PublicCryptoService] Error fetching ticker for ${symbol}:`, error.message);
+            logger.error({ err: error.message }, `[PublicCryptoService] Error fetching ticker for ${symbol}:`);
             
             if (error.response?.status === 400) {
                 throw new Error(`Invalid symbol: ${symbol}. Please check if the symbol exists on Binance.`);
@@ -116,7 +117,7 @@ export class PublicCryptoService {
 
     async getRecentTrades(symbol: string, limit: number = 500): Promise<any[]> {
         try {
-            console.log(`[PublicCryptoService] Fetching recent trades for ${symbol} (limit: ${limit})`);
+            logger.info(`[PublicCryptoService] Fetching recent trades for ${symbol} (limit: ${limit})`);
             
             const response = await this.getWithTlsFallback(`${this.BASE_URL}/trades`, {
                 params: {
@@ -126,10 +127,10 @@ export class PublicCryptoService {
                 timeout: 10000
             });
 
-            console.log(`[PublicCryptoService] Successfully fetched ${response.data.length} trades for ${symbol}`);
+            logger.info(`[PublicCryptoService] Successfully fetched ${response.data.length} trades for ${symbol}`);
             return response.data;
         } catch (error: any) {
-            console.error(`[PublicCryptoService] Error fetching trades for ${symbol}:`, error.message);
+            logger.error({ err: error.message }, `[PublicCryptoService] Error fetching trades for ${symbol}:`);
             
             if (error.response?.status === 400) {
                 throw new Error(`Invalid symbol: ${symbol}. Please check if the symbol exists on Binance.`);

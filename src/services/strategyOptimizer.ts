@@ -1,6 +1,7 @@
 import { IStrategy, StrategyOptimizationParams, StrategyOptimizationResult, BacktestResult } from '../types/strategy';
 import { BacktestEngine } from './backtestEngine';
 import { OHLCVCandle } from '../types/dataframe';
+import { logger } from '../utils/logger';
 
 export interface OptimizationConfig {
     maxEvals: number;
@@ -84,9 +85,9 @@ export class StrategyOptimizer {
     }
 
     async optimize(): Promise<StrategyOptimizationResult[]> {
-        console.log(`Starting strategy optimization for ${this.strategy.name}`);
-        console.log(`Max evaluations: ${this.config.maxEvals}`);
-        console.log(`Optimization metric: ${this.config.metric}`);
+        logger.info(`Starting strategy optimization for ${this.strategy.name}`);
+        logger.info(`Max evaluations: ${this.config.maxEvals}`);
+        logger.info(`Optimization metric: ${this.config.metric}`);
 
         const results: StrategyOptimizationResult[] = [];
         
@@ -94,8 +95,8 @@ export class StrategyOptimizer {
         const parameterCombinations = this.generateParameterCombinations();
         const totalCombinations = Math.min(parameterCombinations.length, this.config.maxEvals);
         
-        console.log(`Generated ${parameterCombinations.length} parameter combinations`);
-        console.log(`Testing ${totalCombinations} combinations...`);
+        logger.info(`Generated ${parameterCombinations.length} parameter combinations`);
+        logger.info(`Testing ${totalCombinations} combinations...`);
 
         for (let i = 0; i < totalCombinations; i++) {
             const params = parameterCombinations[i];
@@ -132,12 +133,12 @@ export class StrategyOptimizer {
 
                 // Progress logging
                 if ((i + 1) % 10 === 0 || i === totalCombinations - 1) {
-                    console.log(`Progress: ${i + 1}/${totalCombinations} (${((i + 1) / totalCombinations * 100).toFixed(1)}%)`);
-                    console.log(`Best score so far: ${Math.max(...results.map(r => r.score)).toFixed(4)}`);
+                    logger.info(`Progress: ${i + 1}/${totalCombinations} (${((i + 1) / totalCombinations * 100).toFixed(1)}%)`);
+                    logger.info(`Best score so far: ${Math.max(...results.map(r => r.score)).toFixed(4)}`);
                 }
 
             } catch (error) {
-                console.error(`Error testing parameters ${JSON.stringify(params)}:`, error);
+                logger.error({ err: error }, `Error testing parameters ${JSON.stringify(params)}:`);
                 // Continue with next combination
             }
         }
@@ -145,11 +146,11 @@ export class StrategyOptimizer {
         // Sort results by score (descending)
         results.sort((a, b) => b.score - a.score);
         
-        console.log(`Optimization completed. Best ${Math.min(10, results.length)} results:`);
+        logger.info(`Optimization completed. Best ${Math.min(10, results.length)} results:`);
         for (let i = 0; i < Math.min(10, results.length); i++) {
             const result = results[i];
-            console.log(`${i + 1}. Score: ${result.score.toFixed(4)}, Params: ${JSON.stringify(result.params)}`);
-            console.log(`   Total Profit: ${result.backtestResult.totalProfitPct.toFixed(2)}%, Win Rate: ${result.backtestResult.winRate.toFixed(1)}%`);
+            logger.info(`${i + 1}. Score: ${result.score.toFixed(4)}, Params: ${JSON.stringify(result.params)}`);
+            logger.info(`   Total Profit: ${result.backtestResult.totalProfitPct.toFixed(2)}%, Win Rate: ${result.backtestResult.winRate.toFixed(1)}%`);
         }
 
         return results;
@@ -414,7 +415,7 @@ ${Object.entries(parameterImportance)
         numWindows: number = 5,
         inSampleRatio: number = 0.7
     ): Promise<WFOResult> {
-        console.log(`Starting Walk-Forward Optimization with ${numWindows} windows, ${(inSampleRatio*100).toFixed(0)}% in-sample`);
+        logger.info(`Starting Walk-Forward Optimization with ${numWindows} windows, ${(inSampleRatio*100).toFixed(0)}% in-sample`);
 
         if (numWindows < 1 || this.data.length < numWindows * 2) {
             throw new Error('Insufficient data for Walk-Forward Optimization');
@@ -434,7 +435,7 @@ ${Object.entries(parameterImportance)
             const outOfSampleData = windowData.slice(splitPoint);
 
             if (inSampleData.length < 10 || outOfSampleData.length < 10) {
-                console.warn(`Window ${w + 1}: insufficient data, skipping`);
+                logger.warn(`Window ${w + 1}: insufficient data, skipping`);
                 continue;
             }
 
@@ -448,7 +449,7 @@ ${Object.entries(parameterImportance)
             const inSampleResults = await inSampleOptimizer.optimize();
 
             if (inSampleResults.length === 0) {
-                console.warn(`Window ${w + 1}: no valid results, skipping`);
+                logger.warn(`Window ${w + 1}: no valid results, skipping`);
                 continue;
             }
 
@@ -491,7 +492,7 @@ ${Object.entries(parameterImportance)
             windows.push(windowResult);
             allBestParams.push({ params: bestInSampleResult.params, oos: oosScore });
 
-            console.log(
+            logger.info(
                 `Window ${w + 1}: IS=${isScore.toFixed(4)}, OOS=${oosScore.toFixed(4)}, Stability=${stabilityRatio.toFixed(3)}`
             );
         }

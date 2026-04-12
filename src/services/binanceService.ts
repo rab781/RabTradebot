@@ -2,6 +2,7 @@ import axios, { AxiosProxyConfig } from 'axios';
 import crypto from 'crypto';
 import fs from 'fs';
 import https from 'https';
+import { logger } from '../utils/logger';
 
 // ─────────────────────────────────────────────
 // Types
@@ -68,30 +69,30 @@ export class BinanceService {
             this.proxyConfig = this.parseProxyUrl(proxyUrl);
             if (this.proxyConfig) {
                 const proxyAuth = this.proxyConfig.auth?.username ? 'with auth' : 'without auth';
-                console.log(`🌐 [BinanceService] Using proxy ${this.proxyConfig.protocol}//${this.proxyConfig.host}:${this.proxyConfig.port} (${proxyAuth})`);
+                logger.info(`🌐 [BinanceService] Using proxy ${this.proxyConfig.protocol}//${this.proxyConfig.host}:${this.proxyConfig.port} (${proxyAuth})`);
             } else {
-                console.error('❌ [BinanceService] BINANCE_PROXY_URL is invalid and will be ignored');
+                logger.error('❌ [BinanceService] BINANCE_PROXY_URL is invalid and will be ignored');
             }
         }
 
         if (tlsInsecure) {
             this.httpsAgent = new https.Agent({ rejectUnauthorized: false });
-            console.warn('⚠️  [BinanceService] BINANCE_TLS_INSECURE=true, TLS certificate verification is disabled');
+            logger.warn('⚠️  [BinanceService] BINANCE_TLS_INSECURE=true, TLS certificate verification is disabled');
         } else if (caCertPath) {
             try {
                 const ca = fs.readFileSync(caCertPath, 'utf-8');
                 this.httpsAgent = new https.Agent({ ca, rejectUnauthorized: true });
-                console.log(`✅ [BinanceService] Loaded custom CA certificate from ${caCertPath}`);
+                logger.info(`✅ [BinanceService] Loaded custom CA certificate from ${caCertPath}`);
             } catch (error) {
-                console.error(`❌ [BinanceService] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
+                logger.error(`❌ [BinanceService] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
             }
         }
 
         if (!this.apiKey || !this.apiSecret) {
-            console.warn('⚠️  [BinanceService] BINANCE_API_KEY / BINANCE_API_SECRET not set in environment');
+            logger.warn('⚠️  [BinanceService] BINANCE_API_KEY / BINANCE_API_SECRET not set in environment');
         }
 
-        console.log(`🔗 [BinanceService] Using base URL: ${this.BASE_URL}`);
+        logger.info(`🔗 [BinanceService] Using base URL: ${this.BASE_URL}`);
     }
 
     private requestConfig(timeout: number, extra: Record<string, any> = {}): Record<string, any> {

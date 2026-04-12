@@ -2,6 +2,7 @@ import { DataFrame, DataFrameBuilder } from '../types/dataframe';
 import { IStrategy, StrategyMetadata, Trade, StrategyResult } from '../types/strategy';
 import { RSI, MACD, BollingerBands, SMA, EMA } from 'technicalindicators';
 import { TradingViewService } from '../services/TradingViewService';
+import { logger } from '../utils/logger';
 
 export class SampleStrategy implements IStrategy {
     // Strategy metadata
@@ -222,7 +223,7 @@ export class SampleStrategy implements IStrategy {
     }
 
     botStart(): void {
-        console.log(`Strategy ${this.name} v${this.version} started`);
+        logger.info(`Strategy ${this.name} v${this.version} started`);
     }
 
     botLoopStart(currentTime: Date): void {
@@ -239,14 +240,14 @@ export class SampleStrategy implements IStrategy {
             const marketData = await this.tradingViewService.getMarketData(symbol, this.timeframe);
             
             if (marketData) {
-                console.log(`✅ Data berhasil diambil dari sumber gratis untuk ${symbol}`);
+                logger.info(`✅ Data berhasil diambil dari sumber gratis untuk ${symbol}`);
                 return marketData;
             }
             
-            console.log(`❌ Gagal mengambil data untuk ${symbol}`);
+            logger.info(`❌ Gagal mengambil data untuk ${symbol}`);
             return null;
         } catch (error) {
-            console.error('Error fetching enhanced market data:', error);
+            logger.error({ err: error }, 'Error fetching enhanced market data:');
             return null;
         }
     }
@@ -259,7 +260,7 @@ export class SampleStrategy implements IStrategy {
         const dataframe = await this.getEnhancedMarketData(symbol);
         
         if (!dataframe) {
-            console.log('⚠️  Menggunakan data fallback atau cache');
+            logger.info('⚠️  Menggunakan data fallback atau cache');
             return null;
         }
 

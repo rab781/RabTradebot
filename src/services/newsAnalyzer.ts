@@ -1,6 +1,7 @@
 import axios from 'axios';
 import * as cheerio from 'cheerio';
 import { ChutesService, ChutesAnalysis } from './chutesService';
+import { logger } from '../utils/logger';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -100,7 +101,7 @@ export class NewsAnalyzer {
 
     async analyzeComprehensiveNews(symbol: string, currentPrice?: number): Promise<NewsAnalysisResult> {
         const coinName = this.getBaseCurrency(symbol);
-        console.log(`[SCRAPE] [START] symbol=${symbol} coin=${coinName}`);
+        logger.info(`[SCRAPE] [START] symbol=${symbol} coin=${coinName}`);
 
         const [rssResult, redditResult, cryptoPanicResult] = await Promise.allSettled([
             this.fetchRSSFeeds(coinName),
@@ -117,18 +118,18 @@ export class NewsAnalyzer {
         const rssCount = rssResult.status === 'fulfilled' ? rssResult.value.length : 0;
         const cryptoPanicCount = cryptoPanicResult.status === 'fulfilled' ? cryptoPanicResult.value.length : 0;
         const redditCount = redditResult.status === 'fulfilled' ? redditResult.value.length : 0;
-        console.log(
+        logger.info(
             `[SCRAPE] [DONE] symbol=${symbol} rss=${rssCount} cryptopanic=${cryptoPanicCount} reddit=${redditCount} totalArticles=${articles.length}`
         );
 
         if (rssResult.status === 'rejected') {
-            console.warn(`[SCRAPE] [RSS][ERROR] symbol=${symbol} message=${rssResult.reason?.message || rssResult.reason}`);
+            logger.warn(`[SCRAPE] [RSS][ERROR] symbol=${symbol} message=${rssResult.reason?.message || rssResult.reason}`);
         }
         if (redditResult.status === 'rejected') {
-            console.warn(`[SCRAPE] [REDDIT][ERROR] symbol=${symbol} message=${redditResult.reason?.message || redditResult.reason}`);
+            logger.warn(`[SCRAPE] [REDDIT][ERROR] symbol=${symbol} message=${redditResult.reason?.message || redditResult.reason}`);
         }
         if (cryptoPanicResult.status === 'rejected') {
-            console.warn(`[SCRAPE] [CRYPTOPANIC][ERROR] symbol=${symbol} message=${cryptoPanicResult.reason?.message || cryptoPanicResult.reason}`);
+            logger.warn(`[SCRAPE] [CRYPTOPANIC][ERROR] symbol=${symbol} message=${cryptoPanicResult.reason?.message || cryptoPanicResult.reason}`);
         }
 
         const newsScore   = this.scoreTexts(articles.map(a => a.title + ' ' + a.summary));
@@ -147,19 +148,19 @@ export class NewsAnalyzer {
         let aiAnalysis: ChutesAnalysis | undefined;
         if (this.chutesService?.isConfigured() && (articles.length > 0 || reddit.length > 0)) {
             try {
-                console.log(`[AI] [START] symbol=${symbol} articles=${articles.length} reddit=${reddit.length}`);
+                logger.info(`[AI] [START] symbol=${symbol} articles=${articles.length} reddit=${reddit.length}`);
                 aiAnalysis = await this.chutesService.analyzeRealNews(
                     symbol,
                     articles.map(a => ({ title: a.title, summary: a.summary, source: a.source, url: a.url })),
                     reddit.map(p => ({ title: p.title, subreddit: p.subreddit, score: p.score })),
                     currentPrice
                 );
-                console.log(`[AI] [DONE] symbol=${symbol} sentiment=${aiAnalysis.overallSentiment} direction=${aiAnalysis.marketMovement.direction} confidence=${aiAnalysis.marketMovement.confidence.toFixed(1)}%`);
+                logger.info(`[AI] [DONE] symbol=${symbol} sentiment=${aiAnalysis.overallSentiment} direction=${aiAnalysis.marketMovement.direction} confidence=${aiAnalysis.marketMovement.confidence.toFixed(1)}%`);
             } catch (err: any) {
-                console.warn(`[AI] [ERROR] symbol=${symbol} message=${err.message}`);
+                logger.warn(`[AI] [ERROR] symbol=${symbol} message=${err.message}`);
             }
         } else {
-            console.log(`[AI] [SKIP] symbol=${symbol} configured=${this.chutesService?.isConfigured() ? 'yes' : 'no'} articles=${articles.length} reddit=${reddit.length}`);
+            logger.info(`[AI] [SKIP] symbol=${symbol} configured=${this.chutesService?.isConfigured() ? 'yes' : 'no'} articles=${articles.length} reddit=${reddit.length}`);
         }
 
         return {

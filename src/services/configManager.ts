@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { logger } from '../utils/logger';
 
 export interface TradingConfig {
     stake_currency: string;
@@ -63,11 +64,11 @@ export class ConfigManager {
             // Validate required fields
             this.validateConfig(config);
             
-            console.log(`✅ Configuration loaded from ${this.configPath}`);
+            logger.info(`✅ Configuration loaded from ${this.configPath}`);
             return config;
             
         } catch (error) {
-            console.error('❌ Error loading configuration:', error);
+            logger.error({ err: error }, '❌ Error loading configuration:');
             throw error;
         }
     }
@@ -128,9 +129,9 @@ export class ConfigManager {
             }
 
             fs.writeFileSync(this.configPath, JSON.stringify(this.config, null, 2));
-            console.log(`✅ Configuration saved to ${this.configPath}`);
+            logger.info(`✅ Configuration saved to ${this.configPath}`);
         } catch (error) {
-            console.error('❌ Error saving configuration:', error);
+            logger.error({ err: error }, '❌ Error saving configuration:');
             throw error;
         }
     }
@@ -183,7 +184,7 @@ export class ConfigManager {
         }
 
         fs.writeFileSync(outputPath, JSON.stringify(defaultConfig, null, 2));
-        console.log(`✅ Default configuration created at ${outputPath}`);
+        logger.info(`✅ Default configuration created at ${outputPath}`);
     }
 
     // Environment variable integration
@@ -217,7 +218,7 @@ export class ConfigManager {
             this.config.telegram.chat_id = process.env.TELEGRAM_CHAT_ID;
         }
 
-        console.log('✅ Configuration updated with environment variables');
+        logger.info('✅ Configuration updated with environment variables');
     }
 
     // Configuration validation methods

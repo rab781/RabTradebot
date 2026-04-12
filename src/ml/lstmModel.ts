@@ -8,6 +8,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { getDatabase } from '../database/database';
 import { FeatureSet } from '../services/featureEngineering';
+import { logger } from '../utils/logger';
 
 export interface ModelConfig {
     inputShape: number;
@@ -63,7 +64,7 @@ export class LSTMModelManager {
      * Build the LSTM model architecture (Optimized for TensorFlow.js)
      */
     buildModel(): void {
-        console.log('🔨 Building optimized LSTM model...');
+        logger.info('🔨 Building optimized LSTM model...');
 
         const input = tf.input({
             shape: [this.config.sequenceLength, this.config.inputShape]
@@ -109,7 +110,7 @@ export class LSTMModelManager {
             metrics: ['mae']
         });
 
-        console.log('✅ LSTM Model built successfully');
+        logger.info('✅ LSTM Model built successfully');
         this.model.summary();
     }
 
@@ -125,14 +126,14 @@ export class LSTMModelManager {
             this.buildModel();
         }
 
-        console.log(`🚀 Training model on ${features.length} samples...`);
+        logger.info(`🚀 Training model on ${features.length} samples...`);
         const startTime = Date.now();
 
         // Prepare sequences
         const { X, y } = this.prepareSequences(features, targets);
 
-        console.log(`   Input shape: [${X.shape}]`);
-        console.log(`   Target shape: [${y.shape}]`);
+        logger.info(`   Input shape: [${X.shape}]`);
+        logger.info(`   Target shape: [${y.shape}]`);
 
         // Train the model
         const history = await this.model!.fit(X, y, {
@@ -153,7 +154,7 @@ export class LSTMModelManager {
                         logMsg += ` - val_loss: ${valLoss.toFixed(4)} - val_mae: ${valMae.toFixed(4)}`;
                     }
 
-                    console.log(logMsg);
+                    logger.info(logMsg);
                 }
             }
         });
@@ -166,9 +167,9 @@ export class LSTMModelManager {
         const finalLoss = history.history.loss[history.history.loss.length - 1] as number;
         const finalMAE = history.history.mae[history.history.mae.length - 1] as number;
 
-        console.log(`✅ Training completed in ${(trainingTime / 1000).toFixed(2)}s`);
-        console.log(`   Final Loss: ${finalLoss.toFixed(6)}`);
-        console.log(`   Final MAE: ${finalMAE.toFixed(6)}`);
+        logger.info(`✅ Training completed in ${(trainingTime / 1000).toFixed(2)}s`);
+        logger.info(`   Final Loss: ${finalLoss.toFixed(6)}`);
+        logger.info(`   Final MAE: ${finalMAE.toFixed(6)}`);
 
         return {
             finalLoss,
@@ -298,9 +299,9 @@ export class LSTMModelManager {
                 this.config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
             }
 
-            console.log(`✅ Model loaded from ${modelPath}`);
+            logger.info(`✅ Model loaded from ${modelPath}`);
         } catch (error) {
-            console.error('❌ Failed to load model:', error);
+            logger.error({ err: error }, '❌ Failed to load model:');
             throw error;
         }
     }
@@ -332,7 +333,7 @@ export class LSTMModelManager {
             createdAt: Date.now()
         });
 
-        console.log('✅ Model metadata saved to database');
+        logger.info('✅ Model metadata saved to database');
     }
 
     /**
@@ -359,7 +360,7 @@ export class LSTMModelManager {
         if (this.model) {
             this.model.dispose();
             this.model = null;
-            console.log('✅ Model disposed');
+            logger.info('✅ Model disposed');
         }
     }
 }

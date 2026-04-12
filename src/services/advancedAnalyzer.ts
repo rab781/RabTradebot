@@ -2,6 +2,7 @@
 const BinanceFactory = require('node-binance-api');
 import { VolumeAnalysis, SupportResistance, Candle, TimeFrame } from '../types/trading';
 import { PublicCryptoService } from './publicCryptoService';
+import { logger } from '../utils/logger';
 
 export class AdvancedAnalyzer {
     private binance: any;
@@ -19,22 +20,19 @@ export class AdvancedAnalyzer {
                     APIKEY: process.env.BINANCE_API_KEY,
                     APISECRET: process.env.BINANCE_API_SECRET,
                 });
-                console.log('[AdvancedAnalyzer] Private API initialized');
+                logger.info('[AdvancedAnalyzer] Private API initialized');
             } else {
-                console.log('[AdvancedAnalyzer] No API credentials found, using public API only');
+                logger.info('[AdvancedAnalyzer] No API credentials found, using public API only');
                 this.usePublicOnly = true;
             }
         } catch (error) {
-            console.warn(
-                '[AdvancedAnalyzer] Failed to initialize private API, falling back to public API:',
-                error
-            );
+            logger.warn({ err: error }, '[AdvancedAnalyzer] Failed to initialize private API, falling back to public API');
             this.usePublicOnly = true;
         }
     }
 
     async analyzeVolume(symbol: string): Promise<VolumeAnalysis> {
-        console.log(`[AdvancedAnalyzer] Starting volume analysis for ${symbol}`);
+        logger.info(`[AdvancedAnalyzer] Starting volume analysis for ${symbol}`);
 
         try {
             // Prefer public API to avoid 403 errors
@@ -42,7 +40,7 @@ export class AdvancedAnalyzer {
             let trades: any[];
 
             if (this.usePublicOnly) {
-                console.log(`[AdvancedAnalyzer] Using public API only for ${symbol}`);
+                logger.info(`[AdvancedAnalyzer] Using public API only for ${symbol}`);
                 [ticker, trades] = await Promise.all([
                     this.publicService.get24hrTicker(symbol),
                     this.publicService.getRecentTrades(symbol, 500),
@@ -50,16 +48,16 @@ export class AdvancedAnalyzer {
             } else {
                 try {
                     // Try public API first (more reliable)
-                    console.log(`[AdvancedAnalyzer] Trying public API first for ${symbol}`);
+                    logger.info(`[AdvancedAnalyzer] Trying public API first for ${symbol}`);
                     [ticker, trades] = await Promise.all([
                         this.publicService.get24hrTicker(symbol),
                         this.publicService.getRecentTrades(symbol, 500),
                     ]);
-                    console.log(
+                    logger.info(
                         `[AdvancedAnalyzer] Used public API for volume analysis of ${symbol}`
                     );
                 } catch (publicApiError) {
-                    console.log(
+                    logger.info(
                         `[AdvancedAnalyzer] Public API failed for ${symbol}, trying private API...`
                     );
                     // Fallback to private API
@@ -68,13 +66,13 @@ export class AdvancedAnalyzer {
                         this.retryApiCall(async () => await this.binance.trades(symbol), 2),
                     ]);
 
-                    console.log(
+                    logger.info(
                         `[AdvancedAnalyzer] Used private API fallback for volume analysis of ${symbol}`
                     );
                 }
             }
 
-            console.log(
+            logger.info(
                 `[AdvancedAnalyzer] Retrieved ticker and ${trades.length} trades for ${symbol}`
             );
 
@@ -104,7 +102,7 @@ export class AdvancedAnalyzer {
                 recommendation,
             };
         } catch (error: any) {
-            console.error(`[AdvancedAnalyzer] Error in volume analysis for ${symbol}:`, error);
+            logger.error({ err: error }, `[AdvancedAnalyzer] Error in volume analysis for ${symbol}`);
             // Keep /analyze usable even when exchange APIs are temporarily unavailable.
             return {
                 symbol,
@@ -116,17 +114,17 @@ export class AdvancedAnalyzer {
         }
     }
     async findSupportResistance(symbol: string): Promise<SupportResistance> {
-        console.log(`[AdvancedAnalyzer] Finding support/resistance for ${symbol}`);
+        logger.info(`[AdvancedAnalyzer] Finding support/resistance for ${symbol}`);
 
         try {
             // Prefer public API first for reliability and consistency
             let candles: any[];
 
             try {
-                console.log(`[AdvancedAnalyzer] Using public API for ${symbol} candles`);
+                logger.info(`[AdvancedAnalyzer] Using public API for ${symbol} candles`);
                 candles = await this.publicService.getCandlestickData(symbol, '4h', 100);
             } catch (publicError) {
-                console.warn(
+                logger.warn(
                     `[AdvancedAnalyzer] Public API failed, trying private API fallback...`
                 );
                 // Fallback to private API with retry
@@ -139,7 +137,7 @@ export class AdvancedAnalyzer {
                 throw new Error('No candle data available');
             }
 
-            console.log(`[AdvancedAnalyzer] Retrieved ${candles.length} candles for ${symbol}`);
+            logger.info(`[AdvancedAnalyzer] Retrieved ${candles.length} candles for ${symbol}`);
 
             const prices = candles
                 .map((candle: any) => ({
@@ -179,10 +177,7 @@ export class AdvancedAnalyzer {
                 nearestResistance,
             };
         } catch (error: any) {
-            console.error(
-                `[AdvancedAnalyzer] Error finding support/resistance for ${symbol}:`,
-                error
-            );
+            logger.error({ err: error }, `[AdvancedAnalyzer] Error finding support/resistance for ${symbol}`);
             // Return zero values instead of crashing
             return {
                 symbol,
@@ -245,7 +240,7 @@ export class AdvancedAnalyzer {
         }
     }
     async analyzeMultipleTimeframes(symbol: string): Promise<string> {
-        console.log(`[AdvancedAnalyzer] Analyzing multiple timeframes for ${symbol}`);
+        logger.info(`[AdvancedAnalyzer] Analyzing multiple timeframes for ${symbol}`);
 
         try {
             const timeframes: TimeFrame[] = ['15m', '1h', '4h', '1d'];
@@ -253,7 +248,7 @@ export class AdvancedAnalyzer {
 
             const timeframeResults = await Promise.all(
                 timeframes.map(async (timeframe) => {
-                    console.log(
+                    logger.info(
                         `[AdvancedAnalyzer] Analyzing ${timeframe} timeframe for ${symbol}`
                     );
                     const candles = await this.retryApiCall(async () => {
@@ -268,10 +263,7 @@ export class AdvancedAnalyzer {
 
             return analysis;
         } catch (error: any) {
-            console.error(
-                `[AdvancedAnalyzer] Error in multiple timeframe analysis for ${symbol}:`,
-                error
-            );
+            logger.error({ err: error }, `[AdvancedAnalyzer] Error in multiple timeframe analysis for ${symbol}`);
             throw new Error(
                 `Failed to analyze timeframes for ${symbol}: ${error.message || 'Unknown error'}`
             );
@@ -319,28 +311,25 @@ export class AdvancedAnalyzer {
 
         for (let attempt = 1; attempt <= maxRetries; attempt++) {
             try {
-                console.log(`[AdvancedAnalyzer] API call attempt ${attempt}/${maxRetries}`);
+                logger.info(`[AdvancedAnalyzer] API call attempt ${attempt}/${maxRetries}`);
                 const result = await apiCall();
                 if (attempt > 1) {
-                    console.log(`[AdvancedAnalyzer] API call succeeded on attempt ${attempt}`);
+                    logger.info(`[AdvancedAnalyzer] API call succeeded on attempt ${attempt}`);
                 }
                 return result;
             } catch (error: any) {
                 lastError = error;
-                console.error(
-                    `[AdvancedAnalyzer] API call failed (attempt ${attempt}/${maxRetries}):`,
-                    error.message || error
-                );
+                logger.error({ err: error }, `[AdvancedAnalyzer] API call failed (attempt ${attempt}/${maxRetries})`);
 
                 if (attempt < maxRetries) {
                     const delay = Math.pow(2, attempt) * 1000; // Exponential backoff
-                    console.log(`[AdvancedAnalyzer] Retrying in ${delay}ms...`);
+                    logger.info(`[AdvancedAnalyzer] Retrying in ${delay}ms...`);
                     await new Promise((resolve) => setTimeout(resolve, delay));
                 }
             }
         }
 
-        console.error(`[AdvancedAnalyzer] All API call attempts failed`);
+        logger.error(`[AdvancedAnalyzer] All API call attempts failed`);
         throw lastError;
     }
 }

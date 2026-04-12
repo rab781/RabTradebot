@@ -1,5 +1,6 @@
 import { TechnicalAnalyzer } from './technicalAnalyzer';
 import { ChutesService } from './chutesService';
+import { logger } from '../utils/logger';
 
 export interface SignalResult {
     action: 'BUY' | 'SELL' | 'HOLD';
@@ -59,7 +60,7 @@ export class SignalGenerator {
                         signal += 'No recent news found\n';
                     }
                 } catch (error) {
-                    console.error('Error getting news analysis:', error);
+                    logger.error({ err: error }, 'Error getting news analysis:');
                     signal += 'News analysis unavailable\n';
                 }
             } else {
@@ -77,7 +78,7 @@ export class SignalGenerator {
             };
 
         } catch (error) {
-            console.error('Error generating signal:', error);
+            logger.error({ err: error }, 'Error generating signal:');
             throw error;
         }
     }

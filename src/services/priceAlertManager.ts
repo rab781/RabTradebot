@@ -1,6 +1,7 @@
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const BinanceFactory = require('node-binance-api');
 import { PublicCryptoService } from './publicCryptoService';
+import { logger } from '../utils/logger';
 
 interface PriceAlert {
     symbol: string;
@@ -26,13 +27,13 @@ export class PriceAlertManager {
                     APIKEY: process.env.BINANCE_API_KEY,
                     APISECRET: process.env.BINANCE_API_SECRET
                 });
-                console.log('[PriceAlertManager] Private API initialized');
+                logger.info('[PriceAlertManager] Private API initialized');
             } else {
-                console.log('[PriceAlertManager] No API credentials found, using public API only');
+                logger.info('[PriceAlertManager] No API credentials found, using public API only');
                 this.usePublicOnly = true;
             }
         } catch (error) {
-            console.warn('[PriceAlertManager] Failed to initialize private API, falling back to public API:', error);
+            logger.warn({ err: error }, '[PriceAlertManager] Failed to initialize private API, falling back to public API:');
             this.usePublicOnly = true;
         }
     }
@@ -71,7 +72,7 @@ export class PriceAlertManager {
                     });
                 }
             } catch (error) {
-                console.error(`Error checking price for ${alert.symbol}:`, error);
+                logger.error({ err: error }, `Error checking price for ${alert.symbol}:`);
             }
         }
 
