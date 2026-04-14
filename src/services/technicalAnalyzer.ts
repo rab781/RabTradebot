@@ -103,18 +103,29 @@ export class TechnicalAnalyzer {
             
             logger.info(`[TechnicalAnalyzer] Retrieved ${candlesData.length} candles for ${symbol}`);
             
-            const candles: Candle[] = candlesData.map((candleData: any[]) => ({
-                timestamp: parseInt(candleData[0]),
-                open: parseFloat(candleData[1]),
-                high: parseFloat(candleData[2]),
-                low: parseFloat(candleData[3]),
-                close: parseFloat(candleData[4]),
-                volume: parseFloat(candleData[5])
-            }));
+            // ⚡ Bolt Optimization: Replace 3 O(N) map calls with a single pre-allocated loop
+            const dataLen = candlesData.length;
+            const candles: Candle[] = new Array(dataLen);
+            const closePrices: number[] = new Array(dataLen);
+            const volumes: number[] = new Array(dataLen);
 
-            // Calculate indicators
-            const closePrices = candles.map(c => c.close);
-            const volumes = candles.map(c => c.volume);
+            for (let i = 0; i < dataLen; i++) {
+                const candleData = candlesData[i];
+                const close = parseFloat(candleData[4]);
+                const volume = parseFloat(candleData[5]);
+
+                closePrices[i] = close;
+                volumes[i] = volume;
+
+                candles[i] = {
+                    timestamp: parseInt(candleData[0]),
+                    open: parseFloat(candleData[1]),
+                    high: parseFloat(candleData[2]),
+                    low: parseFloat(candleData[3]),
+                    close,
+                    volume
+                };
+            }
             
             const rsiValues = RSI.calculate({
                 values: closePrices,
@@ -135,7 +146,13 @@ export class TechnicalAnalyzer {
             const previousMACD = macdResult[macdResult.length - 2];
 
             // Calculate trend strength
-            const volumeAvg = volumes.slice(-20).reduce((a, b) => a + b, 0) / 20;
+            // ⚡ Bolt Optimization: Avoid intermediate array creation from slice().reduce()
+            let volumeSum = 0;
+            const volCount = Math.min(20, volumes.length);
+            for (let i = volumes.length - volCount; i < volumes.length; i++) {
+                volumeSum += volumes[i];
+            }
+            const volumeAvg = volCount > 0 ? volumeSum / volCount : 0;
             const currentVolume = volumes[volumes.length - 1];
             const volumeStrength = currentVolume > volumeAvg ? 'Strong' : 'Weak';
 
@@ -190,14 +207,24 @@ export class TechnicalAnalyzer {
 
             // Add entry/exit recommendations
             if (signal.includes('BUY')) {
-                const stopLoss = Math.min(...candles.slice(-5).map(c => c.low));
+                // ⚡ Bolt Optimization: Avoid intermediate arrays from slice(-5).map(...) and spread operator
+                let stopLoss = Infinity;
+                const lookbackCount = Math.min(5, candles.length);
+                for (let i = candles.length - lookbackCount; i < candles.length; i++) {
+                    if (candles[i].low < stopLoss) stopLoss = candles[i].low;
+                }
                 const takeProfit = candles[candles.length - 1].close * 1.02; // 2% profit target
                 analysis += `\nEntry/Exit Levels:\n`;
                 analysis += `- Entry: Current price (${candles[candles.length - 1].close.toFixed(4)})\n`;
                 analysis += `- Stop Loss: ${stopLoss.toFixed(4)} (${((stopLoss - candles[candles.length - 1].close) / candles[candles.length - 1].close * 100).toFixed(2)}%)\n`;
                 analysis += `- Take Profit: ${takeProfit.toFixed(4)} (2.00%)\n`;
             } else if (signal.includes('SELL')) {
-                const stopLoss = Math.max(...candles.slice(-5).map(c => c.high));
+                // ⚡ Bolt Optimization: Avoid intermediate arrays from slice(-5).map(...) and spread operator
+                let stopLoss = -Infinity;
+                const lookbackCount = Math.min(5, candles.length);
+                for (let i = candles.length - lookbackCount; i < candles.length; i++) {
+                    if (candles[i].high > stopLoss) stopLoss = candles[i].high;
+                }
                 const takeProfit = candles[candles.length - 1].close * 0.98; // 2% profit target
                 analysis += `\nEntry/Exit Levels:\n`;
                 analysis += `- Entry: Current price (${candles[candles.length - 1].close.toFixed(4)})\n`;
