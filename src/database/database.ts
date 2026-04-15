@@ -271,10 +271,14 @@ export class TradingDatabase {
     }
 
     getBestBacktestResult(strategy: string, symbol: string, metric: 'sharpeRatio' | 'totalProfitPct' | 'winRate' = 'sharpeRatio'): BacktestResult | undefined {
+        // 🛡️ Sentinel: Enforce runtime whitelisting for dynamic SQL identifiers to prevent injection
+        const allowedMetrics = ['sharpeRatio', 'totalProfitPct', 'winRate'];
+        const safeMetric = allowedMetrics.includes(metric) ? metric : 'sharpeRatio';
+
         const stmt = this.db.prepare(`
             SELECT * FROM backtest_results
             WHERE strategy = ? AND symbol = ?
-            ORDER BY ${metric} DESC
+            ORDER BY ${safeMetric} DESC
             LIMIT 1
         `);
         return stmt.get(strategy, symbol) as BacktestResult | undefined;
