@@ -355,19 +355,34 @@ export class DatabaseService {
             };
         }
 
-        const profits = trades.map((t: any) => t.profit || 0);
-        const winningTrades = trades.filter((t: any) => (t.profit || 0) > 0);
-        const totalProfit = profits.reduce((a: number, b: number) => a + b, 0);
+        let totalProfit = 0;
+        let winningTradesCount = 0;
+        let bestTrade = -Infinity;
+        let worstTrade = Infinity;
+
+        // ⚡ Bolt Optimization: Replace chained array methods (.map, .filter, .reduce)
+        // and spread operators (Math.max/min) with a single-pass O(N) loop to reduce
+        // memory allocation, prevent garbage collection overhead, and avoid stack overflow.
+        for (let i = 0; i < trades.length; i++) {
+            const profit = trades[i].profit || 0;
+            totalProfit += profit;
+            if (profit > 0) winningTradesCount++;
+            if (profit > bestTrade) bestTrade = profit;
+            if (profit < worstTrade) worstTrade = profit;
+        }
+
+        if (bestTrade === -Infinity) bestTrade = 0;
+        if (worstTrade === Infinity) worstTrade = 0;
 
         return {
             totalTrades: trades.length,
-            winningTrades: winningTrades.length,
-            losingTrades: trades.length - winningTrades.length,
-            winRate: (winningTrades.length / trades.length) * 100,
+            winningTrades: winningTradesCount,
+            losingTrades: trades.length - winningTradesCount,
+            winRate: (winningTradesCount / trades.length) * 100,
             totalProfit,
             avgProfit: totalProfit / trades.length,
-            bestTrade: Math.max(...profits),
-            worstTrade: Math.min(...profits)
+            bestTrade,
+            worstTrade
         };
     }
 
@@ -606,13 +621,24 @@ export class DatabaseService {
             };
         }
 
-        const correct = predictions.filter((p: any) => p.wasCorrect).length;
-        const avgConfidence = predictions.reduce((sum: number, p: any) => sum + p.confidence, 0) / predictions.length;
+        let correctCount = 0;
+        let totalConfidence = 0;
+
+        // ⚡ Bolt Optimization: Replace chained array methods (.filter, .reduce)
+        // with a single-pass O(N) loop to reduce memory allocation and GC overhead.
+        for (let i = 0; i < predictions.length; i++) {
+            if (predictions[i].wasCorrect) {
+                correctCount++;
+            }
+            totalConfidence += predictions[i].confidence;
+        }
+
+        const avgConfidence = totalConfidence / predictions.length;
 
         return {
             total: predictions.length,
-            correct,
-            accuracy: (correct / predictions.length) * 100,
+            correct: correctCount,
+            accuracy: (correctCount / predictions.length) * 100,
             avgConfidence
         };
     }
