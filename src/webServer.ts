@@ -50,6 +50,76 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' })); // 🛡️ Sentinel: Prevent Payload DoS by bounding JSON size
 app.use(express.static(path.join(__dirname, '../public')));
 
+// 🛡️ Sentinel: Custom rate limiter to prevent DoS attacks without external dependencies
+// Uses a bounded Map with maximum capacity to prevent memory exhaustion
+const rateLimitMap = new Map<string, { count: number; resetTime: number }>();
+const MAX_RATE_LIMIT_ENTRIES = 10000;
+const RATE_LIMIT_WINDOW_MS = 60000; // 1 minute
+const MAX_REQUESTS_PER_WINDOW = 100;
+
+// Cleanup interval to prevent memory leaks. Unref prevents it from keeping event loop alive.
+const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, data] of rateLimitMap.entries()) {
+        if (now > data.resetTime) {
+            rateLimitMap.delete(ip);
+        }
+    }
+}, 60000);
+cleanupInterval.unref();
+
+app.use((req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip || req.connection.remoteAddress || 'unknown';
+    const now = Date.now();
+
+    let clientData = rateLimitMap.get(ip);
+
+    if (!clientData || now > clientData.resetTime) {
+        // Enforce maximum capacity
+        if (rateLimitMap.size >= MAX_RATE_LIMIT_ENTRIES) {
+            let evicted = false;
+            // First pass: try to evict only expired items
+            for (const [key, data] of rateLimitMap.entries()) {
+                if (now > data.resetTime) {
+                    rateLimitMap.delete(key);
+                    evicted = true;
+                    break;
+                }
+            }
+            // Second pass: if map is still full, reject request or just evict oldest to be safe
+            // Let's evict oldest to allow new IPs
+            if (!evicted && rateLimitMap.size >= MAX_RATE_LIMIT_ENTRIES) {
+                const firstKey = rateLimitMap.keys().next().value;
+                if (firstKey !== undefined) {
+                    rateLimitMap.delete(firstKey);
+                }
+            }
+        }
+        clientData = { count: 1, resetTime: now + RATE_LIMIT_WINDOW_MS };
+        rateLimitMap.set(ip, clientData);
+    } else {
+        clientData.count++;
+        if (clientData.count > MAX_REQUESTS_PER_WINDOW) {
+            if (clientData.count === MAX_REQUESTS_PER_WINDOW + 1) {
+                withLogContext({ service: 'webServer' }).warn(`Rate limit exceeded for IP: ${ip}`);
+            }
+            res.setHeader('Retry-After', Math.ceil((clientData.resetTime - now) / 1000).toString());
+            res.status(429).json({ error: 'Too many requests, please try again later.' });
+            return;
+        }
+    }
+
+    // Add rate limit headers
+    res.setHeader('X-RateLimit-Limit', MAX_REQUESTS_PER_WINDOW.toString());
+    res.setHeader(
+        'X-RateLimit-Remaining',
+        Math.max(0, MAX_REQUESTS_PER_WINDOW - clientData.count).toString()
+    );
+    res.setHeader('X-RateLimit-Reset', Math.ceil(clientData.resetTime / 1000).toString());
+
+    next();
+});
+
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
