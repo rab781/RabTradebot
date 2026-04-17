@@ -87,7 +87,7 @@
     "prettier": "^3.2.5",
     "prisma": "^7.3.0",
     "rimraf": "^5.0.5",
-    "ts-jest": "^29.1.2",
+    "ts-jest": "^29.4.9",
     "typescript": "^5.8.3"
   },
   "jest": {
