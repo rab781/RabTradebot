@@ -3986,15 +3986,7 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
 // Leaderboard command - Best performing symbols
 bot.command('leaderboard', async (ctx) => {
   try {
-    const loadingMsg = await ctx.reply('🏆 Loading leaderboard...');
-
     // This would require aggregation queries - simplified version
-    try {
-      await ctx.deleteMessage(loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
-
     await ctx.reply(`
 🏆 PERFORMANCE LEADERBOARD
 
