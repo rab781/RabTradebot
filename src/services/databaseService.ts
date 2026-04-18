@@ -355,19 +355,28 @@ export class DatabaseService {
             };
         }
 
-        const profits = trades.map((t: any) => t.profit || 0);
-        const winningTrades = trades.filter((t: any) => (t.profit || 0) > 0);
-        const totalProfit = profits.reduce((a: number, b: number) => a + b, 0);
+        let totalProfit = 0;
+        let winningTradesCount = 0;
+        let bestTrade = -Infinity;
+        let worstTrade = Infinity;
+
+        for (const t of trades) {
+            const profit = t.profit || 0;
+            totalProfit += profit;
+            if (profit > 0) winningTradesCount++;
+            if (profit > bestTrade) bestTrade = profit;
+            if (profit < worstTrade) worstTrade = profit;
+        }
 
         return {
             totalTrades: trades.length,
-            winningTrades: winningTrades.length,
-            losingTrades: trades.length - winningTrades.length,
-            winRate: (winningTrades.length / trades.length) * 100,
+            winningTrades: winningTradesCount,
+            losingTrades: trades.length - winningTradesCount,
+            winRate: (winningTradesCount / trades.length) * 100,
             totalProfit,
             avgProfit: totalProfit / trades.length,
-            bestTrade: Math.max(...profits),
-            worstTrade: Math.min(...profits)
+            bestTrade,
+            worstTrade
         };
     }
 
@@ -606,8 +615,15 @@ export class DatabaseService {
             };
         }
 
-        const correct = predictions.filter((p: any) => p.wasCorrect).length;
-        const avgConfidence = predictions.reduce((sum: number, p: any) => sum + p.confidence, 0) / predictions.length;
+        let correct = 0;
+        let confidenceSum = 0;
+
+        for (const p of predictions) {
+            if (p.wasCorrect) correct++;
+            confidenceSum += p.confidence;
+        }
+
+        const avgConfidence = confidenceSum / predictions.length;
 
         return {
             total: predictions.length,
