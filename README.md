@@ -30,10 +30,89 @@ npm start
 
 Open Telegram, find your bot, and send `/start`.
 
+## Running with PM2 (Recommended for Production)
+
+[PM2](https://pm2.keymetrics.io/) keeps the bot running continuously, restarts it automatically on crashes, and survives server reboots.
+
+### 1. Install PM2 globally
+
+```bash
+npm install -g pm2
+```
+
+### 2. Clone, install, and configure
+
+```bash
+git clone https://github.com/rab781/RabTradebot.git
+cd RabTradebot
+npm install
+cp .env.example .env
+# Edit .env and set at least TELEGRAM_BOT_TOKEN=your_token_here
+```
+
+### 3. Build the project
+
+```bash
+npm run build
+```
+
+### 4. Start with PM2
+
+```bash
+# Production mode (recommended)
+npm run pm2:start
+
+# Development mode
+npm run pm2:start:dev
+```
+
+The PM2 configuration is in `ecosystem.config.js`. The bot runs as a **single fork** instance (cluster mode is not supported — Telegram long-polling maintains one persistent connection to the API, so running multiple instances would cause every incoming message to be processed multiple times).
+
+### 5. Persist across reboots
+
+```bash
+# Save the current process list
+pm2 save
+
+# Generate and install startup script
+pm2 startup
+```
+
+PM2 will print a command (e.g. `sudo env PATH=... pm2 startup systemd -u $USER --hp $HOME`). **Copy-paste that exact command and run it with elevated privileges** (`sudo`). If automatic init-system detection fails, specify yours explicitly (e.g. `pm2 startup systemd`). Run `pm2 save` again after the startup script is installed to make the saved process list effective.
+
+### PM2 management commands
+
+| Task | Command |
+|------|---------|
+| View status | `npm run pm2:status` |
+| Tail logs | `npm run pm2:logs` |
+| Restart bot | `npm run pm2:restart` |
+| Stop bot | `npm run pm2:stop` |
+| Remove from PM2 | `npm run pm2:delete` |
+
+### Deploy updates
+
+Pull the latest code, rebuild, and restart in one step:
+
+```bash
+npm run deploy
+```
+
+### Log rotation (optional)
+
+PM2 writes logs to the `logs/` directory. To automatically rotate them:
+
+```bash
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:max_size 100M
+pm2 set pm2-logrotate:retain 30
+pm2 set pm2-logrotate:compress true
+```
+
 ## Installation
 
 **Prerequisites**:
-- Node.js 18+
+- Node.js 20+
 - npm 9+
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
