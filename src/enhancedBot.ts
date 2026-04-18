@@ -253,7 +253,7 @@ function buildCategoryMenuInline(symbol: string, category: string) {
       return Markup.inlineKeyboard([
         [
           Markup.button.callback('🔴 Start Live Trade (Real $)', 'run:livestart'),
-          Markup.button.callback('🔴 Stop Live (Real $)', 'run:livestop'),
+          Markup.button.callback('⏹️ Stop Live', 'run:livestop'),
         ],
         [Markup.button.callback('💼 Live Portfolio (Real $)', 'run:liveportfolio')],
         back,
@@ -3812,13 +3812,13 @@ Use /mlstats for detailed ML performance
 Use /strategystats to compare strategies
         `;
 
-    await ctx.reply(statsMessage);
-
     try {
       await ctx.deleteMessage(loadingMsg.message_id);
     } catch (e) {
       /* ignore */
     }
+
+    await ctx.reply(statsMessage);
   } catch (error) {
     logger.error({ err: error }, 'Stats error:');
     await db.logError({
@@ -3879,13 +3879,13 @@ Confidence: ${(symbolStats.avgConfidence * 100).toFixed(1)}%
 💡 Use /mlpredict to make new predictions
         `;
 
-    await ctx.reply(statsMessage);
-
     try {
       await ctx.deleteMessage(loadingMsg.message_id);
     } catch (e) {
       /* ignore */
     }
+
+    await ctx.reply(statsMessage);
   } catch (error) {
     logger.error({ err: error }, 'ML stats error:');
     await db.logError({
@@ -3914,12 +3914,13 @@ bot.command('strategystats', async (ctx) => {
     const openclawMetrics = await db.getStrategyMetrics('OpenClawStrategy', symbol);
 
     if (sampleMetrics.length === 0 && openclawMetrics.length === 0) {
-      await ctx.reply('❌ No strategy data found. Run some backtests first with /backtest');
       try {
         await ctx.deleteMessage(loadingMsg.message_id);
       } catch (e) {
         /* ignore */
       }
+
+    await ctx.reply('❌ No strategy data found. Run some backtests first with /backtest');
       return;
     }
 
@@ -3960,13 +3961,13 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
 💡 Use /backtest to run new backtests
         `;
 
-    await ctx.reply(statsMessage);
-
     try {
       await ctx.deleteMessage(loadingMsg.message_id);
     } catch (e) {
       /* ignore */
     }
+
+    await ctx.reply(statsMessage);
   } catch (error) {
     logger.error({ err: error }, 'Strategy stats error:');
     await db.logError({
@@ -3988,6 +3989,12 @@ bot.command('leaderboard', async (ctx) => {
     const loadingMsg = await ctx.reply('🏆 Loading leaderboard...');
 
     // This would require aggregation queries - simplified version
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     await ctx.reply(`
 🏆 PERFORMANCE LEADERBOARD
 
@@ -4000,12 +4007,6 @@ bot.command('leaderboard', async (ctx) => {
 💡 Use /stats to see your personal performance
 💡 Use /strategystats to compare strategies
         `);
-
-    try {
-      await ctx.deleteMessage(loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
   } catch (error) {
     logger.error({ err: error }, 'Leaderboard error:');
     ctx.reply(`❌ Error loading leaderboard: ${(error as Error).message}`);
