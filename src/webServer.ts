@@ -50,11 +50,52 @@ app.use(cors(corsOptions));
 app.use(express.json({ limit: '1mb' })); // 🛡️ Sentinel: Prevent Payload DoS by bounding JSON size
 app.use(express.static(path.join(__dirname, '../public')));
 
+// 🛡️ Sentinel: Custom manual rate limiter (High Priority: Missing rate limiting)
+// Bound Map size to prevent Memory DoS.
+const MAX_IPS = 1000;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const MAX_REQUESTS_PER_WINDOW = 100;
+const ipRequests = new Map<string, { count: number; resetTime: number }>();
+
+const cleanupInterval = setInterval(() => {
+    const now = Date.now();
+    for (const [ip, data] of ipRequests.entries()) {
+        if (now > data.resetTime) {
+            ipRequests.delete(ip);
+        }
+    }
+}, RATE_LIMIT_WINDOW_MS);
+cleanupInterval.unref(); // Prevent interval from keeping event loop alive
+
+const rateLimiterMiddleware = (req: Request, res: Response, next: NextFunction) => {
+    const ip = req.ip || req.socket.remoteAddress || 'unknown';
+    const now = Date.now();
+
+    let requestData = ipRequests.get(ip);
+    if (!requestData || now > requestData.resetTime) {
+        if (ipRequests.size >= MAX_IPS) {
+            // Evict an old entry or clear if too large
+            const firstKey = ipRequests.keys().next().value;
+            if (firstKey) ipRequests.delete(firstKey);
+        }
+        requestData = { count: 0, resetTime: now + RATE_LIMIT_WINDOW_MS };
+        ipRequests.set(ip, requestData);
+    }
+
+    requestData.count++;
+    if (requestData.count > MAX_REQUESTS_PER_WINDOW) {
+        res.status(429).json({ error: 'Too many requests, please try again later.' });
+        return;
+    }
+    next();
+};
+
 app.get('/', (req: Request, res: Response) => {
     res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // API Routes
+app.use('/api', rateLimiterMiddleware);
 
 // Get dashboard data
 app.get('/api/dashboard', (req: Request, res: Response) => {
