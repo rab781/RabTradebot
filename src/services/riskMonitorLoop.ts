@@ -410,7 +410,7 @@ export class RiskMonitorLoop {
         });
 
         await Promise.all(
-            openTrades.map(async (trade) => {
+            openTrades.map(async (trade: any) => {
                 try {
                     await this.engine.executeExit(trade.id, 'circuit_breaker');
                 } catch (error) {

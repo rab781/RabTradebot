@@ -1,0 +1,14 @@
+[Unit]
+Description=RabTradebot PM2 Bootstrap Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+User=lab-ai
+WorkingDirectory=/home/lab-ai/jupyterhub-server/test/RabTradebot
+ExecStart=/usr/bin/bash /home/lab-ai/jupyterhub-server/test/RabTradebot/scripts/pm2-startup-wrapper.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
