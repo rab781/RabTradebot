@@ -4,7 +4,7 @@ const Module = require('module');
 const originalRequire = Module.prototype.require;
 
 // Mock the database module before importing anything that uses it
-Module.prototype.require = function(path: string, ...args: any[]) {
+Module.prototype.require = function(path: string, ...args: any[] /* eslint-disable-line @typescript-eslint/no-explicit-any */) {
   if (path.includes('database/database')) {
       return {
           getDatabase: () => ({
