@@ -65,3 +65,7 @@
 ## 2025-02-20 - [Optimize Monte Carlo Simulation Logic]
 **Learning:** The original `monteCarloTest` used repeated O(N) array mapping and reducing inside a simulation loop for metrics like `totalProfit`, `avgProfit`, and `variance`. Because the shuffle logic (Fisher-Yates) is permutation-invariant, those mathematical totals are guaranteed to remain the same regardless of array order. Additionally, generating repeated array clones `[...trades]` inside a hot loop is highly inefficient, whereas an in-place Fisher-Yates array swap dramatically saves intermediate allocations. Finally, intra-trade max drawdowns are permutation-invariant and can also be hoisted outside the simulation loop.
 **Action:** When implementing or optimizing randomized simulation algorithms (like Monte Carlo WFO or bootstrap tests), always hoist permutation-invariant metrics outside the hot loop to reduce O(N * Simulations) to O(N + Simulations). Always use single array pre-allocation and in-place shuffling when array order does not need to be preserved per loop iteration.
+
+## 2026-04-19 - [Avoid array padding via concat]
+**Learning:** Chained array operations like `new Array(pad).fill(NaN).concat(data.map(...))` used in strategy indicators cause significant garbage collection overhead during large backtests due to repeated intermediate allocations.
+**Action:** Replace them with a single pre-allocated array of the final size (`new Array(len).fill(NaN)`) and use a `for` loop to assign values with an offset to eliminate intermediate copies.
