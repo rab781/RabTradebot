@@ -53,12 +53,24 @@ export class SampleStrategy implements IStrategy {
     }
 
     populateIndicators(dataframe: DataFrame, metadata: StrategyMetadata): DataFrame {
+        const len = dataframe.close.length;
+
+        // ⚡ Bolt Performance Optimization:
+        // Replaced `new Array(pad).fill(NaN).concat(values.map(...))` with
+        // pre-allocated arrays and single-pass loops.
+        // Impact: Eliminates 12+ intermediate array allocations and O(N) memory copies per cycle,
+        // reducing garbage collection pressure significantly in hot backtest/simulation loops.
+
         // Calculate RSI
         const rsiValues = RSI.calculate({
             values: dataframe.close,
             period: 14
         });
-        const rsiColumn = new Array(dataframe.close.length - rsiValues.length).fill(NaN).concat(rsiValues);
+        const rsiColumn = new Array(len).fill(NaN);
+        const rsiPad = len - rsiValues.length;
+        for (let i = 0; i < rsiValues.length; i++) {
+            rsiColumn[rsiPad + i] = rsiValues[i];
+        }
         
         // Calculate MACD
         const macdResult = MACD.calculate({
@@ -71,10 +83,15 @@ export class SampleStrategy implements IStrategy {
         });
         
         const macdLength = macdResult.length;
-        const macdPad = dataframe.close.length - macdLength;
-        const macdValues = new Array(macdPad).fill(NaN).concat(macdResult.map(m => m.MACD || 0));
-        const macdSignalValues = new Array(macdPad).fill(NaN).concat(macdResult.map(m => m.signal || 0));
-        const macdHistValues = new Array(macdPad).fill(NaN).concat(macdResult.map(m => m.histogram || 0));
+        const macdPad = len - macdLength;
+        const macdValues = new Array(len).fill(NaN);
+        const macdSignalValues = new Array(len).fill(NaN);
+        const macdHistValues = new Array(len).fill(NaN);
+        for (let i = 0; i < macdLength; i++) {
+            macdValues[macdPad + i] = macdResult[i].MACD || 0;
+            macdSignalValues[macdPad + i] = macdResult[i].signal || 0;
+            macdHistValues[macdPad + i] = macdResult[i].histogram || 0;
+        }
         
         // Calculate Bollinger Bands
         const bbResult = BollingerBands.calculate({
@@ -84,23 +101,36 @@ export class SampleStrategy implements IStrategy {
         });
         
         const bbLength = bbResult.length;
-        const bbPad = dataframe.close.length - bbLength;
-        const bbUpperValues = new Array(bbPad).fill(NaN).concat(bbResult.map(bb => bb.upper));
-        const bbMiddleValues = new Array(bbPad).fill(NaN).concat(bbResult.map(bb => bb.middle));
-        const bbLowerValues = new Array(bbPad).fill(NaN).concat(bbResult.map(bb => bb.lower));
+        const bbPad = len - bbLength;
+        const bbUpperValues = new Array(len).fill(NaN);
+        const bbMiddleValues = new Array(len).fill(NaN);
+        const bbLowerValues = new Array(len).fill(NaN);
+        for (let i = 0; i < bbLength; i++) {
+            bbUpperValues[bbPad + i] = bbResult[i].upper;
+            bbMiddleValues[bbPad + i] = bbResult[i].middle;
+            bbLowerValues[bbPad + i] = bbResult[i].lower;
+        }
         
         // Calculate moving averages
         const ema10Values = EMA.calculate({
             period: 10,
             values: dataframe.close
         });
-        const ema10Column = new Array(dataframe.close.length - ema10Values.length).fill(NaN).concat(ema10Values);
+        const ema10Column = new Array(len).fill(NaN);
+        const ema10Pad = len - ema10Values.length;
+        for (let i = 0; i < ema10Values.length; i++) {
+            ema10Column[ema10Pad + i] = ema10Values[i];
+        }
         
         const sma20Values = SMA.calculate({
             period: 20,
             values: dataframe.close
         });
-        const sma20Column = new Array(dataframe.close.length - sma20Values.length).fill(NaN).concat(sma20Values);
+        const sma20Column = new Array(len).fill(NaN);
+        const sma20Pad = len - sma20Values.length;
+        for (let i = 0; i < sma20Values.length; i++) {
+            sma20Column[sma20Pad + i] = sma20Values[i];
+        }
 
         // Add indicators to dataframe
         dataframe.rsi = rsiColumn;
