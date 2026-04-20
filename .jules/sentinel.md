@@ -6,3 +6,7 @@
 **Vulnerability:** The `getBestBacktestResult` function in `database.ts` used a dynamic `ORDER BY ${metric}` clause. Although `metric` was restricted via a TypeScript union (`'sharpeRatio' | 'totalProfitPct' | 'winRate'`), this type constraint is erased at runtime, allowing potential SQL injection if malicious runtime input reaches the function.
 **Learning:** Relying solely on TypeScript type unions for SQL identifier safety is insufficient because TypeScript provides no runtime safety.
 **Prevention:** Always enforce runtime whitelisting for dynamic SQL identifiers to prevent injection, even when TypeScript types seemingly restrict the possible values.
+## 2024-05-24 - [Express Information Disclosure and Missing Security Headers]
+**Vulnerability:** The web server was leaking information via the default `X-Powered-By` header and lacked essential security headers like `X-XSS-Protection`, `Content-Security-Policy`, and `Referrer-Policy`.
+**Learning:** Default Express configurations are not secure out-of-the-box and can aid attackers in reconnaissance.
+**Prevention:** Always disable the `x-powered-by` header and implement comprehensive security headers (CSP, XSS protection, Referrer Policy) using custom middleware when external tools like `helmet` are intentionally excluded.
