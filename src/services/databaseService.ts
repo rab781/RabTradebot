@@ -355,19 +355,42 @@ export class DatabaseService {
             };
         }
 
-        const profits = trades.map((t: any) => t.profit || 0);
-        const winningTrades = trades.filter((t: any) => (t.profit || 0) > 0);
-        const totalProfit = profits.reduce((a: number, b: number) => a + b, 0);
+        let winningTradesCount = 0;
+        let totalProfit = 0;
+        let bestTrade = -Infinity;
+        let worstTrade = Infinity;
+
+        // ⚡ Bolt Optimization: Replace chained .map(), .filter(), .reduce() and spread operators
+        // with a single O(N) loop to minimize intermediate memory allocation and prevent
+        // "call stack size exceeded" exceptions on large trade histories.
+        for (let i = 0; i < trades.length; i++) {
+            const profit = trades[i].profit || 0;
+            totalProfit += profit;
+
+            if (profit > 0) {
+                winningTradesCount++;
+            }
+            if (profit > bestTrade) {
+                bestTrade = profit;
+            }
+            if (profit < worstTrade) {
+                worstTrade = profit;
+            }
+        }
+
+        // Handle edge case where trades have no profit
+        if (bestTrade === -Infinity) bestTrade = 0;
+        if (worstTrade === Infinity) worstTrade = 0;
 
         return {
             totalTrades: trades.length,
-            winningTrades: winningTrades.length,
-            losingTrades: trades.length - winningTrades.length,
-            winRate: (winningTrades.length / trades.length) * 100,
+            winningTrades: winningTradesCount,
+            losingTrades: trades.length - winningTradesCount,
+            winRate: (winningTradesCount / trades.length) * 100,
             totalProfit,
             avgProfit: totalProfit / trades.length,
-            bestTrade: Math.max(...profits),
-            worstTrade: Math.min(...profits)
+            bestTrade,
+            worstTrade
         };
     }
 
