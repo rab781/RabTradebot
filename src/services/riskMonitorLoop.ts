@@ -244,14 +244,26 @@ export class RiskMonitorLoop {
             return;
         }
 
-        for (const trade of openTrades) {
-            const symbol = trade.symbol.toUpperCase();
-            const currentPrice = await binanceOrderService.getCurrentPrice(symbol);
+        // ⚡ Bolt Optimization: Parallelize independent database/network calls
+        // Instead of sequential evaluation (waterfall latency), we map over
+        // open trades and execute them concurrently.
+        await Promise.all(
+            openTrades.map(async (trade: any) => {
+                try {
+                    const symbol = trade.symbol.toUpperCase();
+                    const currentPrice = await binanceOrderService.getCurrentPrice(symbol);
 
-            await this.updateTrailingStop(trade, currentPrice);
-            await this.evaluateExitTriggers(trade, currentPrice);
-            await this.evaluateCircuitBreaker(trade.userId);
-        }
+                    await this.updateTrailingStop(trade, currentPrice);
+                    await this.evaluateExitTriggers(trade, currentPrice);
+                    await this.evaluateCircuitBreaker(trade.userId);
+                } catch (error) {
+                    withLogContext({ service: 'riskMonitorLoop', symbol: trade.symbol }).error(
+                        { err: error, tradeId: trade.id },
+                        'Error evaluating trade in risk monitor loop'
+                    );
+                }
+            })
+        );
     }
 
     private async updateTrailingStop(trade: any, currentPrice: number): Promise<void> {
