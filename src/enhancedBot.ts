@@ -1490,8 +1490,9 @@ bot.command('backtest', async (ctx) => {
     return ctx.reply('Days must be between 7 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
+    loadingMsg = await ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
 
     // Download historical data
     const endDate = new Date();
@@ -1627,6 +1628,10 @@ Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
       symbol,
     });
     ctx.reply(`❌ Error running backtest: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
@@ -1649,8 +1654,9 @@ bot.command('papertrade', async (ctx) => {
     );
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
 
     // Ensure user exists in database
     const user = await ensureUser(ctx);
@@ -1692,6 +1698,10 @@ Use /stoptrading to stop trading`);
       symbol,
     });
     ctx.reply(`❌ Error starting paper trading: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
