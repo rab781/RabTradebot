@@ -300,7 +300,7 @@ async function replyMainMenu(ctx: any, userId: number, title?: string) {
   const header = title || '📌 Main Menu';
   return ctx.reply(
     `${header} — Coin: ${activeSymbol}\nPilih kategori:`,
-    buildMainMenuInline(activeSymbol),
+    buildMainMenuInline(activeSymbol)
   );
 }
 
@@ -330,7 +330,10 @@ realTradingEngine.setNotifier(async (message, dbUserId) => {
   try {
     await notifyByDbUserId(message, dbUserId);
   } catch (error) {
-    withLogContext({ service: 'enhancedBot', userId: dbUserId }).error({ err: error }, 'Live notifier error');
+    withLogContext({ service: 'enhancedBot', userId: dbUserId }).error(
+      { err: error },
+      'Live notifier error'
+    );
   }
 });
 
@@ -338,11 +341,18 @@ riskMonitorLoop.setNotifier(async (message, dbUserId) => {
   try {
     await notifyByDbUserId(message, dbUserId);
   } catch (error) {
-    withLogContext({ service: 'enhancedBot', userId: dbUserId }).error({ err: error }, 'Risk monitor notifier error');
+    withLogContext({ service: 'enhancedBot', userId: dbUserId }).error(
+      { err: error },
+      'Risk monitor notifier error'
+    );
   }
 });
 
-async function executeLiveSignal(userDbId: number, symbol: string, strategyToUse: IStrategy): Promise<void> {
+async function executeLiveSignal(
+  userDbId: number,
+  symbol: string,
+  strategyToUse: IStrategy
+): Promise<void> {
   const openTrades = await db.getOpenLiveTrades(userDbId, symbol);
   if (openTrades.length > 0) {
     return;
@@ -384,7 +394,7 @@ bot.command('coin', async (ctx) => {
     const symbol = await getActiveSymbol(user.id);
     return ctx.reply(
       `🪙 Coin aktif: ${symbol}\nGanti: /coin BTC atau /coin ETHUSDT`,
-      buildMainMenuInline(symbol),
+      buildMainMenuInline(symbol)
     );
   }
 
@@ -395,7 +405,7 @@ bot.command('coin', async (ctx) => {
     await setActiveSymbol(user.id, symbol);
     return ctx.reply(
       `✅ Coin aktif: ${symbol}\nTap kategori untuk aksi:`,
-      buildMainMenuInline(symbol),
+      buildMainMenuInline(symbol)
     );
   } catch (error) {
     return ctx.reply(`❌ Gagal set coin: ${(error as Error).message}`);
@@ -426,31 +436,36 @@ bot.command('go', async (ctx) => {
 bot.command('logs', async (ctx) => {
   const user = await ensureUser(ctx);
   if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
-  
+
   try {
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const fs = require('fs');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const path = require('path');
     const logPath = path.join(process.cwd(), 'logs', 'pm2-out.log');
-    
+
     if (!fs.existsSync(logPath)) {
       return ctx.reply('❌ File log PM2 (logs/pm2-out.log) tidak ditemukan. Apakah PM2 berjalan?');
     }
-    
+
     const stats = fs.statSync(logPath);
     const readSize = Math.min(stats.size, 4096);
     const buffer = Buffer.alloc(readSize);
-    
+
     const fd = fs.openSync(logPath, 'r');
     fs.readSync(fd, buffer, 0, readSize, stats.size - readSize);
     fs.closeSync(fd);
-    
+
     const lines = buffer.toString('utf-8').split('\n');
-    const lastLines = lines.filter(l => l.trim().length > 0).slice(-20).join('\n');
-    
+    const lastLines = lines
+      .filter((l) => l.trim().length > 0)
+      .slice(-20)
+      .join('\n');
+
     const escapedLogs = lastLines || 'Tidak ada log terbaru.';
-    return ctx.reply(`📝 *Daftar Logs Terakhir:*\n\`\`\`\n${escapedLogs}\n\`\`\``, { parse_mode: 'Markdown' });
+    return ctx.reply(`📝 *Daftar Logs Terakhir:*\n\`\`\`\n${escapedLogs}\n\`\`\``, {
+      parse_mode: 'Markdown',
+    });
   } catch (error) {
     return ctx.reply(`❌ Gagal membaca log: ${(error as Error).message}`);
   }
@@ -465,7 +480,7 @@ bot.action('home', async (ctx) => {
   const symbol = await getActiveSymbol(user.id);
   await ctx.editMessageText(
     `📌 Main Menu — Coin: ${symbol}\nPilih kategori:`,
-    buildMainMenuInline(symbol),
+    buildMainMenuInline(symbol)
   );
 });
 
@@ -486,7 +501,7 @@ bot.action(/^cat:(.+)$/, async (ctx) => {
   };
   await ctx.editMessageText(
     `${labels[category] || category} — Coin: ${symbol}\nPilih aksi:`,
-    buildCategoryMenuInline(symbol, category),
+    buildCategoryMenuInline(symbol, category)
   );
 });
 
@@ -505,7 +520,10 @@ bot.action(/^run:(.+)$/, async (ctx) => {
   const telegramId = ctx.from!.id;
   const symbol = await getActiveSymbol(user.id);
   const chatId = ctx.chat?.id;
-  if (!chatId) { await ctx.answerCbQuery(); return; }
+  if (!chatId) {
+    await ctx.answerCbQuery();
+    return;
+  }
   await ctx.answerCbQuery(`⏳ ${symbol}...`);
   stateManager.incrementCommandCount();
   try {
@@ -516,42 +534,79 @@ bot.action(/^run:(.+)$/, async (ctx) => {
 });
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-async function handleInlineRun(ctx: any, action: string, symbol: string, chatId: number, telegramId: number, dbUserId: number) {
+async function handleInlineRun(
+  ctx: any,
+  action: string,
+  symbol: string,
+  chatId: number,
+  telegramId: number,
+  dbUserId: number
+) {
   switch (action) {
     case 'signal': {
       const loading = await ctx.reply(`🔄 Generating signal for ${symbol}...`);
       const signal = await signalGenerator.generateSignal(symbol);
-      stateManager.addSignal({ symbol, action: signal.action, price: signal.price, confidence: signal.confidence, timestamp: new Date(), indicators: {} });
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      stateManager.addSignal({
+        symbol,
+        action: signal.action,
+        price: signal.price,
+        confidence: signal.confidence,
+        timestamp: new Date(),
+        indicators: {},
+      });
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
       await ctx.reply(signal.text);
       break;
     }
     case 'volume': {
       const loading = await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
       await ctx.reply(`📊 Volume Analysis — ${symbol}\n\n${analysis}`);
       break;
     }
     case 'sr': {
       const loading = await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
       const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
       await ctx.reply(`🎯 Support/Resistance — ${symbol}\n\n${analysis}`);
       break;
     }
     case 'openclaw': {
       const loading = await ctx.reply(`🦅 Running OpenClaw for ${symbol}...`);
       const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
-      if (candles.length < 100) { await ctx.reply('❌ Insufficient data'); break; }
+      if (candles.length < 100) {
+        await ctx.reply('❌ Insufficient data');
+        break;
+      }
       const ocCandles: OHLCVCandle[] = candles.map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
+        timestamp: c[0],
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[5]),
+        date: new Date(c[0]),
       }));
       const df: any = {
-        open: ocCandles.map(c => c.open), high: ocCandles.map(c => c.high),
-        low: ocCandles.map(c => c.low), close: ocCandles.map(c => c.close),
-        volume: ocCandles.map(c => c.volume), date: ocCandles.map(c => c.date),
+        open: ocCandles.map((c) => c.open),
+        high: ocCandles.map((c) => c.high),
+        low: ocCandles.map((c) => c.low),
+        close: ocCandles.map((c) => c.close),
+        volume: ocCandles.map((c) => c.volume),
+        date: ocCandles.map((c) => c.date),
       };
       const meta = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
       openClawStrategy.populateIndicators(df, meta);
@@ -567,10 +622,19 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const adx = getCol('adx', lastIdx, 20);
       const bbPct = getCol('bb_percentb', lastIdx, 0.5);
       const sig = eLong === 1 ? '🟢 LONG' : eShort === 1 ? '🔴 SHORT' : '⚪ NEUTRAL';
-      const tag = eLong === 1 ? eTag.replace('_long', '').toUpperCase() : eShort === 1 ? eTag.replace('_short', '').toUpperCase() : 'No signal';
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      const tag =
+        eLong === 1
+          ? eTag.replace('_long', '').toUpperCase()
+          : eShort === 1
+            ? eTag.replace('_short', '').toUpperCase()
+            : 'No signal';
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
       await ctx.reply(
-        `🦅 OPENCLAW — ${symbol}\n\n${sig} | ${tag}\n💰 $${df.close[lastIdx].toLocaleString()}\n\nRSI: ${rsi.toFixed(2)} | MACD: ${macdH > 0 ? '+' : ''}${macdH.toFixed(2)} | ADX: ${adx.toFixed(2)} | BB%B: ${bbPct.toFixed(2)}\n\n⚙️ OpenClawStrategy v${openClawStrategy.version}`,
+        `🦅 OPENCLAW — ${symbol}\n\n${sig} | ${tag}\n💰 $${df.close[lastIdx].toLocaleString()}\n\nRSI: ${rsi.toFixed(2)} | MACD: ${macdH > 0 ? '+' : ''}${macdH.toFixed(2)} | ADX: ${adx.toFixed(2)} | BB%B: ${bbPct.toFixed(2)}\n\n⚙️ OpenClawStrategy v${openClawStrategy.version}`
       );
       break;
     }
@@ -583,33 +647,70 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
           await mlModel.loadModel(mlModelPath);
           mlModelLoaded = true;
         } else {
-          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+          try {
+            await bot.telegram.deleteMessage(chatId, loading.message_id);
+          } catch (_) {
+            /* ignore */
+          }
           await ctx.reply('❌ ML model not found. Train first with /trainmodel');
           break;
         }
       }
       const mlCandles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
       if (mlCandles.length < 100) {
-        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-        await ctx.reply('❌ Insufficient data'); break;
+        try {
+          await bot.telegram.deleteMessage(chatId, loading.message_id);
+        } catch (_) {
+          /* ignore */
+        }
+        await ctx.reply('❌ Insufficient data');
+        break;
       }
       const mlOhlcv: OHLCVCandle[] = mlCandles.map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
+        timestamp: c[0],
+        open: parseFloat(c[1]),
+        high: parseFloat(c[2]),
+        low: parseFloat(c[3]),
+        close: parseFloat(c[4]),
+        volume: parseFloat(c[5]),
+        date: new Date(c[0]),
       }));
       const features = featureService.extractFeatures(mlOhlcv, symbol);
       if (features.length < 20) {
-        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-        await ctx.reply('❌ Insufficient features'); break;
+        try {
+          await bot.telegram.deleteMessage(chatId, loading.message_id);
+        } catch (_) {
+          /* ignore */
+        }
+        await ctx.reply('❌ Insufficient features');
+        break;
       }
       const prediction = await mlModel.predict(features);
       const currentPrice = mlOhlcv[mlOhlcv.length - 1].close;
       const direction = prediction.direction > 0 ? 'UP 📈' : 'DOWN 📉';
-      const mlEmoji = prediction.confidence > 0.4 ? (prediction.direction > 0 ? '🟢' : '🔴') : prediction.confidence > 0.2 ? '🟡' : '⚪';
-      const rec = prediction.confidence > 0.4 ? (prediction.direction > 0 ? 'BUY' : 'SELL') : prediction.confidence > 0.2 ? 'WATCH' : 'HOLD';
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      const mlEmoji =
+        prediction.confidence > 0.4
+          ? prediction.direction > 0
+            ? '🟢'
+            : '🔴'
+          : prediction.confidence > 0.2
+            ? '🟡'
+            : '⚪';
+      const rec =
+        prediction.confidence > 0.4
+          ? prediction.direction > 0
+            ? 'BUY'
+            : 'SELL'
+          : prediction.confidence > 0.2
+            ? 'WATCH'
+            : 'HOLD';
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
       await ctx.reply(
-        `🧠 ML PREDICT — ${symbol}\n\n${mlEmoji} ${rec} | ${direction}\nConfidence: ${(prediction.confidence * 100).toFixed(1)}%\nExpected: ${prediction.priceChange > 0 ? '+' : ''}${prediction.priceChange.toFixed(2)}%\nPrice: $${currentPrice.toLocaleString()}`,
+        `🧠 ML PREDICT — ${symbol}\n\n${mlEmoji} ${rec} | ${direction}\nConfidence: ${(prediction.confidence * 100).toFixed(1)}%\nExpected: ${prediction.priceChange > 0 ? '+' : ''}${prediction.priceChange.toFixed(2)}%\nPrice: $${currentPrice.toLocaleString()}`
       );
       break;
     }
@@ -617,25 +718,53 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const loading = await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
       const chartData = await dataManager.getRecentData(symbol, '1h', 100);
       if (!chartData || chartData.length === 0) {
-        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        try {
+          await bot.telegram.deleteMessage(chatId, loading.message_id);
+        } catch (_) {
+          /* ignore */
+        }
         await ctx.reply(`❌ No data for ${symbol}`);
         break;
       }
-      const mapped = chartData.map(d => ({ t: d.timestamp, o: d.open, h: d.high, l: d.low, c: d.close, v: d.volume }));
-      const chartResult = await imageChartService.generateCandlestickChart(symbol, '1h', mapped as any);
-      const patternInfo = chartResult.patterns.length > 0
-        ? `\nPatterns: ${chartResult.patterns.map((p: any) => p.name).join(', ')}`
-        : '';
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await bot.telegram.sendPhoto(chatId, { source: chartResult.buffer }, { caption: `📈 ${symbol} 1h Chart${patternInfo}` });
+      const mapped = chartData.map((d) => ({
+        t: d.timestamp,
+        o: d.open,
+        h: d.high,
+        l: d.low,
+        c: d.close,
+        v: d.volume,
+      }));
+      const chartResult = await imageChartService.generateCandlestickChart(
+        symbol,
+        '1h',
+        mapped as any
+      );
+      const patternInfo =
+        chartResult.patterns.length > 0
+          ? `\nPatterns: ${chartResult.patterns.map((p: any) => p.name).join(', ')}`
+          : '';
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
+      await bot.telegram.sendPhoto(
+        chatId,
+        { source: chartResult.buffer },
+        { caption: `📈 ${symbol} 1h Chart${patternInfo}` }
+      );
       break;
     }
     case 'analyze': {
       const loading = await ctx.reply(`🔄 Analyzing ${symbol}... (30-60s)`);
       const result = await comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
       await ctx.reply(
-        `📊 ANALYZE — ${symbol}\n\nPrice: $${result.currentPrice.toFixed(2)}\nTrend: ${result.technical.trend.toUpperCase()} (${(result.technical.strength * 100).toFixed(1)}%)\nRSI: ${result.technical.rsi.toFixed(1)} ${result.technical.rsi < 30 ? '🟢' : result.technical.rsi > 70 ? '🔴' : '🟡'}\nMACD: ${result.technical.macd.signal.toUpperCase()}\n\nSupport: $${result.technical.supportResistance.support.toFixed(2)}\nResistance: $${result.technical.supportResistance.resistance.toFixed(2)}\n\n⏰ 1H: ${result.timeframes['1h'].trend} | 4H: ${result.timeframes['4h'].trend} | 1D: ${result.timeframes['1d'].trend}`,
+        `📊 ANALYZE — ${symbol}\n\nPrice: $${result.currentPrice.toFixed(2)}\nTrend: ${result.technical.trend.toUpperCase()} (${(result.technical.strength * 100).toFixed(1)}%)\nRSI: ${result.technical.rsi.toFixed(1)} ${result.technical.rsi < 30 ? '🟢' : result.technical.rsi > 70 ? '🔴' : '🟡'}\nMACD: ${result.technical.macd.signal.toUpperCase()}\n\nSupport: $${result.technical.supportResistance.support.toFixed(2)}\nResistance: $${result.technical.supportResistance.resistance.toFixed(2)}\n\n⏰ 1H: ${result.timeframes['1h'].trend} | 4H: ${result.timeframes['4h'].trend} | 1D: ${result.timeframes['1d'].trend}`
       );
       break;
     }
@@ -643,35 +772,69 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const loading = await ctx.reply(`🔄 Full analysis for ${symbol}...`);
       const [techRes, newsRes] = await Promise.allSettled([
         comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
-        newsAnalyzer.analyzeComprehensiveNews(symbol).then(r => r.aiAnalysis ?? null),
+        newsAnalyzer.analyzeComprehensiveNews(symbol).then((r) => r.aiAnalysis ?? null),
       ]);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (techRes.status === 'rejected') { await ctx.reply(`❌ Analysis failed`); break; }
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
+      if (techRes.status === 'rejected') {
+        await ctx.reply(`❌ Analysis failed`);
+        break;
+      }
       const t = techRes.value;
       const n = newsRes.status === 'fulfilled' ? newsRes.value : null;
       const newsLine = n
         ? `\n📰 News: ${n.overallSentiment} | ${n.marketMovement.direction} (${n.marketMovement.confidence.toFixed(1)}%)`
         : '\n📰 News: N/A';
       await ctx.reply(
-        `🌐 FULL ANALYSIS — ${symbol}\n\nPrice: $${t.currentPrice.toFixed(2)}\nTrend: ${t.technical.trend.toUpperCase()} (${(t.technical.strength * 100).toFixed(1)}%)\nRSI: ${t.technical.rsi.toFixed(1)} | MACD: ${t.technical.macd.signal.toUpperCase()}\n\n1H: ${t.timeframes['1h'].signal} | 4H: ${t.timeframes['4h'].signal} | 1D: ${t.timeframes['1d'].signal}${newsLine}\n\nAction: ${t.recommendation.action.toUpperCase()} | Conf: ${t.recommendation.confidence.toFixed(1)}%`,
+        `🌐 FULL ANALYSIS — ${symbol}\n\nPrice: $${t.currentPrice.toFixed(2)}\nTrend: ${t.technical.trend.toUpperCase()} (${(t.technical.strength * 100).toFixed(1)}%)\nRSI: ${t.technical.rsi.toFixed(1)} | MACD: ${t.technical.macd.signal.toUpperCase()}\n\n1H: ${t.timeframes['1h'].signal} | 4H: ${t.timeframes['4h'].signal} | 1D: ${t.timeframes['1d'].signal}${newsLine}\n\nAction: ${t.recommendation.action.toUpperCase()} | Conf: ${t.recommendation.confidence.toFixed(1)}%`
       );
       break;
     }
     case 'pnews': {
-      if (!chutesService.isConfigured()) { await ctx.reply('❌ Chutes AI not configured. Add CHUTES_API_KEY to .env'); break; }
+      if (!chutesService.isConfigured()) {
+        await ctx.reply('❌ Chutes AI not configured. Add CHUTES_API_KEY to .env');
+        break;
+      }
       const loading = await ctx.reply(`🔄 AI news analysis for ${symbol}... (2-3 min)`);
       (async () => {
         try {
           const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
           const articles = result.traditionalNews.articles;
           const ai = result.aiAnalysis;
-          if (!ai) { await ctx.reply('❌ AI analysis not available (check CHUTES_API_KEY)'); return; }
-          const sent = ai.overallSentiment === 'BULLISH' ? '🟢 BULLISH' : ai.overallSentiment === 'BEARISH' ? '🔴 BEARISH' : '🟡 NEUTRAL';
-          const dir = ai.marketMovement.direction === 'UP' ? '📈' : ai.marketMovement.direction === 'DOWN' ? '📉' : '➡️';
-          const headlines = articles.slice(0, 3).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 70)}...`).join('\n');
-          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-          await ctx.reply(`🤖 AI NEWS — ${symbol}\n\n${sent}\n${dir} ${ai.marketMovement.direction} | Conf: ${ai.marketMovement.confidence.toFixed(1)}%\nRange: ${ai.marketMovement.expectedRange.low.toFixed(1)}% ~ ${ai.marketMovement.expectedRange.high.toFixed(1)}%\n\n24H: ${ai.impactPrediction.shortTerm}\n\nTop News:\n${headlines}`);
-        } catch (e: any) { await ctx.reply(`❌ News error: ${e.message}`); }
+          if (!ai) {
+            await ctx.reply('❌ AI analysis not available (check CHUTES_API_KEY)');
+            return;
+          }
+          const sent =
+            ai.overallSentiment === 'BULLISH'
+              ? '🟢 BULLISH'
+              : ai.overallSentiment === 'BEARISH'
+                ? '🔴 BEARISH'
+                : '🟡 NEUTRAL';
+          const dir =
+            ai.marketMovement.direction === 'UP'
+              ? '📈'
+              : ai.marketMovement.direction === 'DOWN'
+                ? '📉'
+                : '➡️';
+          const headlines = articles
+            .slice(0, 3)
+            .map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 70)}...`)
+            .join('\n');
+          try {
+            await bot.telegram.deleteMessage(chatId, loading.message_id);
+          } catch (_) {
+            /* ignore */
+          }
+          await ctx.reply(
+            `🤖 AI NEWS — ${symbol}\n\n${sent}\n${dir} ${ai.marketMovement.direction} | Conf: ${ai.marketMovement.confidence.toFixed(1)}%\nRange: ${ai.marketMovement.expectedRange.low.toFixed(1)}% ~ ${ai.marketMovement.expectedRange.high.toFixed(1)}%\n\n24H: ${ai.impactPrediction.shortTerm}\n\nTop News:\n${headlines}`
+          );
+        } catch (e: any) {
+          await ctx.reply(`❌ News error: ${e.message}`);
+        }
       })();
       break;
     }
@@ -679,62 +842,121 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const loading = await ctx.reply(`🔄 Quick impact for ${symbol}...`);
       const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
       const ai = result.aiAnalysis;
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (!ai) { await ctx.reply(`⚡ IMPACT — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\nConf: ${result.combinedSentiment.confidence.toFixed(1)}%`); break; }
-      const sent = ai.overallSentiment === 'BULLISH' ? '🟢' : ai.overallSentiment === 'BEARISH' ? '🔴' : '🟡';
-      await ctx.reply(`⚡ IMPACT — ${symbol}\n\n${sent} ${ai.overallSentiment}\n24H: ${ai.impactPrediction.shortTerm}\nExpected: ${ai.marketMovement.direction} ${ai.marketMovement.expectedRange.low.toFixed(1)}~${ai.marketMovement.expectedRange.high.toFixed(1)}%\nConf: ${ai.marketMovement.confidence.toFixed(1)}%`);
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
+      if (!ai) {
+        await ctx.reply(
+          `⚡ IMPACT — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\nConf: ${result.combinedSentiment.confidence.toFixed(1)}%`
+        );
+        break;
+      }
+      const sent =
+        ai.overallSentiment === 'BULLISH' ? '🟢' : ai.overallSentiment === 'BEARISH' ? '🔴' : '🟡';
+      await ctx.reply(
+        `⚡ IMPACT — ${symbol}\n\n${sent} ${ai.overallSentiment}\n24H: ${ai.impactPrediction.shortTerm}\nExpected: ${ai.marketMovement.direction} ${ai.marketMovement.expectedRange.low.toFixed(1)}~${ai.marketMovement.expectedRange.high.toFixed(1)}%\nConf: ${ai.marketMovement.confidence.toFixed(1)}%`
+      );
       break;
     }
     case 'news': {
       const loading = await ctx.reply(`🔄 Basic news for ${symbol}...`);
       const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
       const articles = result.traditionalNews.articles;
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (articles.length === 0) { await ctx.reply(`❌ No news found for ${symbol}`); break; }
-      const headlines = articles.slice(0, 5).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 80)}...`).join('\n');
-      await ctx.reply(`📰 NEWS — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\n\n${headlines}`);
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
+      if (articles.length === 0) {
+        await ctx.reply(`❌ No news found for ${symbol}`);
+        break;
+      }
+      const headlines = articles
+        .slice(0, 5)
+        .map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 80)}...`)
+        .join('\n');
+      await ctx.reply(
+        `📰 NEWS — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\n\n${headlines}`
+      );
       break;
     }
     case 'papertrade': {
       const ptSession = getUserSession(telegramId);
-      if (ptSession.paperTrading?.isActive()) { await ctx.reply('📈 Paper trading already active.\nUse /stoptrading to stop.'); break; }
-      const ptConfig: PaperTradingConfig = { initialBalance: 1000, maxOpenTrades: 3, feeOpen: 0.001, feeClose: 0.001, stakeCurrency: 'USDT', updateInterval: 5000 };
+      if (ptSession.paperTrading?.isActive()) {
+        await ctx.reply('📈 Paper trading already active.\nUse /stoptrading to stop.');
+        break;
+      }
+      const ptConfig: PaperTradingConfig = {
+        initialBalance: 1000,
+        maxOpenTrades: 3,
+        feeOpen: 0.001,
+        feeClose: 0.001,
+        stakeCurrency: 'USDT',
+        updateInterval: 5000,
+      };
       const paperEngine = new PaperTradingEngine(strategy, ptConfig, String(dbUserId));
       ptSession.paperTrading = paperEngine;
       await paperEngine.start(symbol, '5m', 500);
-      await ctx.reply(`✅ Paper trading started — ${symbol}\n💰 Balance: $1000 | Strategy: ${strategy.name}\n\nUse 💼 Portfolio to monitor.`);
+      await ctx.reply(
+        `✅ Paper trading started — ${symbol}\n💰 Balance: $1000 | Strategy: ${strategy.name}\n\nUse 💼 Portfolio to monitor.`
+      );
       break;
     }
     case 'stoptrading': {
       const ptSession = getUserSession(telegramId);
-      if (!ptSession.paperTrading?.isActive()) { await ctx.reply('❌ No active paper trading session.'); break; }
+      if (!ptSession.paperTrading?.isActive()) {
+        await ctx.reply('❌ No active paper trading session.');
+        break;
+      }
       ptSession.paperTrading.stop();
       const r = ptSession.paperTrading.getCurrentResult();
-      await ctx.reply(`⏹ Paper trading stopped.\n\n💰 Final: $${r.balance.toFixed(2)}\nP&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win: ${r.winRate.toFixed(1)}%`);
+      await ctx.reply(
+        `⏹ Paper trading stopped.\n\n💰 Final: $${r.balance.toFixed(2)}\nP&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win: ${r.winRate.toFixed(1)}%`
+      );
       break;
     }
     case 'portfolio': {
       const ptSession = getUserSession(telegramId);
-      if (!ptSession.paperTrading) { await ctx.reply('❌ No paper trading session. Use ▶️ Start Paper to begin.'); break; }
+      if (!ptSession.paperTrading) {
+        await ctx.reply('❌ No paper trading session. Use ▶️ Start Paper to begin.');
+        break;
+      }
       const r = ptSession.paperTrading.getCurrentResult();
-      const posLines = r.positions.length > 0
-        ? r.positions.map((p: any) => `${p.side.toUpperCase()} ${p.pair}: $${(p.unrealizedPnl || 0).toFixed(2)}`).join('\n')
-        : 'No open positions';
-      await ctx.reply(`💼 Portfolio\n\nBalance: $${r.balance.toFixed(2)}\nP&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win: ${r.winRate.toFixed(1)}%\n\nPositions:\n${posLines}`);
+      const posLines =
+        r.positions.length > 0
+          ? r.positions
+              .map(
+                (p: any) =>
+                  `${p.side.toUpperCase()} ${p.pair}: $${(p.unrealizedPnl || 0).toFixed(2)}`
+              )
+              .join('\n')
+          : 'No open positions';
+      await ctx.reply(
+        `💼 Portfolio\n\nBalance: $${r.balance.toFixed(2)}\nP&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nTrades: ${r.totalTrades} | Win: ${r.winRate.toFixed(1)}%\n\nPositions:\n${posLines}`
+      );
       break;
     }
     case 'performance': {
       const ptSession = getUserSession(telegramId);
-      if (!ptSession.paperTrading) { await ctx.reply('❌ No paper trading session.'); break; }
+      if (!ptSession.paperTrading) {
+        await ctx.reply('❌ No paper trading session.');
+        break;
+      }
       const r = ptSession.paperTrading.getCurrentResult();
       const slippageCost = r.totalSlippageCost || 0;
       const spreadCost = r.totalSpreadCost || 0;
       const noFrictionProfit = r.profitWithoutSlippage || r.totalProfit;
-      await ctx.reply(`📈 Performance\n\nBalance: $${r.balance.toFixed(2)}\nTotal P&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nNo-Friction P&L: $${noFrictionProfit.toFixed(2)}\nSlippage Cost: $${slippageCost.toFixed(2)}\nSpread Cost: $${spreadCost.toFixed(2)}\nTrades: ${r.totalTrades} | Win Rate: ${r.winRate.toFixed(1)}%\nSharpe: ${r.sharpeRatio.toFixed(3)} | Max DD: $${r.maxDrawdown.toFixed(2)}`);
+      await ctx.reply(
+        `📈 Performance\n\nBalance: $${r.balance.toFixed(2)}\nTotal P&L: $${r.totalProfit.toFixed(2)} (${r.totalProfitPct.toFixed(2)}%)\nNo-Friction P&L: $${noFrictionProfit.toFixed(2)}\nSlippage Cost: $${slippageCost.toFixed(2)}\nSpread Cost: $${spreadCost.toFixed(2)}\nTrades: ${r.totalTrades} | Win Rate: ${r.winRate.toFixed(1)}%\nSharpe: ${r.sharpeRatio.toFixed(3)} | Max DD: $${r.maxDrawdown.toFixed(2)}`
+      );
       break;
     }
     case 'strategies': {
-      await ctx.reply(`🗂 Available Strategies\n\n🦅 OpenClawStrategy v${openClawStrategy.version} (active)\n- Timeframe: 1h | Long/Short\n- Indicators: RSI, MACD, EMA, ADX, BB, ATR\n\n🎯 SampleStrategy v1.0.0\n- Timeframe: 5m\n- Indicators: RSI, MACD, BB, EMA\n\n💡 Use /optimize SYMBOL 60 to find best params!`);
+      await ctx.reply(
+        `🗂 Available Strategies\n\n🦅 OpenClawStrategy v${openClawStrategy.version} (active)\n- Timeframe: 1h | Long/Short\n- Indicators: RSI, MACD, EMA, ADX, BB, ATR\n\n🎯 SampleStrategy v1.0.0\n- Timeframe: 5m\n- Indicators: RSI, MACD, BB, EMA\n\n💡 Use /optimize SYMBOL 60 to find best params!`
+      );
       break;
     }
     case 'apistatus': {
@@ -743,11 +965,21 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const report = binanceService.formatHealthReport(status);
       // F3-18: tambah info WebSocket streams
       const wsStatus = connectionManager.getStatus();
-      const streamLines = wsStatus.streams.length > 0
-        ? wsStatus.streams.map(s => `• ${s.type} [${s.symbol}${s.interval ? '/' + s.interval : ''}] — ${s.subscribers} subs`).join('\n')
-        : '• No active streams';
+      const streamLines =
+        wsStatus.streams.length > 0
+          ? wsStatus.streams
+              .map(
+                (s) =>
+                  `• ${s.type} [${s.symbol}${s.interval ? '/' + s.interval : ''}] — ${s.subscribers} subs`
+              )
+              .join('\n')
+          : '• No active streams';
       const wsReport = `\n\n📡 WebSocket Streams (${wsStatus.activeStreamCount}/${wsStatus.maxStreams}):\n${streamLines}`;
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
       await ctx.reply(report + wsReport);
       break;
     }
@@ -757,7 +989,9 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
     }
     case 'pstatus': {
       const configured = chutesService.isConfigured();
-      await ctx.reply(`🤖 Chutes AI: ${configured ? '✅ Configured & Ready\n/pnews SYMBOL — Full AI news\n/impact SYMBOL — Quick impact' : '❌ Not configured\nAdd CHUTES_API_KEY to .env'}`);
+      await ctx.reply(
+        `🤖 Chutes AI: ${configured ? '✅ Configured & Ready\n/pnews SYMBOL — Full AI news\n/impact SYMBOL — Quick impact' : '❌ Not configured\nAdd CHUTES_API_KEY to .env'}`
+      );
       break;
     }
     case 'mlstatus':
@@ -768,44 +1002,98 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       // eslint-disable-next-line @typescript-eslint/no-var-requires
       const pathM = require('path');
       const hyperPath = pathM.join(process.cwd(), 'models', 'training_hyperparams.json');
-      const statusLine = mlModelLoaded ? '\u2705 Model dimuat (Fase 4)' : '\u26a0\ufe0f Belum dimuat';
+      const statusLine = mlModelLoaded
+        ? '\u2705 Model dimuat (Fase 4)'
+        : '\u26a0\ufe0f Belum dimuat';
       let hyperMsg = '';
       if (fsM.existsSync(hyperPath)) {
         try {
           const hp = JSON.parse(fsM.readFileSync(hyperPath, 'utf-8'));
           const wfvLine = hp.wfv
-            ? '\n\n\ud83d\udcc8 WFV: ' + hp.wfv.windowCount + ' windows | Mean: ' + (hp.wfv.meanAccuracy * 100).toFixed(1) + '%'
+            ? '\n\n\ud83d\udcc8 WFV: ' +
+              hp.wfv.windowCount +
+              ' windows | Mean: ' +
+              (hp.wfv.meanAccuracy * 100).toFixed(1) +
+              '%'
             : '';
-          hyperMsg = '\n\ud83d\udcca Training: ' + new Date(hp.trainedAt).toLocaleString() +
+          hyperMsg =
+            '\n\ud83d\udcca Training: ' +
+            new Date(hp.trainedAt).toLocaleString() +
             '\nArsitektur: GRU(64)\u2192GRU(32)\u2192Dense(3,softmax)' +
-            '\nTest Acc: ' + (hp.testAccuracy * 100).toFixed(1) + '% | Epoch: ' + hp.actualEpochs + wfvLine;
-        } catch { hyperMsg = '\n(Error membaca training record)'; }
+            '\nTest Acc: ' +
+            (hp.testAccuracy * 100).toFixed(1) +
+            '% | Epoch: ' +
+            hp.actualEpochs +
+            wfvLine;
+        } catch {
+          hyperMsg = '\n(Error membaca training record)';
+        }
       } else {
         hyperMsg = '\n\ud83d\udca1 Belum ada training record. Jalankan /trainmodel';
       }
       await ctx.reply(
-        '\ud83e\udde0 ML STATUS\n\n' + statusLine + hyperMsg +
-        '\n\nCommands:\n\u2022 /mlpredict ' + symbol + ' \u2014 Prediksi AI\n\u2022 /trainmodel ' + symbol + ' 1h \u2014 Latih ulang',
+        '\ud83e\udde0 ML STATUS\n\n' +
+          statusLine +
+          hyperMsg +
+          '\n\nCommands:\n\u2022 /mlpredict ' +
+          symbol +
+          ' \u2014 Prediksi AI\n\u2022 /trainmodel ' +
+          symbol +
+          ' 1h \u2014 Latih ulang'
       );
       break;
     }
     case 'liveportfolio': {
-      if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
+      if (!binanceOrderService.isConfigured()) {
+        await ctx.reply('❌ Binance API keys not configured.');
+        break;
+      }
       const loading = await ctx.reply('🔄 Fetching live portfolio...');
-      const [balances, openOrders] = await Promise.all([binanceOrderService.getAccountBalance(), binanceOrderService.getOpenOrders()]);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (balances.length === 0) { await ctx.reply('📭 No non-zero balances.'); break; }
-      const balLines = balances.slice(0, 15).map((b: any) => `• ${b.asset}: ${b.free} (locked: ${b.locked})`).join('\n');
-      await ctx.reply(`💼 Live Portfolio\nOpen Orders: ${openOrders.length}\n\nBalances:\n${balLines}`);
+      const [balances, openOrders] = await Promise.all([
+        binanceOrderService.getAccountBalance(),
+        binanceOrderService.getOpenOrders(),
+      ]);
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
+      if (balances.length === 0) {
+        await ctx.reply('📭 No non-zero balances.');
+        break;
+      }
+      const balLines = balances
+        .slice(0, 15)
+        .map((b: any) => `• ${b.asset}: ${b.free} (locked: ${b.locked})`)
+        .join('\n');
+      await ctx.reply(
+        `💼 Live Portfolio\nOpen Orders: ${openOrders.length}\n\nBalances:\n${balLines}`
+      );
       break;
     }
     case 'orders': {
-      if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
+      if (!binanceOrderService.isConfigured()) {
+        await ctx.reply('❌ Binance API keys not configured.');
+        break;
+      }
       const loading = await ctx.reply('🔄 Fetching open orders...');
       const orders = await binanceOrderService.getOpenOrders(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (orders.length === 0) { await ctx.reply(`✅ No open orders for ${symbol}.`); break; }
-      const lines = orders.slice(0, 15).map((o: any) => `#${o.orderId} ${o.side} ${o.type}: ${o.executedQty}/${o.origQty} @ ${o.price}`).join('\n');
+      try {
+        await bot.telegram.deleteMessage(chatId, loading.message_id);
+      } catch (_) {
+        /* ignore */
+      }
+      if (orders.length === 0) {
+        await ctx.reply(`✅ No open orders for ${symbol}.`);
+        break;
+      }
+      const lines = orders
+        .slice(0, 15)
+        .map(
+          (o: any) =>
+            `#${o.orderId} ${o.side} ${o.type}: ${o.executedQty}/${o.origQty} @ ${o.price}`
+        )
+        .join('\n');
       await ctx.reply(`📋 Open Orders — ${symbol}\n\n${lines}`);
       break;
     }
@@ -827,53 +1115,83 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const summary = dataManager.getDataSummary(recentData);
       const quality = dataManager.validateDataQuality(recentData);
       const lastClose = recentData[recentData.length - 1]?.close ?? 0;
-      await ctx.reply(`📊 Data Info — ${symbol}\n\nLatest: $${lastClose.toFixed(2)}\nRange: $${summary.priceRange.min.toFixed(2)} - $${summary.priceRange.max.toFixed(2)}\nQuality: ${quality.isValid ? '✅ Valid' : '❌ Issues'} | Gaps: ${quality.gaps.length}`);
+      await ctx.reply(
+        `📊 Data Info — ${symbol}\n\nLatest: $${lastClose.toFixed(2)}\nRange: $${summary.priceRange.min.toFixed(2)} - $${summary.priceRange.max.toFixed(2)}\nQuality: ${quality.isValid ? '✅ Valid' : '❌ Issues'} | Gaps: ${quality.gaps.length}`
+      );
       break;
     }
     case 'livestart': {
       await ctx.reply(
         `🚀 Live Trading — ${symbol}\n\n⚠️ This uses REAL funds!\n\nConfirm:`,
         Markup.inlineKeyboard([
-          [Markup.button.callback(`🔴 Confirm Start (${symbol}) (Real $)`, 'run:livestart_confirm')],
+          [
+            Markup.button.callback(
+              `🔴 Confirm Start (${symbol}) (Real $)`,
+              'run:livestart_confirm'
+            ),
+          ],
           [Markup.button.callback('❌ Cancel', 'home')],
-        ]),
+        ])
       );
       break;
     }
     case 'livestart_confirm': {
       const liveSession = getUserSession(telegramId);
-      if (liveSession.liveTrading?.active) { await ctx.reply(`❌ Live trading already active for ${liveSession.liveTrading.symbol}.`); break; }
-      if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
+      if (liveSession.liveTrading?.active) {
+        await ctx.reply(`❌ Live trading already active for ${liveSession.liveTrading.symbol}.`);
+        break;
+      }
+      if (!binanceOrderService.isConfigured()) {
+        await ctx.reply('❌ Binance API keys not configured.');
+        break;
+      }
       const strategyToUse = openClawStrategy;
       const intervalMs = parseInt(process.env.LIVE_SIGNAL_INTERVAL_MS || '300000', 10);
-      liveSession.liveTrading = { active: true, symbol, strategy: strategyToUse, userDbId: dbUserId, startedAt: new Date() };
+      liveSession.liveTrading = {
+        active: true,
+        symbol,
+        strategy: strategyToUse,
+        userDbId: dbUserId,
+        startedAt: new Date(),
+      };
       await riskMonitorLoop.start();
       const runSig = async () => {
         if (!liveSession.liveTrading?.active) return;
-        try { await executeLiveSignal(dbUserId, symbol, strategyToUse); } catch (_) { /* logged by callee */ }
+        try {
+          await executeLiveSignal(dbUserId, symbol, strategyToUse);
+        } catch (_) {
+          /* logged by callee */
+        }
       };
       await runSig();
       liveSession.liveTrading.timer = setInterval(() => {
         runSig().catch((error) => {
           withLogContext({ service: 'enhancedBot', userId: telegramId, symbol }).error(
             { err: error },
-            'livetrade interval execution error',
+            'livetrade interval execution error'
           );
         });
       }, intervalMs);
-      await ctx.reply(`✅ Live trading started — ${symbol}\nStrategy: ${strategyToUse.name}\nInterval: ${(intervalMs / 1000).toFixed(0)}s\n\nUse ⛔ Stop Live to stop.`);
+      await ctx.reply(
+        `✅ Live trading started — ${symbol}\nStrategy: ${strategyToUse.name}\nInterval: ${(intervalMs / 1000).toFixed(0)}s\n\nUse ⛔ Stop Live to stop.`
+      );
       break;
     }
     case 'livestop': {
       const liveSession = getUserSession(telegramId);
-      if (!liveSession.liveTrading?.active) { await ctx.reply('❌ No active live trading session.'); break; }
+      if (!liveSession.liveTrading?.active) {
+        await ctx.reply('❌ No active live trading session.');
+        break;
+      }
       stopLiveTradingSession(liveSession.liveTrading);
       liveSession.liveTrading = undefined;
       await ctx.reply('✅ Live trading stopped.');
       break;
     }
     case 'help': {
-      await ctx.reply(`❓ Quick Help\n\n/coin BTC — Set active coin\n/menu — Open menu\n/signal BTCUSDT — Trading signal\n/analyze BTCUSDT — Full analysis\n/papertrade BTCUSDT — Paper trading\n/backtest BTCUSDT 30 — Backtest\n/help — Full command list`);
+      await ctx.reply(
+        `❓ Quick Help\n\n/coin BTC — Set active coin\n/menu — Open menu\n/signal BTCUSDT — Trading signal\n/analyze BTCUSDT — Full analysis\n/papertrade BTCUSDT — Paper trading\n/backtest BTCUSDT 30 — Backtest\n/help — Full command list`
+      );
       const activeSymbol = await getActiveSymbol(dbUserId);
       await ctx.reply(`📌 Menu — Coin: ${activeSymbol}`, buildMainMenuInline(activeSymbol));
       break;
@@ -902,7 +1220,7 @@ bot.hears(/^[A-Za-z]{2,5}(USDT|USDC|BUSD|FDUSD|BTC|ETH)?$/i, async (ctx) => {
     await setActiveSymbol(user.id, symbol);
     await ctx.reply(
       `✅ Coin aktif: ${symbol}\nTap kategori untuk aksi:`,
-      buildMainMenuInline(symbol),
+      buildMainMenuInline(symbol)
     );
   } catch {
     // Ignore non-symbol casual messages
@@ -1103,7 +1421,11 @@ bot.command('signal', async (ctx) => {
     ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);
   } finally {
     if (loadingMsg) {
-      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
     }
   }
 
@@ -1280,7 +1602,11 @@ ${backtestSection}`);
       await ctx.reply('⚠️ Could not generate chart images, but analysis continues...');
     } finally {
       if (loadingChartsMsg) {
-        try { await ctx.deleteMessage(loadingChartsMsg.message_id); } catch (e) { /* ignore */ }
+        try {
+          await ctx.deleteMessage(loadingChartsMsg.message_id);
+        } catch (e) {
+          /* ignore */
+        }
       }
     }
 
@@ -1295,7 +1621,10 @@ ${backtestSection}`);
     try {
       logger.info(`[SCRAPE] [/analyze] news-enrichment start symbol=${symbol}`);
       await ctx.reply(`🔄 Adding scraped news sentiment analysis...`);
-      const newsResult = await newsAnalyzer.analyzeComprehensiveNews(symbol, analysisResult.currentPrice);
+      const newsResult = await newsAnalyzer.analyzeComprehensiveNews(
+        symbol,
+        analysisResult.currentPrice
+      );
       logger.info(
         `[SCRAPE] [/analyze] news-enrichment result symbol=${symbol} articles=${newsResult.traditionalNews.articles.length} reddit=${newsResult.redditSentiment.posts.length} ai=${newsResult.aiAnalysis ? 'yes' : 'no'}`
       );
@@ -1358,7 +1687,6 @@ Confidence: ${newsResult.combinedSentiment.confidence.toFixed(1)}%
       logger.error({ err: newsError }, 'News analysis error in /analyze:');
       await ctx.reply(`💡 For news analysis, try: /pnews ${symbol}`);
     }
-
   } catch (error) {
     logger.error({ err: error }, `Comprehensive analysis error for ${symbol}:`);
     ctx.reply(`❌ Error performing comprehensive analysis for ${symbol}.
@@ -1821,10 +2149,13 @@ ${result.recentTrades
   try {
     const equityData = result.performance.map((metric) => ({
       timestamp: metric.timestamp,
-      balance: metric.balance
+      balance: metric.balance,
     }));
 
-    const equityChart = await imageChartService.generateEquityCurveChart('Paper Trading', equityData);
+    const equityChart = await imageChartService.generateEquityCurveChart(
+      'Paper Trading',
+      equityData
+    );
     await ctx.replyWithPhoto(
       { source: equityChart.buffer },
       { caption: '📉 Equity Curve (Paper Trading)' }
@@ -2537,7 +2868,9 @@ bot.command('news', async (ctx) => {
 
   try {
     logger.info(`[SCRAPE] [/news] request symbol=${symbol} user=${ctx.message.from.id}`);
-    const loadingMsg = await ctx.reply(`🔄 Scraping latest news + community posts for ${symbol}...`);
+    const loadingMsg = await ctx.reply(
+      `🔄 Scraping latest news + community posts for ${symbol}...`
+    );
 
     // Always use real scraped pipeline
     const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
@@ -2571,10 +2904,12 @@ ${idx + 1}. ${item.title}
   .join('\n')}
 
 👥 REDDIT SIGNAL (${redditPosts.length} posts):
-${redditPosts
-  .slice(0, 3)
-  .map((p, idx) => `${idx + 1}. [r/${p.subreddit}] ${p.title.substring(0, 80)}... (↑${p.score})`)
-  .join('\n') || 'No relevant Reddit posts found.'}`;
+${
+  redditPosts
+    .slice(0, 3)
+    .map((p, idx) => `${idx + 1}. [r/${p.subreddit}] ${p.title.substring(0, 80)}... (↑${p.score})`)
+    .join('\n') || 'No relevant Reddit posts found.'
+}`;
 
     const analysisSection = ai
       ? `
@@ -2582,21 +2917,21 @@ ${redditPosts
 🤖 AI ANALYSIS (from REAL scraped data)
 
 📊 Overall Sentiment: ${ai.overallSentiment} ${
-      ai.overallSentiment === 'BULLISH'
-        ? '🟢📈'
-        : ai.overallSentiment === 'BEARISH'
-          ? '🔴📉'
-          : '🟡➡️'
-    }
+          ai.overallSentiment === 'BULLISH'
+            ? '🟢📈'
+            : ai.overallSentiment === 'BEARISH'
+              ? '🔴📉'
+              : '🟡➡️'
+        }
 
 🎯 Price Impact Prediction:
 Direction: ${ai.marketMovement.direction} ${
-      ai.marketMovement.direction === 'UP'
-        ? '📈'
-        : ai.marketMovement.direction === 'DOWN'
-          ? '📉'
-          : '➡️'
-    }
+          ai.marketMovement.direction === 'UP'
+            ? '📈'
+            : ai.marketMovement.direction === 'DOWN'
+              ? '📉'
+              : '➡️'
+        }
 Confidence: ${ai.marketMovement.confidence.toFixed(1)}%
 Expected Range: ${ai.marketMovement.expectedRange.low.toFixed(1)} to ${ai.marketMovement.expectedRange.high.toFixed(1)}
 
@@ -2866,10 +3201,7 @@ Confidence: ${analysis.marketMovement.confidence.toFixed(1)}%
 🔥 Top News Impact:
 ${newsItems
   .slice(0, 3)
-  .map(
-    (item, index) =>
-      `${index + 1}. 📰 ${item.title.substring(0, 60)}...`
-  )
+  .map((item, index) => `${index + 1}. 📰 ${item.title.substring(0, 60)}...`)
   .join('\n')}
 
 💡 Use /pnews ${symbol} for detailed analysis`;
@@ -3114,12 +3446,17 @@ bot.command('healthcheck', async (ctx) => {
       await getPrisma().$queryRawUnsafe('SELECT 1');
       healthMonitor.setExternalComponentStatus('database', 'ok', 'Database reachable');
     } catch (error) {
-      healthMonitor.setExternalComponentStatus('database', 'down', `Database unreachable: ${(error as Error).message}`);
+      healthMonitor.setExternalComponentStatus(
+        'database',
+        'down',
+        `Database unreachable: ${(error as Error).message}`
+      );
     }
 
     const snapshot = await healthMonitor.runFullHealthCheck();
 
-    const statusIcon = snapshot.overallStatus === 'ok' ? '✅' : snapshot.overallStatus === 'degraded' ? '⚠️' : '🚨';
+    const statusIcon =
+      snapshot.overallStatus === 'ok' ? '✅' : snapshot.overallStatus === 'degraded' ? '⚠️' : '🚨';
     const comp = snapshot.components;
 
     const fmt = (name: string, c: { status: string; message: string }) => {
@@ -3153,7 +3490,10 @@ bot.command('healthcheck', async (ctx) => {
 
     await ctx.reply(message);
   } catch (error) {
-    withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error({ err: error }, 'healthcheck command error');
+    withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error(
+      { err: error },
+      'healthcheck command error'
+    );
     await ctx.reply(`❌ Error running health check: ${(error as Error).message}`);
   }
 });
@@ -3197,7 +3537,10 @@ bot.command('logs', async (ctx) => {
       await ctx.reply(chunk);
     }
   } catch (error) {
-    withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error({ err: error }, 'logs command error');
+    withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error(
+      { err: error },
+      'logs command error'
+    );
     return ctx.reply(`❌ Error loading logs: ${(error as Error).message}`);
   }
 
@@ -3211,7 +3554,9 @@ bot.command('logs', async (ctx) => {
 bot.command('orders', async (ctx) => {
   try {
     if (!binanceOrderService.isConfigured()) {
-      return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
+      return ctx.reply(
+        '❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.'
+      );
     }
 
     const symbolArg = ctx.message.text.split(' ')[1]?.toUpperCase();
@@ -3252,12 +3597,16 @@ bot.command('orders', async (ctx) => {
 bot.command('cancelorder', async (ctx) => {
   try {
     if (!binanceOrderService.isConfigured()) {
-      return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
+      return ctx.reply(
+        '❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.'
+      );
     }
 
     const args = ctx.message.text.split(' ').slice(1);
     if (args.length === 0) {
-      return ctx.reply('Usage:\n/cancelorder <orderId> [symbol]\nContoh: /cancelorder 123456 BTCUSDT');
+      return ctx.reply(
+        'Usage:\n/cancelorder <orderId> [symbol]\nContoh: /cancelorder 123456 BTCUSDT'
+      );
     }
 
     const orderId = Number(args[0]);
@@ -3270,7 +3619,9 @@ bot.command('cancelorder', async (ctx) => {
       const allOpen = await binanceOrderService.getOpenOrders();
       const targetOrder = allOpen.find((o) => o.orderId === orderId);
       if (!targetOrder) {
-        return ctx.reply('❌ Order tidak ditemukan di open orders. Tambahkan symbol jika order baru saja berubah status.');
+        return ctx.reply(
+          '❌ Order tidak ditemukan di open orders. Tambahkan symbol jika order baru saja berubah status.'
+        );
       }
       symbol = targetOrder.symbol;
     }
@@ -3284,7 +3635,9 @@ bot.command('cancelorder', async (ctx) => {
       /* ignore */
     }
 
-    return ctx.reply(`✅ Order berhasil dibatalkan.\nSymbol: ${symbol}\nOrder ID: ${orderId}\nStatus: ${(result.status as string) || 'CANCELED'}`);
+    return ctx.reply(
+      `✅ Order berhasil dibatalkan.\nSymbol: ${symbol}\nOrder ID: ${orderId}\nStatus: ${(result.status as string) || 'CANCELED'}`
+    );
   } catch (error) {
     logger.error({ err: error }, 'cancelorder command error:');
     return ctx.reply(`❌ Gagal cancel order: ${(error as Error).message}`);
@@ -3302,9 +3655,9 @@ bot.command('subscribe', async (ctx) => {
     if (args.length === 0) {
       return ctx.reply(
         '📡 **Cara pakai /subscribe:**\n' +
-        '/subscribe BTCUSDT        — subscribe ke signal 1h (default)\n' +
-        '/subscribe ETHUSDT 4h    — subscribe ke signal 4h\n\n' +
-        'Bot akan mengirim notifikasi otomatis saat ada sinyal BUY/SELL dari kline close.',
+          '/subscribe BTCUSDT        — subscribe ke signal 1h (default)\n' +
+          '/subscribe ETHUSDT 4h    — subscribe ke signal 4h\n\n' +
+          'Bot akan mengirim notifikasi otomatis saat ada sinyal BUY/SELL dari kline close.'
       );
     }
 
@@ -3313,25 +3666,31 @@ bot.command('subscribe', async (ctx) => {
     const userId = user.id;
 
     // Register signal subscriber in connectionManager
-    connectionManager.addSignalSubscriber(userId, symbol, async (sym, action, confidence, reason) => {
-      const emoji = action === 'BUY' ? '🟢' : '🔴';
-      const confPct = (confidence * 100).toFixed(0);
-      try {
-        await bot.telegram.sendMessage(
-          ctx.chat.id,
-          `${emoji} **AUTO-SIGNAL — ${sym}**\n\n` +
-          `Action: **${action}**\n` +
-          `Confidence: ${confPct}%\n` +
-          `Reason: ${reason}\n\n` +
-          `⏰ Interval: ${interval}`,
-        );
-      } catch (_) { /* chat might be closed */ }
-    });
+    connectionManager.addSignalSubscriber(
+      userId,
+      symbol,
+      async (sym, action, confidence, reason) => {
+        const emoji = action === 'BUY' ? '🟢' : '🔴';
+        const confPct = (confidence * 100).toFixed(0);
+        try {
+          await bot.telegram.sendMessage(
+            ctx.chat.id,
+            `${emoji} **AUTO-SIGNAL — ${sym}**\n\n` +
+              `Action: **${action}**\n` +
+              `Confidence: ${confPct}%\n` +
+              `Reason: ${reason}\n\n` +
+              `⏰ Interval: ${interval}`
+          );
+        } catch (_) {
+          /* chat might be closed */
+        }
+      }
+    );
 
     return ctx.reply(
       `✅ Berhasil subscribe signal **${symbol}** (${interval})\n` +
-      `Bot akan kirim notifikasi otomatis saat ada sinyal BUY/SELL dari kline close.\n\n` +
-      `Gunakan /unsubscribe ${symbol} untuk berhenti.`,
+        `Bot akan kirim notifikasi otomatis saat ada sinyal BUY/SELL dari kline close.\n\n` +
+        `Gunakan /unsubscribe ${symbol} untuk berhenti.`
     );
   } catch (error) {
     return ctx.reply(`❌ Error: ${(error as Error).message}`);
@@ -3366,23 +3725,20 @@ bot.command('unsubscribe', async (ctx) => {
 });
 
 bot.command('liveportfolio', async (ctx) => {
+  let loadingMsg: any;
   try {
     if (!binanceOrderService.isConfigured()) {
-      return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
+      return ctx.reply(
+        '❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.'
+      );
     }
 
-    const loadingMsg = await ctx.reply('🔄 Fetching live portfolio...');
+    loadingMsg = await ctx.reply('🔄 Fetching live portfolio...');
 
     const [balances, openOrders] = await Promise.all([
       binanceOrderService.getAccountBalance(),
       binanceOrderService.getOpenOrders(),
     ]);
-
-    try {
-      await ctx.deleteMessage(loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
 
     if (balances.length === 0) {
       return ctx.reply('📭 Tidak ada balance non-zero pada akun Binance saat ini.');
@@ -3405,6 +3761,14 @@ bot.command('liveportfolio', async (ctx) => {
   } catch (error) {
     logger.error({ err: error }, 'liveportfolio command error:');
     return ctx.reply(`❌ Gagal ambil live portfolio: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
   }
 });
 
@@ -3451,7 +3815,9 @@ bot.command('livetrade', async (ctx) => {
   }
 
   if (session.liveTrading && session.liveTrading.active) {
-    return ctx.reply(`❌ Live trading sudah aktif untuk ${session.liveTrading.symbol}. Gunakan /livetrade stop dulu.`);
+    return ctx.reply(
+      `❌ Live trading sudah aktif untuk ${session.liveTrading.symbol}. Gunakan /livetrade stop dulu.`
+    );
   }
 
   try {
@@ -3494,7 +3860,7 @@ bot.command('livetrade', async (ctx) => {
         });
         await notifyByDbUserId(
           `❌ Live trading error untuk ${symbol}: ${(error as Error).message}\nSesi tetap berjalan, cek log jika error berulang.`,
-          user.id,
+          user.id
         );
       }
     };
@@ -3530,7 +3896,10 @@ bot.command('livetrade', async (ctx) => {
         lastName: ctx.message.from.last_name,
       });
       if (user) {
-        await notifyByDbUserId(`❌ Gagal start live trading ${symbol}: ${(error as Error).message}`, user.id);
+        await notifyByDbUserId(
+          `❌ Gagal start live trading ${symbol}: ${(error as Error).message}`,
+          user.id
+        );
       }
     }
 
@@ -3559,7 +3928,11 @@ bot.command('volume', async (ctx) => {
     ctx.reply(`❌ Error analyzing volume for ${symbol}. Please try again later.`);
   } finally {
     if (loadingMsg) {
-      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
     }
   }
 
@@ -3586,7 +3959,11 @@ bot.command('sr', async (ctx) => {
     ctx.reply(`❌ Error analyzing support/resistance for ${symbol}. Please try again later.`);
   } finally {
     if (loadingMsg) {
-      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
     }
   }
 
@@ -3642,7 +4019,11 @@ bot.command('chart', async (ctx) => {
     ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
   } finally {
     if (loadingMsg) {
-      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
     }
   }
 
@@ -3920,7 +4301,7 @@ bot.command('strategystats', async (ctx) => {
         /* ignore */
       }
 
-    await ctx.reply('❌ No strategy data found. Run some backtests first with /backtest');
+      await ctx.reply('❌ No strategy data found. Run some backtests first with /backtest');
       return;
     }
 
@@ -4009,13 +4390,18 @@ bot.command('leaderboard', async (ctx) => {
 
 // Error handling
 bot.catch((err, ctx) => {
-  withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error({ err }, 'Bot error');
+  withLogContext({ service: 'enhancedBot', userId: ctx.message?.from?.id }).error(
+    { err },
+    'Bot error'
+  );
   ctx.reply('❌ An unexpected error occurred. Please try again later.');
 });
 
 // Launch bot
 withLogContext({ service: 'enhancedBot' }).info('Starting Telegram Bot');
-withLogContext({ service: 'enhancedBot' }).info('Bot initialization complete. Waiting for messages');
+withLogContext({ service: 'enhancedBot' }).info(
+  'Bot initialization complete. Waiting for messages'
+);
 
 // Configure health monitor integrations.
 healthMonitor.setServices({
@@ -4028,7 +4414,10 @@ healthMonitor.setServices({
     ? {
         getCurrentDrawdown: () => {
           if (healthRuntime.peakUsdtBalance <= 0) return 0;
-          const dd = ((healthRuntime.peakUsdtBalance - healthRuntime.usdtBalance) / healthRuntime.peakUsdtBalance) * 100;
+          const dd =
+            ((healthRuntime.peakUsdtBalance - healthRuntime.usdtBalance) /
+              healthRuntime.peakUsdtBalance) *
+            100;
           return Math.max(0, dd);
         },
         getAccountBalance: () => healthRuntime.usdtBalance,
@@ -4051,35 +4440,41 @@ startWebServer();
 // Start prediction verification service
 predictionVerifier.start();
 
-setInterval(async () => {
-  try {
-    if (binanceOrderService.isConfigured()) {
-      const balances = await binanceOrderService.getAccountBalance();
-      const usdt = balances.find((b) => b.asset === 'USDT');
-      const currentUsdt = usdt ? Number(usdt.free) + Number(usdt.locked) : 0;
-      healthRuntime.usdtBalance = Number.isFinite(currentUsdt) ? currentUsdt : 0;
-      healthRuntime.peakUsdtBalance = Math.max(healthRuntime.peakUsdtBalance, healthRuntime.usdtBalance);
-    }
-
+setInterval(
+  async () => {
     try {
-      const acc = await predictionVerifier.generateAccuracyReport('GRU');
-      healthRuntime.modelAccuracy = Math.max(0, Math.min(1, (acc?.accuracy ?? 100) / 100));
-    } catch {
-      // keep previous value if no prediction stats yet
-    }
+      if (binanceOrderService.isConfigured()) {
+        const balances = await binanceOrderService.getAccountBalance();
+        const usdt = balances.find((b) => b.asset === 'USDT');
+        const currentUsdt = usdt ? Number(usdt.free) + Number(usdt.locked) : 0;
+        healthRuntime.usdtBalance = Number.isFinite(currentUsdt) ? currentUsdt : 0;
+        healthRuntime.peakUsdtBalance = Math.max(
+          healthRuntime.peakUsdtBalance,
+          healthRuntime.usdtBalance
+        );
+      }
 
-    await healthMonitor.checkBinanceRest();
-    await healthMonitor.checkWebSocketHealth();
-    await healthMonitor.checkModelAccuracy();
-    if (binanceOrderService.isConfigured()) {
-      await healthMonitor.checkAccountDrawdown();
-      await healthMonitor.checkAccountBalance();
+      try {
+        const acc = await predictionVerifier.generateAccuracyReport('GRU');
+        healthRuntime.modelAccuracy = Math.max(0, Math.min(1, (acc?.accuracy ?? 100) / 100));
+      } catch {
+        // keep previous value if no prediction stats yet
+      }
+
+      await healthMonitor.checkBinanceRest();
+      await healthMonitor.checkWebSocketHealth();
+      await healthMonitor.checkModelAccuracy();
+      if (binanceOrderService.isConfigured()) {
+        await healthMonitor.checkAccountDrawdown();
+        await healthMonitor.checkAccountBalance();
+      }
+      await healthMonitor.checkBotProcess();
+    } catch (error) {
+      withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Health monitor loop error');
     }
-    await healthMonitor.checkBotProcess();
-  } catch (error) {
-    withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Health monitor loop error');
-  }
-}, parseInt(process.env.HEALTH_MONITOR_INTERVAL_MS || '300000', 10));
+  },
+  parseInt(process.env.HEALTH_MONITOR_INTERVAL_MS || '300000', 10)
+);
 
 bot
   .launch({ dropPendingUpdates: true })
@@ -4089,7 +4484,10 @@ bot
     withLogContext({ service: 'enhancedBot' }).info('Send /start to see available commands');
     withLogContext({ service: 'enhancedBot' }).info('Prediction verification service active');
     riskMonitorLoop.start().catch((error) => {
-      withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start risk monitor loop');
+      withLogContext({ service: 'enhancedBot' }).error(
+        { err: error },
+        'Failed to start risk monitor loop'
+      );
     });
   })
   .catch((error) => {
@@ -4125,4 +4523,3 @@ process.once('SIGTERM', () => {
   db.disconnect();
   process.exit(0);
 });
-
