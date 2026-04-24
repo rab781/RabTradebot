@@ -5,475 +5,497 @@ import * as https from 'https';
 import { logger } from '../utils/logger';
 
 export interface HistoricalDataConfig {
-    symbol: string;
-    timeframe: string;
-    startDate: Date;
-    endDate: Date;
-    limit?: number;
+  symbol: string;
+  timeframe: string;
+  startDate: Date;
+  endDate: Date;
+  limit?: number;
 }
 
 export class DataManager {
-    private baseUrl: string;
-    private dataCache = new Map<string, OHLCVCandle[]>();
-    private insecureAgent = new https.Agent({ rejectUnauthorized: false });
-    private secureAgent?: https.Agent;
-    private proxyConfig?: AxiosProxyConfig;
+  private baseUrl: string;
+  private dataCache = new Map<string, OHLCVCandle[]>();
+  private insecureAgent = new https.Agent({ rejectUnauthorized: false });
+  private secureAgent?: https.Agent;
+  private proxyConfig?: AxiosProxyConfig;
 
-    constructor() {
-        const configuredBase = process.env.BINANCE_BASE_URL || 'https://api.binance.com';
-        this.baseUrl = `${configuredBase.replace(/\/$/, '')}/api/v3`;
+  constructor() {
+    const configuredBase = process.env.BINANCE_BASE_URL || 'https://api.binance.com';
+    this.baseUrl = `${configuredBase.replace(/\/$/, '')}/api/v3`;
 
-        const caCertPath = process.env.BINANCE_CA_CERT_PATH || '';
-        if (caCertPath) {
-            try {
-                const ca = fs.readFileSync(caCertPath, 'utf-8');
-                this.secureAgent = new https.Agent({ ca, rejectUnauthorized: true });
-                logger.info(`[DataManager] Loaded custom CA certificate from ${caCertPath}`);
-            } catch (error) {
-                logger.error(`[DataManager] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`);
-            }
-        }
-
-        const proxyUrl = process.env.BINANCE_PROXY_URL || '';
-        if (proxyUrl) {
-            this.proxyConfig = this.parseProxyUrl(proxyUrl);
-            if (this.proxyConfig) {
-                logger.info(`[DataManager] Using proxy ${this.proxyConfig.protocol}://${this.proxyConfig.host}:${this.proxyConfig.port}`);
-            } else {
-                logger.error('[DataManager] BINANCE_PROXY_URL is invalid and will be ignored');
-            }
-        }
-    }
-
-    private parseProxyUrl(proxyUrl: string): AxiosProxyConfig | undefined {
-        try {
-            const parsed = new URL(proxyUrl);
-            if (!parsed.hostname || !parsed.port) {
-                return undefined;
-            }
-
-            const proxy: AxiosProxyConfig = {
-                protocol: parsed.protocol.replace(':', ''),
-                host: parsed.hostname,
-                port: Number(parsed.port),
-            };
-
-            if (parsed.username || parsed.password) {
-                proxy.auth = {
-                    username: decodeURIComponent(parsed.username),
-                    password: decodeURIComponent(parsed.password),
-                };
-            }
-
-            return proxy;
-        } catch {
-            return undefined;
-        }
-    }
-
-    private buildRequestConfig(config: any): any {
-        if (this.proxyConfig) {
-            return {
-                ...config,
-                proxy: this.proxyConfig,
-            };
-        }
-
-        if (this.secureAgent) {
-            return {
-                ...config,
-                httpsAgent: this.secureAgent,
-            };
-        }
-
-        return config;
-    }
-
-    private shouldRetryInsecureTls(error: any): boolean {
-        const code = String(error?.code || '');
-        const message = String(error?.message || '').toLowerCase();
-
-        return (
-            code.includes('CERT') ||
-            code.includes('UNABLE_TO_GET_ISSUER_CERT') ||
-            message.includes('unable to get local issuer certificate') ||
-            message.includes('self signed certificate')
+    const caCertPath = process.env.BINANCE_CA_CERT_PATH || '';
+    if (caCertPath) {
+      try {
+        const ca = fs.readFileSync(caCertPath, 'utf-8');
+        this.secureAgent = new https.Agent({ ca, rejectUnauthorized: true });
+        logger.info(`[DataManager] Loaded custom CA certificate from ${caCertPath}`);
+      } catch (error) {
+        logger.error(
+          `[DataManager] Failed to load BINANCE_CA_CERT_PATH (${caCertPath}): ${(error as Error).message}`
         );
+      }
     }
 
-    private async getWithTlsFallback(url: string, config: any): Promise<any> {
-        const requestConfig = this.buildRequestConfig(config);
-
-        try {
-            return await axios.get(url, requestConfig);
-        } catch (error: any) {
-            const allowInsecure = process.env.ALLOW_INSECURE_TLS !== 'false';
-            if (!allowInsecure || !this.shouldRetryInsecureTls(error)) {
-                throw error;
-            }
-
-            logger.warn('[DataManager] TLS certificate validation failed, retrying with insecure TLS fallback.');
-            return axios.get(url, {
-                ...requestConfig,
-                proxy: undefined,
-                httpsAgent: this.insecureAgent,
-            });
-        }
-    }
-
-    private mapCryptoCompareRows(rows: any[]): OHLCVCandle[] {
-        return rows.map((row: any) => ({
-            timestamp: Number(row.time || 0) * 1000,
-            open: Number(row.open || 0),
-            high: Number(row.high || 0),
-            low: Number(row.low || 0),
-            close: Number(row.close || 0),
-            volume: Number(row.volumeto || row.volumefrom || 0),
-            date: new Date(Number(row.time || 0) * 1000),
-        }));
-    }
-
-    private async getRecentDataFromCryptoCompare(symbol: string, timeframe: string, limit: number): Promise<OHLCVCandle[]> {
-        const base = symbol.replace('USDT', '').replace('USD', '');
-        const endpoint = timeframe.endsWith('d') ? 'histoday' : timeframe.endsWith('h') ? 'histohour' : 'histominute';
-
-        let aggregate = 1;
-        if (timeframe.endsWith('m')) aggregate = parseInt(timeframe.replace('m', ''), 10) || 1;
-        else if (timeframe.endsWith('h')) aggregate = parseInt(timeframe.replace('h', ''), 10) || 1;
-        else if (timeframe.endsWith('d')) aggregate = parseInt(timeframe.replace('d', ''), 10) || 1;
-
-        const response = await this.getWithTlsFallback(
-            `https://min-api.cryptocompare.com/data/v2/${endpoint}`,
-            {
-                params: {
-                    fsym: base,
-                    tsym: 'USD',
-                    limit,
-                    aggregate,
-                },
-                timeout: 10000,
-            }
+    const proxyUrl = process.env.BINANCE_PROXY_URL || '';
+    if (proxyUrl) {
+      this.proxyConfig = this.parseProxyUrl(proxyUrl);
+      if (this.proxyConfig) {
+        logger.info(
+          `[DataManager] Using proxy ${this.proxyConfig.protocol}://${this.proxyConfig.host}:${this.proxyConfig.port}`
         );
-
-        const rows = response?.data?.Data?.Data;
-        if (!Array.isArray(rows) || rows.length === 0) {
-            throw new Error(`CryptoCompare returned no recent data for ${symbol}`);
-        }
-
-        return this.mapCryptoCompareRows(rows);
+      } else {
+        logger.error('[DataManager] BINANCE_PROXY_URL is invalid and will be ignored');
+      }
     }
+  }
 
-    async downloadHistoricalData(config: HistoricalDataConfig): Promise<OHLCVCandle[]> {
-        const cacheKey = `${config.symbol}_${config.timeframe}_${config.startDate.getTime()}_${config.endDate.getTime()}`;
-        
-        // Check cache first
-        if (this.dataCache.has(cacheKey)) {
-            logger.info(`Retrieved cached data for ${config.symbol}`);
-            return this.dataCache.get(cacheKey)!;
-        }
+  private parseProxyUrl(proxyUrl: string): AxiosProxyConfig | undefined {
+    try {
+      const parsed = new URL(proxyUrl);
+      if (!parsed.hostname || !parsed.port) {
+        return undefined;
+      }
 
-        logger.info(`Downloading historical data for ${config.symbol} from ${config.startDate} to ${config.endDate}`);
+      const proxy: AxiosProxyConfig = {
+        protocol: parsed.protocol.replace(':', ''),
+        host: parsed.hostname,
+        port: Number(parsed.port),
+      };
 
-        try {
-            const interval = this.convertTimeframeToInterval(config.timeframe);
-            const startTime = config.startDate.getTime();
-            const endTime = config.endDate.getTime();
-            const limit = config.limit || 1000;
-
-            const allCandles: OHLCVCandle[] = [];
-            let currentStartTime = startTime;
-
-            // Download data in chunks if date range is large
-            while (currentStartTime < endTime) {
-                const response = await this.getWithTlsFallback(`${this.baseUrl}/klines`, {
-                    params: {
-                        symbol: config.symbol,
-                        interval: interval,
-                        startTime: currentStartTime,
-                        endTime: endTime,
-                        limit: limit
-                    },
-                    timeout: 10000,
-                });
-
-                const rawCandles = response.data;
-                if (!rawCandles || rawCandles.length === 0) {
-                    break;
-                }
-
-                const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                    timestamp: candle[0],
-                    open: parseFloat(candle[1]),
-                    high: parseFloat(candle[2]),
-                    low: parseFloat(candle[3]),
-                    close: parseFloat(candle[4]),
-                    volume: parseFloat(candle[5]),
-                    date: new Date(candle[0])
-                }));
-
-                allCandles.push(...candles);
-
-                // Update start time for next chunk
-                const lastCandle = candles[candles.length - 1];
-                currentStartTime = lastCandle.timestamp + this.getTimeframeMs(config.timeframe);
-
-                // Rate limiting
-                await this.sleep(100);
-            }
-
-            // Filter by exact date range
-            const filteredCandles = allCandles.filter(candle => 
-                candle.date >= config.startDate && candle.date <= config.endDate
-            );
-
-            // Cache the result
-            this.dataCache.set(cacheKey, filteredCandles);
-
-            logger.info(`Downloaded ${filteredCandles.length} candles for ${config.symbol}`);
-            return filteredCandles;
-
-        } catch (error) {
-            logger.error({ err: error }, `Error downloading data for ${config.symbol}:`);
-            throw error;
-        }
-    }
-
-    async getRecentData(symbol: string, timeframe: string, limit: number = 100): Promise<OHLCVCandle[]> {
-        try {
-            const interval = this.convertTimeframeToInterval(timeframe);
-            
-            const response = await this.getWithTlsFallback(`${this.baseUrl}/klines`, {
-                params: {
-                    symbol: symbol,
-                    interval: interval,
-                    limit: limit
-                },
-                timeout: 10000,
-            });
-
-            const rawCandles = response.data;
-            const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                timestamp: candle[0],
-                open: parseFloat(candle[1]),
-                high: parseFloat(candle[2]),
-                low: parseFloat(candle[3]),
-                close: parseFloat(candle[4]),
-                volume: parseFloat(candle[5]),
-                date: new Date(candle[0])
-            }));
-
-            return candles;
-
-        } catch (error) {
-            logger.error({ err: error }, `Error fetching recent data for ${symbol} from Binance:`);
-
-            try {
-                logger.info(`[DataManager] Falling back to CryptoCompare for ${symbol} ${timeframe}`);
-                return await this.getRecentDataFromCryptoCompare(symbol, timeframe, limit);
-            } catch (fallbackError) {
-                logger.error({ err: fallbackError }, `Error fetching recent data for ${symbol} from fallback source:`);
-                throw fallbackError;
-            }
-        }
-    }
-
-    convertToDataFrame(candles: OHLCVCandle[]): DataFrame {
-        return DataFrameBuilder.fromCandles(candles);
-    }
-
-    private convertTimeframeToInterval(timeframe: string): string {
-        const mapping: { [key: string]: string } = {
-            '1m': '1m',
-            '3m': '3m',
-            '5m': '5m',
-            '15m': '15m',
-            '30m': '30m',
-            '1h': '1h',
-            '2h': '2h',
-            '4h': '4h',
-            '6h': '6h',
-            '8h': '8h',
-            '12h': '12h',
-            '1d': '1d',
-            '3d': '3d',
-            '1w': '1w',
-            '1M': '1M'
+      if (parsed.username || parsed.password) {
+        proxy.auth = {
+          username: decodeURIComponent(parsed.username),
+          password: decodeURIComponent(parsed.password),
         };
+      }
 
-        if (!mapping[timeframe]) {
-            throw new Error(`Unsupported timeframe: ${timeframe}`);
-        }
+      return proxy;
+    } catch {
+      return undefined;
+    }
+  }
 
-        return mapping[timeframe];
+  private buildRequestConfig(config: any): any {
+    if (this.proxyConfig) {
+      return {
+        ...config,
+        proxy: this.proxyConfig,
+      };
     }
 
-    private getTimeframeMs(timeframe: string): number {
-        const mapping: { [key: string]: number } = {
-            '1m': 60 * 1000,
-            '3m': 3 * 60 * 1000,
-            '5m': 5 * 60 * 1000,
-            '15m': 15 * 60 * 1000,
-            '30m': 30 * 60 * 1000,
-            '1h': 60 * 60 * 1000,
-            '2h': 2 * 60 * 60 * 1000,
-            '4h': 4 * 60 * 60 * 1000,
-            '6h': 6 * 60 * 60 * 1000,
-            '8h': 8 * 60 * 60 * 1000,
-            '12h': 12 * 60 * 60 * 1000,
-            '1d': 24 * 60 * 60 * 1000,
-            '3d': 3 * 24 * 60 * 60 * 1000,
-            '1w': 7 * 24 * 60 * 60 * 1000,
-            '1M': 30 * 24 * 60 * 60 * 1000 // Approximation
-        };
-
-        return mapping[timeframe] || 60 * 1000;
+    if (this.secureAgent) {
+      return {
+        ...config,
+        httpsAgent: this.secureAgent,
+      };
     }
 
-    private sleep(ms: number): Promise<void> {
-        return new Promise(resolve => setTimeout(resolve, ms));
+    return config;
+  }
+
+  private shouldRetryInsecureTls(error: any): boolean {
+    const code = String(error?.code || '');
+    const message = String(error?.message || '').toLowerCase();
+
+    return (
+      code.includes('CERT') ||
+      code.includes('UNABLE_TO_GET_ISSUER_CERT') ||
+      message.includes('unable to get local issuer certificate') ||
+      message.includes('self signed certificate')
+    );
+  }
+
+  private async getWithTlsFallback(url: string, config: any): Promise<any> {
+    const requestConfig = this.buildRequestConfig(config);
+
+    try {
+      return await axios.get(url, requestConfig);
+    } catch (error: any) {
+      const allowInsecure = process.env.ALLOW_INSECURE_TLS !== 'false';
+      if (!allowInsecure || !this.shouldRetryInsecureTls(error)) {
+        throw error;
+      }
+
+      logger.warn(
+        '[DataManager] TLS certificate validation failed, retrying with insecure TLS fallback.'
+      );
+      return axios.get(url, {
+        ...requestConfig,
+        proxy: undefined,
+        httpsAgent: this.insecureAgent,
+      });
+    }
+  }
+
+  private mapCryptoCompareRows(rows: any[]): OHLCVCandle[] {
+    return rows.map((row: any) => ({
+      timestamp: Number(row.time || 0) * 1000,
+      open: Number(row.open || 0),
+      high: Number(row.high || 0),
+      low: Number(row.low || 0),
+      close: Number(row.close || 0),
+      volume: Number(row.volumeto || row.volumefrom || 0),
+      date: new Date(Number(row.time || 0) * 1000),
+    }));
+  }
+
+  private async getRecentDataFromCryptoCompare(
+    symbol: string,
+    timeframe: string,
+    limit: number
+  ): Promise<OHLCVCandle[]> {
+    const base = symbol.replace('USDT', '').replace('USD', '');
+    const endpoint = timeframe.endsWith('d')
+      ? 'histoday'
+      : timeframe.endsWith('h')
+        ? 'histohour'
+        : 'histominute';
+
+    let aggregate = 1;
+    if (timeframe.endsWith('m')) aggregate = parseInt(timeframe.replace('m', ''), 10) || 1;
+    else if (timeframe.endsWith('h')) aggregate = parseInt(timeframe.replace('h', ''), 10) || 1;
+    else if (timeframe.endsWith('d')) aggregate = parseInt(timeframe.replace('d', ''), 10) || 1;
+
+    const response = await this.getWithTlsFallback(
+      `https://min-api.cryptocompare.com/data/v2/${endpoint}`,
+      {
+        params: {
+          fsym: base,
+          tsym: 'USD',
+          limit,
+          aggregate,
+        },
+        timeout: 10000,
+      }
+    );
+
+    const rows = response?.data?.Data?.Data;
+    if (!Array.isArray(rows) || rows.length === 0) {
+      throw new Error(`CryptoCompare returned no recent data for ${symbol}`);
     }
 
-    // Utility methods for data analysis
-    getDataSummary(candles: OHLCVCandle[]): {
-        count: number;
-        startDate: Date;
-        endDate: Date;
-        priceRange: { min: number; max: number };
-        avgVolume: number;
-    } {
-        const len = candles.length;
-        if (len === 0) {
-            throw new Error('No candles provided');
-        }
+    return this.mapCryptoCompareRows(rows);
+  }
 
-        let min = Infinity;
-        let max = -Infinity;
-        let sumVolume = 0;
+  async downloadHistoricalData(config: HistoricalDataConfig): Promise<OHLCVCandle[]> {
+    const cacheKey = `${config.symbol}_${config.timeframe}_${config.startDate.getTime()}_${config.endDate.getTime()}`;
 
-        for (let i = 0; i < len; i++) {
-            const c = candles[i];
-
-            if (c.low < min) min = c.low;
-            if (c.open < min) min = c.open;
-            if (c.close < min) min = c.close;
-            if (c.high < min) min = c.high;
-
-            if (c.high > max) max = c.high;
-            if (c.open > max) max = c.open;
-            if (c.close > max) max = c.close;
-            if (c.low > max) max = c.low;
-
-            sumVolume += c.volume;
-        }
-
-        return {
-            count: len,
-            startDate: candles[0].date,
-            endDate: candles[len - 1].date,
-            priceRange: { min, max },
-            avgVolume: sumVolume / len
-        };
+    // Check cache first
+    if (this.dataCache.has(cacheKey)) {
+      logger.info(`Retrieved cached data for ${config.symbol}`);
+      return this.dataCache.get(cacheKey)!;
     }
 
-    validateDataQuality(candles: OHLCVCandle[]): {
-        isValid: boolean;
-        issues: string[];
-        gaps: { index: number; expectedTime: number; actualTime: number }[];
-    } {
-        const issues: string[] = [];
-        const gaps: { index: number; expectedTime: number; actualTime: number }[] = [];
+    logger.info(
+      `Downloading historical data for ${config.symbol} from ${config.startDate} to ${config.endDate}`
+    );
 
-        if (candles.length === 0) {
-            return { isValid: false, issues: ['No data provided'], gaps: [] };
+    try {
+      const interval = this.convertTimeframeToInterval(config.timeframe);
+      const startTime = config.startDate.getTime();
+      const endTime = config.endDate.getTime();
+      const limit = config.limit || 1000;
+
+      const allCandles: OHLCVCandle[] = [];
+      let currentStartTime = startTime;
+
+      // Download data in chunks if date range is large
+      while (currentStartTime < endTime) {
+        const response = await this.getWithTlsFallback(`${this.baseUrl}/klines`, {
+          params: {
+            symbol: config.symbol,
+            interval: interval,
+            startTime: currentStartTime,
+            endTime: endTime,
+            limit: limit,
+          },
+          timeout: 10000,
+        });
+
+        const rawCandles = response.data;
+        if (!rawCandles || rawCandles.length === 0) {
+          break;
         }
 
-        // Check for basic data integrity
-        for (let i = 0; i < candles.length; i++) {
-            const candle = candles[i];
-            
-            // Check for invalid OHLC relationships
-            if (candle.high < candle.low) {
-                issues.push(`Invalid OHLC at index ${i}: high (${candle.high}) < low (${candle.low})`);
-            }
-            
-            if (candle.high < candle.open || candle.high < candle.close) {
-                issues.push(`Invalid OHLC at index ${i}: high is not the highest price`);
-            }
-            
-            if (candle.low > candle.open || candle.low > candle.close) {
-                issues.push(`Invalid OHLC at index ${i}: low is not the lowest price`);
-            }
-
-            // Check for zero or negative values
-            if (candle.open <= 0 || candle.high <= 0 || candle.low <= 0 || candle.close <= 0) {
-                issues.push(`Invalid prices at index ${i}: zero or negative values`);
-            }
-
-            if (candle.volume < 0) {
-                issues.push(`Invalid volume at index ${i}: negative volume`);
-            }
-        }
-
-        // Check for time gaps (assuming consistent timeframe)
-        if (candles.length > 1) {
-            const timeInterval = candles[1].timestamp - candles[0].timestamp;
-            
-            for (let i = 1; i < candles.length; i++) {
-                const expectedTime = candles[i - 1].timestamp + timeInterval;
-                const actualTime = candles[i].timestamp;
-                
-                if (Math.abs(actualTime - expectedTime) > timeInterval * 0.1) { // Allow 10% tolerance
-                    gaps.push({ index: i, expectedTime, actualTime });
-                }
-            }
-        }
-
-        return {
-            isValid: issues.length === 0,
-            issues,
-            gaps
-        };
-    }
-
-    // Data export/import functions
-    async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const fs = require('fs').promises;
-        const data = {
-            metadata: {
-                count: candles.length,
-                startDate: candles[0]?.date,
-                endDate: candles[candles.length - 1]?.date,
-                exported: new Date()
-            },
-            candles: candles
-        };
-        
-        await fs.writeFile(filename, JSON.stringify(data, null, 2));
-        logger.info(`Exported ${candles.length} candles to ${filename}`);
-    }
-
-    async importFromJson(filename: string): Promise<OHLCVCandle[]> {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const fs = require('fs').promises;
-        const data = JSON.parse(await fs.readFile(filename, 'utf8'));
-        
-        if (!data.candles || !Array.isArray(data.candles)) {
-            throw new Error('Invalid data format in JSON file');
-        }
-
-        return data.candles.map((candle: any) => ({
-            ...candle,
-            date: new Date(candle.date)
+        const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
+          timestamp: candle[0],
+          open: parseFloat(candle[1]),
+          high: parseFloat(candle[2]),
+          low: parseFloat(candle[3]),
+          close: parseFloat(candle[4]),
+          volume: parseFloat(candle[5]),
+          date: new Date(candle[0]),
         }));
+
+        allCandles.push(...candles);
+
+        // Update start time for next chunk
+        const lastCandle = candles[candles.length - 1];
+        currentStartTime = lastCandle.timestamp + this.getTimeframeMs(config.timeframe);
+
+        // Rate limiting
+        await this.sleep(100);
+      }
+
+      // Filter by exact date range
+      const filteredCandles = allCandles.filter(
+        (candle) => candle.date >= config.startDate && candle.date <= config.endDate
+      );
+
+      // Cache the result
+      this.dataCache.set(cacheKey, filteredCandles);
+
+      logger.info(`Downloaded ${filteredCandles.length} candles for ${config.symbol}`);
+      return filteredCandles;
+    } catch (error) {
+      logger.error({ err: error }, `Error downloading data for ${config.symbol}:`);
+      throw error;
+    }
+  }
+
+  async getRecentData(
+    symbol: string,
+    timeframe: string,
+    limit: number = 100
+  ): Promise<OHLCVCandle[]> {
+    try {
+      const interval = this.convertTimeframeToInterval(timeframe);
+
+      const response = await this.getWithTlsFallback(`${this.baseUrl}/klines`, {
+        params: {
+          symbol: symbol,
+          interval: interval,
+          limit: limit,
+        },
+        timeout: 10000,
+      });
+
+      const rawCandles = response.data;
+      const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
+        timestamp: candle[0],
+        open: parseFloat(candle[1]),
+        high: parseFloat(candle[2]),
+        low: parseFloat(candle[3]),
+        close: parseFloat(candle[4]),
+        volume: parseFloat(candle[5]),
+        date: new Date(candle[0]),
+      }));
+
+      return candles;
+    } catch (error) {
+      logger.error({ err: error }, `Error fetching recent data for ${symbol} from Binance:`);
+
+      try {
+        logger.info(`[DataManager] Falling back to CryptoCompare for ${symbol} ${timeframe}`);
+        return await this.getRecentDataFromCryptoCompare(symbol, timeframe, limit);
+      } catch (fallbackError) {
+        logger.error(
+          { err: fallbackError },
+          `Error fetching recent data for ${symbol} from fallback source:`
+        );
+        throw fallbackError;
+      }
+    }
+  }
+
+  convertToDataFrame(candles: OHLCVCandle[]): DataFrame {
+    return DataFrameBuilder.fromCandles(candles);
+  }
+
+  private convertTimeframeToInterval(timeframe: string): string {
+    const mapping: { [key: string]: string } = {
+      '1m': '1m',
+      '3m': '3m',
+      '5m': '5m',
+      '15m': '15m',
+      '30m': '30m',
+      '1h': '1h',
+      '2h': '2h',
+      '4h': '4h',
+      '6h': '6h',
+      '8h': '8h',
+      '12h': '12h',
+      '1d': '1d',
+      '3d': '3d',
+      '1w': '1w',
+      '1M': '1M',
+    };
+
+    if (!mapping[timeframe]) {
+      throw new Error(`Unsupported timeframe: ${timeframe}`);
     }
 
-    clearCache(): void {
-        this.dataCache.clear();
-        logger.info('Data cache cleared');
+    return mapping[timeframe];
+  }
+
+  private getTimeframeMs(timeframe: string): number {
+    const mapping: { [key: string]: number } = {
+      '1m': 60 * 1000,
+      '3m': 3 * 60 * 1000,
+      '5m': 5 * 60 * 1000,
+      '15m': 15 * 60 * 1000,
+      '30m': 30 * 60 * 1000,
+      '1h': 60 * 60 * 1000,
+      '2h': 2 * 60 * 60 * 1000,
+      '4h': 4 * 60 * 60 * 1000,
+      '6h': 6 * 60 * 60 * 1000,
+      '8h': 8 * 60 * 60 * 1000,
+      '12h': 12 * 60 * 60 * 1000,
+      '1d': 24 * 60 * 60 * 1000,
+      '3d': 3 * 24 * 60 * 60 * 1000,
+      '1w': 7 * 24 * 60 * 60 * 1000,
+      '1M': 30 * 24 * 60 * 60 * 1000, // Approximation
+    };
+
+    return mapping[timeframe] || 60 * 1000;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  // Utility methods for data analysis
+  getDataSummary(candles: OHLCVCandle[]): {
+    count: number;
+    startDate: Date;
+    endDate: Date;
+    priceRange: { min: number; max: number };
+    avgVolume: number;
+  } {
+    const len = candles.length;
+    if (len === 0) {
+      throw new Error('No candles provided');
     }
 
-    getCacheSize(): number {
-        return this.dataCache.size;
+    let min = Infinity;
+    let max = -Infinity;
+    let sumVolume = 0;
+
+    for (let i = 0; i < len; i++) {
+      const c = candles[i];
+
+      if (c.low < min) min = c.low;
+      if (c.open < min) min = c.open;
+      if (c.close < min) min = c.close;
+      if (c.high < min) min = c.high;
+
+      if (c.high > max) max = c.high;
+      if (c.open > max) max = c.open;
+      if (c.close > max) max = c.close;
+      if (c.low > max) max = c.low;
+
+      sumVolume += c.volume;
     }
+
+    return {
+      count: len,
+      startDate: candles[0].date,
+      endDate: candles[len - 1].date,
+      priceRange: { min, max },
+      avgVolume: sumVolume / len,
+    };
+  }
+
+  validateDataQuality(candles: OHLCVCandle[]): {
+    isValid: boolean;
+    issues: string[];
+    gaps: { index: number; expectedTime: number; actualTime: number }[];
+  } {
+    const issues: string[] = [];
+    const gaps: { index: number; expectedTime: number; actualTime: number }[] = [];
+
+    if (candles.length === 0) {
+      return { isValid: false, issues: ['No data provided'], gaps: [] };
+    }
+
+    // Check for basic data integrity
+    for (let i = 0; i < candles.length; i++) {
+      const candle = candles[i];
+
+      // Check for invalid OHLC relationships
+      if (candle.high < candle.low) {
+        issues.push(`Invalid OHLC at index ${i}: high (${candle.high}) < low (${candle.low})`);
+      }
+
+      if (candle.high < candle.open || candle.high < candle.close) {
+        issues.push(`Invalid OHLC at index ${i}: high is not the highest price`);
+      }
+
+      if (candle.low > candle.open || candle.low > candle.close) {
+        issues.push(`Invalid OHLC at index ${i}: low is not the lowest price`);
+      }
+
+      // Check for zero or negative values
+      if (candle.open <= 0 || candle.high <= 0 || candle.low <= 0 || candle.close <= 0) {
+        issues.push(`Invalid prices at index ${i}: zero or negative values`);
+      }
+
+      if (candle.volume < 0) {
+        issues.push(`Invalid volume at index ${i}: negative volume`);
+      }
+    }
+
+    // Check for time gaps (assuming consistent timeframe)
+    if (candles.length > 1) {
+      const timeInterval = candles[1].timestamp - candles[0].timestamp;
+
+      for (let i = 1; i < candles.length; i++) {
+        const expectedTime = candles[i - 1].timestamp + timeInterval;
+        const actualTime = candles[i].timestamp;
+
+        if (Math.abs(actualTime - expectedTime) > timeInterval * 0.1) {
+          // Allow 10% tolerance
+          gaps.push({ index: i, expectedTime, actualTime });
+        }
+      }
+    }
+
+    return {
+      isValid: issues.length === 0,
+      issues,
+      gaps,
+    };
+  }
+
+  // Data export/import functions
+  async exportToJson(candles: OHLCVCandle[], filename: string): Promise<void> {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs').promises;
+    const data = {
+      metadata: {
+        count: candles.length,
+        startDate: candles[0]?.date,
+        endDate: candles[candles.length - 1]?.date,
+        exported: new Date(),
+      },
+      candles: candles,
+    };
+
+    await fs.writeFile(filename, JSON.stringify(data, null, 2));
+    logger.info(`Exported ${candles.length} candles to ${filename}`);
+  }
+
+  async importFromJson(filename: string): Promise<OHLCVCandle[]> {
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const fs = require('fs').promises;
+    const data = JSON.parse(await fs.readFile(filename, 'utf8'));
+
+    if (!data.candles || !Array.isArray(data.candles)) {
+      throw new Error('Invalid data format in JSON file');
+    }
+
+    return data.candles.map((candle: any) => ({
+      ...candle,
+      date: new Date(candle.date),
+    }));
+  }
+
+  clearCache(): void {
+    this.dataCache.clear();
+    logger.info('Data cache cleared');
+  }
+
+  getCacheSize(): number {
+    return this.dataCache.size;
+  }
 }

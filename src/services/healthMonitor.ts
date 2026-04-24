@@ -13,7 +13,7 @@ import { withLogContext } from '../utils/logger';
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
 export type HealthStatus = 'ok' | 'degraded' | 'down';
-export type HealthComponent = 
+export type HealthComponent =
   | 'database'
   | 'binanceRest'
   | 'binanceWs'
@@ -38,13 +38,13 @@ export interface HealthSnapshot {
 }
 
 export interface HealthThresholds {
-  binanceRestTimeoutMs: number;   // max latency before "degraded"
-  wsDisconnectWindow: number;      // lookback window for disconnect count (ms)
-  wsDisconnectThreshold: number;   // max disconnects before "degraded"
-  modelAccuracyMin: number;        // min accuracy (0-1) before alert
-  drawdownThresholdPct: number;    // max drawdown % before alert
-  minAccountBalance: number;       // USDT, below this = alert
-  apiHealthTimeout: number;        // ms timeout for health checks
+  binanceRestTimeoutMs: number; // max latency before "degraded"
+  wsDisconnectWindow: number; // lookback window for disconnect count (ms)
+  wsDisconnectThreshold: number; // max disconnects before "degraded"
+  modelAccuracyMin: number; // min accuracy (0-1) before alert
+  drawdownThresholdPct: number; // max drawdown % before alert
+  minAccountBalance: number; // USDT, below this = alert
+  apiHealthTimeout: number; // ms timeout for health checks
 }
 
 // ─── State Tracker (for time-window based alerts) ───────────────────────────────
@@ -138,14 +138,18 @@ export class HealthMonitor {
 
     try {
       if (!this.rateLimiter) {
-        this.setComponentStatus(component, 'degraded', 'Rate limiter not configured', { reason: 'no_service' });
+        this.setComponentStatus(component, 'degraded', 'Rate limiter not configured', {
+          reason: 'no_service',
+        });
         return;
       }
 
       // Get rate limiter snapshot to check if API is reachable
       const snapshot = this.rateLimiter.getSnapshot?.();
       if (!snapshot) {
-        this.setComponentStatus(component, 'degraded', 'No rate limiter data available', { reason: 'no_snapshot' });
+        this.setComponentStatus(component, 'degraded', 'No rate limiter data available', {
+          reason: 'no_snapshot',
+        });
         return;
       }
 
@@ -174,7 +178,9 @@ export class HealthMonitor {
 
     try {
       if (!this.wsService) {
-        this.setComponentStatus(component, 'degraded', 'WebSocket service not configured', { reason: 'no_service' });
+        this.setComponentStatus(component, 'degraded', 'WebSocket service not configured', {
+          reason: 'no_service',
+        });
         return;
       }
 
@@ -233,7 +239,9 @@ export class HealthMonitor {
 
     try {
       if (!this.mlModel) {
-        this.setComponentStatus(component, 'degraded', 'ML model not configured', { reason: 'no_service' });
+        this.setComponentStatus(component, 'degraded', 'ML model not configured', {
+          reason: 'no_service',
+        });
         return;
       }
 
@@ -241,14 +249,24 @@ export class HealthMonitor {
       const recentAccuracy = this.mlModel.getRecentAccuracy?.() ?? 0.5;
 
       if (recentAccuracy >= this.thresholds.modelAccuracyMin) {
-        this.setComponentStatus(component, 'ok', `Model accuracy: ${(recentAccuracy * 100).toFixed(1)}%`, {
-          accuracy: recentAccuracy,
-        });
+        this.setComponentStatus(
+          component,
+          'ok',
+          `Model accuracy: ${(recentAccuracy * 100).toFixed(1)}%`,
+          {
+            accuracy: recentAccuracy,
+          }
+        );
       } else {
-        this.setComponentStatus(component, 'degraded', `Model accuracy dropped: ${(recentAccuracy * 100).toFixed(1)}%`, {
-          accuracy: recentAccuracy,
-          threshold: this.thresholds.modelAccuracyMin,
-        });
+        this.setComponentStatus(
+          component,
+          'degraded',
+          `Model accuracy dropped: ${(recentAccuracy * 100).toFixed(1)}%`,
+          {
+            accuracy: recentAccuracy,
+            threshold: this.thresholds.modelAccuracyMin,
+          }
+        );
         await this.alert(
           `⚠️ Model Accuracy Alert: Accuracy dropped to ${(recentAccuracy * 100).toFixed(1)}% (threshold: ${(this.thresholds.modelAccuracyMin * 100).toFixed(0)}%)`
         );
@@ -264,7 +282,9 @@ export class HealthMonitor {
 
     try {
       if (!this.tradingEngine) {
-        this.setComponentStatus(component, 'degraded', 'Trading engine not configured', { reason: 'no_service' });
+        this.setComponentStatus(component, 'degraded', 'Trading engine not configured', {
+          reason: 'no_service',
+        });
         return;
       }
 
@@ -276,10 +296,15 @@ export class HealthMonitor {
           drawdown: currentDrawdown,
         });
       } else {
-        this.setComponentStatus(component, 'degraded', `High drawdown: ${currentDrawdown.toFixed(2)}%`, {
-          drawdown: currentDrawdown,
-          threshold: this.thresholds.drawdownThresholdPct,
-        });
+        this.setComponentStatus(
+          component,
+          'degraded',
+          `High drawdown: ${currentDrawdown.toFixed(2)}%`,
+          {
+            drawdown: currentDrawdown,
+            threshold: this.thresholds.drawdownThresholdPct,
+          }
+        );
         await this.alert(
           `⚠️ Drawdown Alert: Account drawdown is ${currentDrawdown.toFixed(2)}% (threshold: ${this.thresholds.drawdownThresholdPct}%)`
         );
@@ -295,7 +320,9 @@ export class HealthMonitor {
 
     try {
       if (!this.tradingEngine) {
-        this.setComponentStatus(component, 'degraded', 'Trading engine not configured', { reason: 'no_service' });
+        this.setComponentStatus(component, 'degraded', 'Trading engine not configured', {
+          reason: 'no_service',
+        });
         return;
       }
 
@@ -330,10 +357,15 @@ export class HealthMonitor {
 
       // Bot is healthy if running with reasonable memory usage
       if (memMb < 500) {
-        this.setComponentStatus(component, 'ok', `Running (${uptime.toFixed(1)}s, ${memMb.toFixed(0)}MB)`, {
-          uptime,
-          memory: memMb,
-        });
+        this.setComponentStatus(
+          component,
+          'ok',
+          `Running (${uptime.toFixed(1)}s, ${memMb.toFixed(0)}MB)`,
+          {
+            uptime,
+            memory: memMb,
+          }
+        );
       } else if (memMb < 800) {
         this.setComponentStatus(component, 'degraded', `High memory usage: ${memMb.toFixed(0)}MB`, {
           uptime,
@@ -455,7 +487,10 @@ export class HealthMonitor {
     try {
       await this.alertCallback(message);
     } catch (error) {
-      withLogContext({ service: 'healthMonitor' }).error({ err: error }, 'Health alert callback failed');
+      withLogContext({ service: 'healthMonitor' }).error(
+        { err: error },
+        'Health alert callback failed'
+      );
     }
   }
 
