@@ -6,7 +6,7 @@
 
 ## Why This Exists
 
-Retail traders often lack access to the institutional-grade tools necessary to make data-driven decisions in volatile crypto markets. Navigating multiple platforms for technical indicators, news sentiment, and strategy backtesting is time-consuming and fragmented. This bot consolidates multi-timeframe analysis, AI-powered news sentiment (via Chutes AI), and risk management into a single, accessible Telegram interface—leveling the playing field without the cost of premium subscriptions.
+Retail traders often lack access to the institutional-grade tools necessary to make data-driven decisions in volatile crypto markets. You spend hours navigating multiple platforms for technical indicators, news sentiment, and strategy backtesting, which is time-consuming and fragmented. This bot consolidates multi-timeframe analysis, AI-powered news sentiment (via Chutes AI), and risk management into a single, accessible Telegram interface, saving you time and improving your trading decisions without the cost of premium subscriptions.
 
 ## Quick Start
 
@@ -16,81 +16,25 @@ Get the bot up and running in under 2 minutes:
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
 npm install
-
-# Copy the environment template and add your Telegram bot token
 cp .env.example .env
+
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
-# Build the project (generates the dist/ directory)
 npm run build
-
-# Start the bot
 npm start
 ```
 
-Open Telegram, find your bot, and send `/start`.
-
 ## Installation
 
-**Prerequisites**:
-- Node.js 20.19+
-- npm 9+
-- A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
+**Prerequisites**: Node.js 20.19+, npm 9+
+
+Clone the repository and install dependencies:
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
-
-# 2. Install dependencies
 npm install
 ```
-
-## Configuration
-
-Configure the bot by editing the `.env` file.
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
-
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
-
-## Run With PM2 (Persistent)
-
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
-
-```bash
-# Build first
-npm run build
-
-# Start/recover with PM2
-npm run pm2:bootstrap
-
-# Check status/logs
-npm run pm2:status
-npm run pm2:logs
-```
-
-### Auto Start On Reboot (systemd)
-
-```bash
-# 1) Install service file (adjust username/path if needed)
-sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
-
-# 2) Reload systemd and enable service
-sudo systemctl daemon-reload
-sudo systemctl enable --now rabtradebot.service
-
-# 3) Verify
-systemctl status rabtradebot.service
-npm run pm2:status
-```
-
-The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
 ## Usage
 
@@ -98,41 +42,77 @@ Interact with the bot via Telegram commands.
 
 ### Basic Example
 
-To get a complete market analysis for a specific pair:
+To get a complete market analysis for a specific pair, send the following command to your bot:
 
 ```
 /analyze BTCUSDT
 ```
 
-**What you get:**
+You receive:
 - **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
 - **Multi-timeframe Analysis**: 1H, 4H, 1D trends
 - **Backtesting Results**: 30-day strategy performance
 - **Recommendations**: Entry/exit levels with reasoning
+
+### Configuration
+
+Configure the bot by editing the `.env` file in the root directory.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `DATABASE_URL` | `string` | `"file:./prisma/dev.db"` | Connection string for the database |
+| `TELEGRAM_BOT_TOKEN` | `string` | `undefined` | Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | `undefined` | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | `undefined` | Required for live trading and better rate limits |
+| `BINANCE_TESTNET` | `boolean` | `true` | Enable Binance Spot Testnet |
+| `TWITTER_API_KEY` | `string` | `undefined` | Required for social media analysis |
+| `CHUTES_API_KEY` | `string` | `undefined` | Required for AI-powered news analysis and impact predictions |
 
 ### Advanced Usage
 
 The bot supports complex trading workflows, including simulated trading and strategy optimization.
 
 **Start a Paper Trading Session:**
+
 ```
 /papertrade ETHUSDT
 ```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+
+Starts a virtual trading session with a $1000 simulated balance using real market data. Track your progress using `/portfolio`.
 
 **Backtest a Strategy:**
+
 ```
 /backtest SOLUSDT 30
 ```
-*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
+
+Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.
 
 **Optimize Strategy Parameters:**
+
 ```
 /optimize ADAUSDT 60
 ```
-*Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
-## Telegram Command Reference
+Runs optimization over a 60-day period to find the best parameters for maximum profit.
+
+### Deploying With PM2
+
+This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+
+```bash
+# Build first
+npm run build
+
+# Start or recover with PM2
+npm run pm2:bootstrap
+
+# Check status or logs
+npm run pm2:status
+npm run pm2:logs
+```
+
+## Command Reference
 
 ### Basic Analysis
 - `/signal [symbol]` - Trading signals
@@ -163,8 +143,8 @@ The bot supports complex trading workflows, including simulated trading and stra
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md)
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT © RabTradebot
