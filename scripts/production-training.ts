@@ -51,6 +51,7 @@ async function productionTraining() {
             TRAINING_CONFIG.candleCount,
         );
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
