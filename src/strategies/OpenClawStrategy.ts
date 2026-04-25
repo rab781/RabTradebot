@@ -18,6 +18,7 @@ import { LSTMModelManager, PredictionResult } from '../ml/lstmModel';
 import * as fs from 'fs';
 import * as path from 'path';
 import { logger } from '../utils/logger';
+import { padArray, padMappedArray } from '../utils/arrayUtils';
 
 export type MarketRegime = 'trending_bull' | 'trending_bear' | 'ranging' | 'volatile';
 
@@ -132,13 +133,13 @@ export class OpenClawStrategy implements IStrategy {
 
         // RSI with multiple periods
         const rsi14 = RSI.calculate({ period: 14, values: closes });
-        dataframe.rsi = new Array(length - rsi14.length).fill(50).concat(rsi14);
+        dataframe.rsi = padArray(rsi14, length, 50);
 
         const rsi7 = RSI.calculate({ period: 7, values: closes });
-        dataframe.rsi_7 = new Array(length - rsi7.length).fill(50).concat(rsi7);
+        dataframe.rsi_7 = padArray(rsi7, length, 50);
 
         const rsi21 = RSI.calculate({ period: 21, values: closes });
-        dataframe.rsi_21 = new Array(length - rsi21.length).fill(50).concat(rsi21);
+        dataframe.rsi_21 = padArray(rsi21, length, 50);
 
         // MACD
         const macdResult = MACD.calculate({
@@ -152,31 +153,31 @@ export class OpenClawStrategy implements IStrategy {
 
         const macdLength = macdResult.length;
         const macdPad = length - macdLength;
-        dataframe.macd = new Array(macdPad).fill(0).concat(macdResult.map(m => m?.MACD || 0));
-        dataframe.macd_signal = new Array(macdPad).fill(0).concat(macdResult.map(m => m?.signal || 0));
-        dataframe.macd_histogram = new Array(macdPad).fill(0).concat(macdResult.map(m => m?.histogram || 0));
+        dataframe.macd = padMappedArray(macdResult, length, 0, m => m?.MACD || 0);
+        dataframe.macd_signal = padMappedArray(macdResult, length, 0, m => m?.signal || 0);
+        dataframe.macd_histogram = padMappedArray(macdResult, length, 0, m => m?.histogram || 0);
 
         // === TREND INDICATORS ===
 
         // EMAs
         const ema9 = EMA.calculate({ period: 9, values: closes });
-        dataframe.ema_9 = new Array(length - ema9.length).fill(closes[0]).concat(ema9);
+        dataframe.ema_9 = padArray(ema9, length, closes[0]);
 
         const ema21 = EMA.calculate({ period: 21, values: closes });
-        dataframe.ema_21 = new Array(length - ema21.length).fill(closes[0]).concat(ema21);
+        dataframe.ema_21 = padArray(ema21, length, closes[0]);
 
         const ema50 = EMA.calculate({ period: 50, values: closes });
-        dataframe.ema_50 = new Array(length - ema50.length).fill(closes[0]).concat(ema50);
+        dataframe.ema_50 = padArray(ema50, length, closes[0]);
 
         const ema200 = EMA.calculate({ period: 200, values: closes });
-        dataframe.ema_200 = new Array(length - ema200.length).fill(closes[0]).concat(ema200);
+        dataframe.ema_200 = padArray(ema200, length, closes[0]);
 
         // SMAs
         const sma20 = SMA.calculate({ period: 20, values: closes });
-        dataframe.sma_20 = new Array(length - sma20.length).fill(closes[0]).concat(sma20);
+        dataframe.sma_20 = padArray(sma20, length, closes[0]);
 
         const sma50 = SMA.calculate({ period: 50, values: closes });
-        dataframe.sma_50 = new Array(length - sma50.length).fill(closes[0]).concat(sma50);
+        dataframe.sma_50 = padArray(sma50, length, closes[0]);
 
         // ADX for trend strength
         const adxResult = ADX.calculate({
@@ -187,7 +188,7 @@ export class OpenClawStrategy implements IStrategy {
         });
         const adxLength = adxResult.length;
         const adxPad = length - adxLength;
-        dataframe.adx = new Array(adxPad).fill(20).concat(adxResult.map(a => a?.adx || 20));
+        dataframe.adx = padMappedArray(adxResult, length, 20, a => a?.adx || 20);
 
         // === VOLATILITY INDICATORS ===
 
@@ -200,9 +201,9 @@ export class OpenClawStrategy implements IStrategy {
 
         const bbLength = bbResult.length;
         const bbPad = length - bbLength;
-        dataframe.bb_upper = new Array(bbPad).fill(closes[0]).concat(bbResult.map(b => b?.upper || 0));
-        dataframe.bb_middle = new Array(bbPad).fill(closes[0]).concat(bbResult.map(b => b?.middle || 0));
-        dataframe.bb_lower = new Array(bbPad).fill(closes[0]).concat(bbResult.map(b => b?.lower || 0));
+        dataframe.bb_upper = padMappedArray(bbResult, length, closes[0], b => b?.upper || 0);
+        dataframe.bb_middle = padMappedArray(bbResult, length, closes[0], b => b?.middle || 0);
+        dataframe.bb_lower = padMappedArray(bbResult, length, closes[0], b => b?.lower || 0);
 
         // ATR
         const atrResult = ATR.calculate({
@@ -213,13 +214,13 @@ export class OpenClawStrategy implements IStrategy {
         });
         const atrLength = atrResult.length;
         const atrPad = length - atrLength;
-        dataframe.atr = new Array(atrPad).fill(0).concat(atrResult);
+        dataframe.atr = padArray(atrResult, length, 0);
 
         // === VOLUME INDICATORS ===
 
         // Volume MA
         const volMa = SMA.calculate({ period: 20, values: volumes });
-        dataframe.volume_ma = new Array(length - volMa.length).fill(volumes[0]).concat(volMa);
+        dataframe.volume_ma = padArray(volMa, length, volumes[0]);
 
         // === COMBINED LOOP FOR OPTIMIZED CUSTOM INDICATORS ===
         // Bolt: Optimize O(N) multi-loop allocations and slice overheads by merging
