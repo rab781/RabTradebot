@@ -10,7 +10,7 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+You can get the bot up and running in under 2 minutes.
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
@@ -19,9 +19,12 @@ npm install
 
 # Copy the environment template and add your Telegram bot token
 cp .env.example .env
-# Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
-# Build the project (generates the dist/ directory)
+# Set up the database
+npx prisma generate
+npx prisma migrate dev
+
+# Build the project
 npm run build
 
 # Start the bot
@@ -44,33 +47,57 @@ cd RabTradebot
 
 # 2. Install dependencies
 npm install
+
+# 3. Configure environment
+cp .env.example .env
+
+# 4. Generate Prisma client and migrate database
+npx prisma generate
+npx prisma migrate dev
 ```
 
-## Configuration
+## Usage
 
-Configure the bot by editing the `.env` file.
+You interact with the bot via Telegram commands.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+### Basic Example
 
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+You get a complete market analysis for a specific pair by sending:
 
-## Run With PM2 (Persistent)
+```
+/analyze BTCUSDT
+```
 
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+**What you get:**
+- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
+- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
+- **Backtesting Results**: 30-day strategy performance
+- **Recommendations**: Entry/exit levels with reasoning
+
+### Advanced Usage
+
+You start a virtual trading session with a $1000 simulated balance using real market data. Track it using `/portfolio`:
+```
+/papertrade ETHUSDT
+```
+
+You test the default strategy's performance over the last 30 days and get back win rate, drawdown, and total profit:
+```
+/backtest SOLUSDT 30
+```
+
+You run optimization over a 60-day period to find the best parameters for maximum profit:
+```
+/optimize ADAUSDT 60
+```
+
+### Run With PM2 (Persistent)
+
+You run this project using PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
 
 ```bash
-# Build first
 npm run build
-
-# Start/recover with PM2
 npm run pm2:bootstrap
-
-# Check status/logs
 npm run pm2:status
 npm run pm2:logs
 ```
@@ -92,45 +119,20 @@ npm run pm2:status
 
 The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
-## Usage
+## Configuration
 
-Interact with the bot via Telegram commands.
+You configure the bot by editing the `.env` file.
 
-### Basic Example
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | | **Required.** Your Telegram bot token from @BotFather |
+| `DATABASE_URL` | `string` | `file:./prisma/dev.db` | Connection string for your Prisma database |
+| `BINANCE_API_KEY` | `string` | | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | | Required for live trading and better rate limits |
+| `BINANCE_TESTNET` | `boolean`| `true` | Enable Binance Spot Testnet (recommended for development) |
+| `CHUTES_API_KEY` | `string` | | Required for AI-powered news analysis and impact predictions |
 
-To get a complete market analysis for a specific pair:
-
-```
-/analyze BTCUSDT
-```
-
-**What you get:**
-- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
-- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
-- **Backtesting Results**: 30-day strategy performance
-- **Recommendations**: Entry/exit levels with reasoning
-
-### Advanced Usage
-
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
-
-**Start a Paper Trading Session:**
-```
-/papertrade ETHUSDT
-```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
-
-**Backtest a Strategy:**
-```
-/backtest SOLUSDT 30
-```
-*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
-
-**Optimize Strategy Parameters:**
-```
-/optimize ADAUSDT 60
-```
-*Runs optimization over a 60-day period to find the best parameters for maximum profit.*
+> **Note**: The bot automatically falls back to the public Binance API if you do not provide private credentials.
 
 ## Telegram Command Reference
 
@@ -163,7 +165,7 @@ The bot supports complex trading workflows, including simulated trading and stra
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+You are welcome to contribute! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 
