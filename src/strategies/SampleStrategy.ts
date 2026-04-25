@@ -3,6 +3,7 @@ import { IStrategy, StrategyMetadata, Trade, StrategyResult } from '../types/str
 import { RSI, MACD, BollingerBands, SMA, EMA } from 'technicalindicators';
 import { TradingViewService } from '../services/TradingViewService';
 import { logger } from '../utils/logger';
+import { padArray, padMappedArray } from '../utils/arrayUtils';
 
 export class SampleStrategy implements IStrategy {
     // Strategy metadata
@@ -58,7 +59,7 @@ export class SampleStrategy implements IStrategy {
             values: dataframe.close,
             period: 14
         });
-        const rsiColumn = new Array(dataframe.close.length - rsiValues.length).fill(NaN).concat(rsiValues);
+        const rsiColumn = padArray(rsiValues, dataframe.close.length, NaN);
         
         // Calculate MACD
         const macdResult = MACD.calculate({
@@ -72,9 +73,9 @@ export class SampleStrategy implements IStrategy {
         
         const macdLength = macdResult.length;
         const macdPad = dataframe.close.length - macdLength;
-        const macdValues = new Array(macdPad).fill(NaN).concat(macdResult.map(m => m.MACD || 0));
-        const macdSignalValues = new Array(macdPad).fill(NaN).concat(macdResult.map(m => m.signal || 0));
-        const macdHistValues = new Array(macdPad).fill(NaN).concat(macdResult.map(m => m.histogram || 0));
+        const macdValues = padMappedArray(macdResult, dataframe.close.length, NaN, m => m.MACD || 0);
+        const macdSignalValues = padMappedArray(macdResult, dataframe.close.length, NaN, m => m.signal || 0);
+        const macdHistValues = padMappedArray(macdResult, dataframe.close.length, NaN, m => m.histogram || 0);
         
         // Calculate Bollinger Bands
         const bbResult = BollingerBands.calculate({
@@ -85,22 +86,22 @@ export class SampleStrategy implements IStrategy {
         
         const bbLength = bbResult.length;
         const bbPad = dataframe.close.length - bbLength;
-        const bbUpperValues = new Array(bbPad).fill(NaN).concat(bbResult.map(bb => bb.upper));
-        const bbMiddleValues = new Array(bbPad).fill(NaN).concat(bbResult.map(bb => bb.middle));
-        const bbLowerValues = new Array(bbPad).fill(NaN).concat(bbResult.map(bb => bb.lower));
+        const bbUpperValues = padMappedArray(bbResult, dataframe.close.length, NaN, bb => bb.upper);
+        const bbMiddleValues = padMappedArray(bbResult, dataframe.close.length, NaN, bb => bb.middle);
+        const bbLowerValues = padMappedArray(bbResult, dataframe.close.length, NaN, bb => bb.lower);
         
         // Calculate moving averages
         const ema10Values = EMA.calculate({
             period: 10,
             values: dataframe.close
         });
-        const ema10Column = new Array(dataframe.close.length - ema10Values.length).fill(NaN).concat(ema10Values);
+        const ema10Column = padArray(ema10Values, dataframe.close.length, NaN);
         
         const sma20Values = SMA.calculate({
             period: 20,
             values: dataframe.close
         });
-        const sma20Column = new Array(dataframe.close.length - sma20Values.length).fill(NaN).concat(sma20Values);
+        const sma20Column = padArray(sma20Values, dataframe.close.length, NaN);
 
         // Add indicators to dataframe
         dataframe.rsi = rsiColumn;
