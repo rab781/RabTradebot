@@ -1083,6 +1083,7 @@ bot.command('signal', async (ctx) => {
   }
 
   let loadingMsg: any;
+  let responseText: string = '';
   try {
     loadingMsg = await ctx.reply('🔄 Generating signal...');
     const signal = await signalGenerator.generateSignal(symbol);
@@ -1097,16 +1098,19 @@ bot.command('signal', async (ctx) => {
       indicators: {},
     });
 
-    ctx.reply(signal.text);
+    responseText = signal.text;
   } catch (error) {
     logger.error({ err: error }, `Error generating signal for ${symbol}:`);
-    ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);
+    responseText = `❌ Error generating signal for ${symbol}. Please check the symbol and try again.`;
   } finally {
     if (loadingMsg) {
       try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
     }
   }
 
+  if (responseText) {
+    await ctx.reply(responseText);
+  }
   return;
 });
 
