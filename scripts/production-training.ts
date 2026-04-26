@@ -51,7 +51,7 @@ async function productionTraining() {
             TRAINING_CONFIG.candleCount,
         );
 
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
+        const candles: OHLCVCandle[] = rawCandles.map((c: [number, string, string, string, string, string]) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
             high: parseFloat(c[2]),
