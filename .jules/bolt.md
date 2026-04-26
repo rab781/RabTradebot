@@ -1,3 +1,6 @@
+## 2026-04-26 - [Math.max stack overflow on Database Trade Data]
+**Learning:** In `src/services/databaseService.ts`, when pulling all trades for user stats via `getUserTradeStats`, mapping the entire trades array into a new array and then using the spread operator with `Math.max(...profits)` can trigger a `RangeError: Maximum call stack size exceeded` if a user has tens of thousands of trades. Moreover, using multiple chained array methods (`.map`, `.filter`, `.reduce`) adds heavy O(N) allocation overhead.
+**Action:** Replace functional array chaining and spread operators with a single, fast O(N) `for` loop to accumulate metrics (like count, sum, max, min) directly over the raw object array. This prevents both excessive intermediate array memory allocations and the hard engine limit on function argument count.
 ## 2025-05-18 - [node_modules tracked in git]
 **Learning:** This repository tracks portions of `node_modules` in git. `npm install` modifies these files, causing them to appear as staged/dirty.
 **Action:** Always use `git checkout HEAD node_modules` (and `.package-lock.json`) before committing to avoid accidental changes to these files.
