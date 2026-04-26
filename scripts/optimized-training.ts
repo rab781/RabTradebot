@@ -25,7 +25,7 @@ async function optimizedTraining() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData(symbol, '1h', days * 24);
 
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
+        const candles: OHLCVCandle[] = rawCandles.map((c: [number, string, string, string, string, string]) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
             high: parseFloat(c[2]),

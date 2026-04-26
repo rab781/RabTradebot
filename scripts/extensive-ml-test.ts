@@ -19,7 +19,7 @@ async function extensiveTest() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 600);
 
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
+        const candles: OHLCVCandle[] = rawCandles.map((c: [number, string, string, string, string, string]) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
             high: parseFloat(c[2]),
@@ -76,7 +76,7 @@ async function extensiveTest() {
         console.log('\n📊 Step 5: Testing Predictions (30 tests)');
         console.log('='.repeat(80));
 
-        const testResults: any[] = [];
+        const testResults: { match: boolean; predDir: string; actualDir: string; predChange: number; actualChange: number; confidence: number; error: number; }[] = [];
         const testCount = Math.min(30, testFeatures.length - 20);
 
         for (let i = 0; i < testCount; i++) {
