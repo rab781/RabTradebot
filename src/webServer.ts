@@ -17,6 +17,7 @@ const PORT = Number(process.env.WEB_PORT || 3000);
 const HOST = process.env.WEB_HOST || '0.0.0.0';
 
 const app = express();
+app.disable('x-powered-by'); // 🛡️ Sentinel: Disable x-powered-by to prevent information disclosure
 const httpServer = createServer(app);
 
 // 🛡️ Sentinel: Restrict CORS origin to prevent unauthorized access (High Priority: Overly permissive CORS)
@@ -43,6 +44,8 @@ app.use((req: Request, res: Response, next: NextFunction) => {
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    res.setHeader('Content-Security-Policy', "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' ws: wss:;"); // 🛡️ Sentinel: Add CSP
+    res.setHeader('X-XSS-Protection', '1; mode=block'); // 🛡️ Sentinel: Add X-XSS-Protection
     next();
 });
 
