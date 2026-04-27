@@ -21,6 +21,10 @@ npm install
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
+# Set up database
+npx prisma generate
+npx prisma migrate dev
+
 # Build the project (generates the dist/ directory)
 npm run build
 
@@ -44,18 +48,22 @@ cd RabTradebot
 
 # 2. Install dependencies
 npm install
+
+# 3. Set up database (requires .env to be configured)
+npx prisma generate
+npx prisma migrate dev
 ```
 
 ## Configuration
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `undefined` | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | `undefined` | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | `undefined` | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | `undefined` | Required for AI-powered news analysis and impact predictions |
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
