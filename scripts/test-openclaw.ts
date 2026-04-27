@@ -140,7 +140,7 @@ async function testOpenClawStrategy() {
             console.log('\n📝 Sample Trades (Last 5):');
             const sampleTrades = result.trades.slice(-5);
 
-            sampleTrades.forEach((trade: any, idx: number) => {
+            sampleTrades.forEach((trade: unknown, idx: number) => {
                 const profit = trade.profitPct || 0;
                 const icon = profit > 0 ? '✅' : '❌';
                 console.log(`\n   ${icon} Trade #${result.trades.length - 5 + idx + 1}:`);

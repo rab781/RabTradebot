@@ -6,7 +6,7 @@
 import { DataManager } from '../src/services/dataManager';
 import { FeatureEngineeringService } from '../src/services/featureEngineering';
 import { LSTMModelManager } from '../src/ml/lstmModel';
-import { OHLCVCandle } from '../src/types/dataframe';
+
 
 async function trainModel() {
     console.log('🤖 LSTM Model Training Script\n');
@@ -98,7 +98,7 @@ async function trainModel() {
             console.log('✅ Model training completed successfully!');
             console.log(`📁 Model saved to: ${modelPath}`);
             console.log('='.repeat(60));
-        } catch (saveError: any) {
+        } catch (saveError: unknown) {
             console.log('='.repeat(60));
             console.warn('⚠️  Model save skipped (requires @tensorflow/tfjs-node)');
             console.log('✅ Model training completed successfully!');

@@ -4,7 +4,7 @@
  */
 
 import { db } from '../src/services/databaseService';
-import { predictionVerifier } from '../src/services/predictionVerifier';
+
 import { PublicCryptoService } from '../src/services/publicCryptoService';
 
 const publicCrypto = new PublicCryptoService();
@@ -80,7 +80,7 @@ async function testPhase1Features() {
             console.log(`✅ Fetched ${candles.length} candles from Binance`);
 
             // Cache the data
-            const cacheData = candles.map((c: any) => ({
+            const cacheData = candles.map((c: unknown) => ({
                 symbol: 'BTCUSDT',
                 timeframe: '1h',
                 timestamp: c[0],
