@@ -355,19 +355,36 @@ export class DatabaseService {
             };
         }
 
-        const profits = trades.map((t: any) => t.profit || 0);
-        const winningTrades = trades.filter((t: any) => (t.profit || 0) > 0);
-        const totalProfit = profits.reduce((a: number, b: number) => a + b, 0);
+        // ⚡ Bolt Optimization: Replace chained O(N) map/filter/reduce and spread operators
+        // with a single O(N) loop to eliminate intermediate array allocations
+        // and prevent stack overflows from Math.max/min(...largeArray).
+        let winningTradesCount = 0;
+        let totalProfit = 0;
+        let bestTrade = -Infinity;
+        let worstTrade = Infinity;
+
+        for (let i = 0; i < trades.length; i++) {
+            const profit = trades[i].profit || 0;
+            totalProfit += profit;
+
+            if (profit > 0) winningTradesCount++;
+            if (profit > bestTrade) bestTrade = profit;
+            if (profit < worstTrade) worstTrade = profit;
+        }
+
+        // Handle edge cases
+        if (bestTrade === -Infinity) bestTrade = 0;
+        if (worstTrade === Infinity) worstTrade = 0;
 
         return {
             totalTrades: trades.length,
-            winningTrades: winningTrades.length,
-            losingTrades: trades.length - winningTrades.length,
-            winRate: (winningTrades.length / trades.length) * 100,
+            winningTrades: winningTradesCount,
+            losingTrades: trades.length - winningTradesCount,
+            winRate: (winningTradesCount / trades.length) * 100,
             totalProfit,
             avgProfit: totalProfit / trades.length,
-            bestTrade: Math.max(...profits),
-            worstTrade: Math.min(...profits)
+            bestTrade,
+            worstTrade
         };
     }
 
