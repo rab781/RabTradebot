@@ -4,7 +4,7 @@ const Module = require('module');
 const originalRequire = Module.prototype.require;
 
 // Mock the database module before importing anything that uses it
-Module.prototype.require = function(path: string, ...args: any[]) {
+Module.prototype.require = function(path: string, ...args: unknown[]) {
   if (path.includes('database/database')) {
       return {
           getDatabase: () => ({
@@ -18,7 +18,7 @@ Module.prototype.require = function(path: string, ...args: any[]) {
   return originalRequire.apply(this, [path, ...args]);
 };
 
-import { FeatureEngineeringService, FeatureSet } from '../src/services/featureEngineering';
+import { FeatureEngineeringService } from '../src/services/featureEngineering';
 import { OHLCVCandle } from '../src/types/dataframe';
 
 const generateCandles = (count: number): OHLCVCandle[] => {

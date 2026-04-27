@@ -39,7 +39,7 @@ async function testNewsAnalysis() {
         console.log('\n📄 FULL SUMMARY:');
         console.log(analysis.summary);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.error('❌ Test failed:', error.message);
         console.error('Full error:', error);
     }

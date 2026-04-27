@@ -24,11 +24,11 @@ async function testMLPredictions() {
 
         // 2. Fetch recent data
         console.log(`2️⃣ Fetching ${lookback} days of data for ${symbol}...`);
-        const dataManager = new DataManager();
+        new DataManager();
         const rawCandles = await cryptoService.getCandlestickData(symbol, '1h', lookback * 24);
 
         // Convert to OHLCVCandle format
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
+        const candles: OHLCVCandle[] = rawCandles.map((c: unknown) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
             high: parseFloat(c[2]),
@@ -64,7 +64,7 @@ async function testMLPredictions() {
         const testFeatures = features.slice(splitIndex);
 
         // Calculate price changes as targets
-        const trainTargets = trainFeatures.map((_: any, i: number) => {
+        const trainTargets = trainFeatures.map((_: unknown, i: number) => {
             const candleIndex = i + 200; // Features start from index 200
             if (candleIndex >= candles.length - 1) return 0;
             const currentPrice = candles[candleIndex].close;
@@ -87,7 +87,7 @@ async function testMLPredictions() {
         console.log('\n7️⃣ Testing Predictions...');
         console.log('═══════════════════════════════════════════════════════════');
 
-        const predictions: any[] = [];
+        const predictions: unknown[] = [];
         let correctPredictions = 0;
         let totalPredictions = 0;
 
