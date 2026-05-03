@@ -76,7 +76,12 @@ export class BacktestEngine {
             this.updateTradesProfits(openTrades, currentPrice);
 
             // Update balance for open trades
-            const totalUnrealizedPnl = openTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
+            // ⚡ Bolt Optimization: Replace Array.reduce with a block-scoped for loop to prevent closure allocation overhead in hot loop
+            let totalUnrealizedPnl = 0;
+            const openTradesLen = openTrades.length;
+            for (let j = 0; j < openTradesLen; j++) {
+                totalUnrealizedPnl += openTrades[j].profit || 0;
+            }
             const currentBalance = balance + totalUnrealizedPnl;
 
             // Track drawdown
