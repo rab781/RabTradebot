@@ -2078,9 +2078,10 @@ bot.command('strategies', (ctx) => {
 // OpenClaw analysis command
 bot.command('openclaw', async (ctx) => {
   const symbol = ctx.message.text.split(' ')[1]?.toUpperCase() || 'BTCUSDT';
+  let loadingMsg: any;
 
   try {
-    const loadingMsg = await ctx.reply(`🦅 Running OpenClaw analysis for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🦅 Running OpenClaw analysis for ${symbol}...`);
 
     // Download data
     const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
@@ -2167,16 +2168,18 @@ ${enterLong === 1 ? '✅ Consider LONG entry\n📈 Bullish momentum detected' : 
 ⏰ Timeframe: 1h | Last Update: ${new Date().toLocaleTimeString()}
         `;
 
-    try {
-      await ctx.telegram.deleteMessage(ctx.chat!.id, loadingMsg.message_id);
-    } catch (e) {
-      /* ignore */
-    }
-
     ctx.reply(message);
   } catch (error) {
     logger.error({ err: error }, 'OpenClaw error:');
     ctx.reply(`❌ Error: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try {
+        await ctx.deleteMessage(loadingMsg.message_id);
+      } catch (e) {
+        /* ignore */
+      }
+    }
   }
 
   return;
