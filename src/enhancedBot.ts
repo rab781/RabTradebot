@@ -423,39 +423,6 @@ bot.command('go', async (ctx) => {
   return replyMainMenu(ctx, user.id, '🚀 Quick Menu');
 });
 
-bot.command('logs', async (ctx) => {
-  const user = await ensureUser(ctx);
-  if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
-  
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const fs = require('fs');
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const path = require('path');
-    const logPath = path.join(process.cwd(), 'logs', 'pm2-out.log');
-    
-    if (!fs.existsSync(logPath)) {
-      return ctx.reply('❌ File log PM2 (logs/pm2-out.log) tidak ditemukan. Apakah PM2 berjalan?');
-    }
-    
-    const stats = fs.statSync(logPath);
-    const readSize = Math.min(stats.size, 4096);
-    const buffer = Buffer.alloc(readSize);
-    
-    const fd = fs.openSync(logPath, 'r');
-    fs.readSync(fd, buffer, 0, readSize, stats.size - readSize);
-    fs.closeSync(fd);
-    
-    const lines = buffer.toString('utf-8').split('\n');
-    const lastLines = lines.filter(l => l.trim().length > 0).slice(-20).join('\n');
-    
-    const escapedLogs = lastLines || 'Tidak ada log terbaru.';
-    return ctx.reply(`📝 *Daftar Logs Terakhir:*\n\`\`\`\n${escapedLogs}\n\`\`\``, { parse_mode: 'Markdown' });
-  } catch (error) {
-    return ctx.reply(`❌ Gagal membaca log: ${(error as Error).message}`);
-  }
-});
-
 // ── INLINE NAVIGATION ACTIONS ─────────────────────────────────────────────────
 
 bot.action('home', async (ctx) => {
