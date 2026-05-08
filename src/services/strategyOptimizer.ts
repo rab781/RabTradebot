@@ -391,11 +391,21 @@ ${Object.entries(parameterImportance)
         }
 
         const n = x.length;
-        const sumX = x.reduce((a, b) => a + b, 0);
-        const sumY = y.reduce((a, b) => a + b, 0);
-        const sumXY = x.reduce((sum, xi, i) => sum + xi * y[i], 0);
-        const sumX2 = x.reduce((sum, xi) => sum + xi * xi, 0);
-        const sumY2 = y.reduce((sum, yi) => sum + yi * yi, 0);
+        // ⚡ Bolt Optimization:
+        // Replaced 5 sequential O(N) `.reduce()` passes with a single O(N) `for` loop.
+        // This eliminates 5 array traversals and 5 closure function allocations per call,
+        // significantly reducing CPU and GC overhead during intensive optimization cycles.
+        let sumX = 0, sumY = 0, sumXY = 0, sumX2 = 0, sumY2 = 0;
+
+        for (let i = 0; i < n; i++) {
+            const xi = x[i];
+            const yi = y[i];
+            sumX += xi;
+            sumY += yi;
+            sumXY += xi * yi;
+            sumX2 += xi * xi;
+            sumY2 += yi * yi;
+        }
 
         const numerator = n * sumXY - sumX * sumY;
         const denominator = Math.sqrt((n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY));
