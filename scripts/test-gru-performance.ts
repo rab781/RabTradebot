@@ -19,13 +19,13 @@ async function comprehensiveTest() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 500);
 
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
-            timestamp: c[0],
-            open: parseFloat(c[1]),
-            high: parseFloat(c[2]),
-            low: parseFloat(c[3]),
-            close: parseFloat(c[4]),
-            volume: parseFloat(c[5]),
+        const candles: OHLCVCandle[] = rawCandles.map((c: (number | string)[]) => ({
+            timestamp: c[0] as number,
+            open: parseFloat(c[1] as string),
+            high: parseFloat(c[2] as string),
+            low: parseFloat(c[3] as string),
+            close: parseFloat(c[4] as string),
+            volume: parseFloat(c[5] as string),
             date: new Date(c[0])
         }));
 
@@ -64,7 +64,7 @@ async function comprehensiveTest() {
         console.log('='.repeat(70));
 
         const epochTests = [5, 10, 15];
-        const results: any[] = [];
+        const results: { epochs: number, trainTime: string, correct: number, accuracy: string }[] = [];
 
         for (const epochs of epochTests) {
             console.log(`\n📈 Test with ${epochs} epochs:`);
@@ -80,7 +80,7 @@ async function comprehensiveTest() {
 
             // Test predictions on test set
             let correctPredictions = 0;
-            const testPredictions: any[] = [];
+            const testPredictions: { actual: string, predicted: string, correct: boolean }[] = [];
 
             for (let i = 0; i < Math.min(20, testFeatures.length - 20); i++) {
                 const idx = splitIdx + i;

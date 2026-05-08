@@ -51,14 +51,14 @@ async function productionTraining() {
             TRAINING_CONFIG.candleCount,
         );
 
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
-            timestamp: c[0],
-            open: parseFloat(c[1]),
-            high: parseFloat(c[2]),
-            low: parseFloat(c[3]),
-            close: parseFloat(c[4]),
-            volume: parseFloat(c[5]),
-            date: new Date(c[0]),
+        const candles: OHLCVCandle[] = rawCandles.map((c: (number | string)[]) => ({
+            timestamp: c[0] as number,
+            open: parseFloat(c[1] as string),
+            high: parseFloat(c[2] as string),
+            low: parseFloat(c[3] as string),
+            close: parseFloat(c[4] as string),
+            volume: parseFloat(c[5] as string),
+            date: new Date(c[0] as number)
         }));
         console.log(`✓ ${candles.length} candles loaded`);
         console.log(`  Range: ${new Date(candles[0].timestamp).toLocaleDateString()} → ${new Date(candles[candles.length - 1].timestamp).toLocaleDateString()}`);

@@ -48,16 +48,16 @@ async function testChutesAPI() {
         console.log('\nFull Response Object:');
         console.log(JSON.stringify(response.data, null, 2));
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.log('❌ ERROR:\n');
-        if (error.response) {
-            console.log('Status:', error.response.status);
-            console.log('Data:', JSON.stringify(error.response.data, null, 2));
-        } else if (error.request) {
+        if ((error as { response?: { status: number, data: unknown }, request?: unknown }).response) {
+            console.log('Status:', (error as { response?: { status: number, data: unknown }, request?: unknown }).response.status);
+            console.log('Data:', JSON.stringify((error as { response?: { status: number, data: unknown }, request?: unknown }).response.data, null, 2));
+        } else if ((error as { response?: { status: number, data: unknown }, request?: unknown }).request) {
             console.log('No response received');
-            console.log('Request:', error.message);
+            console.log('Request:', (error as Error).message);
         } else {
-            console.log('Error:', error.message);
+            console.log('Error:', (error as Error).message);
         }
     }
 }
