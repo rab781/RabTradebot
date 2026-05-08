@@ -1490,8 +1490,9 @@ bot.command('backtest', async (ctx) => {
     return ctx.reply('Days must be between 7 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
+    loadingMsg = await ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
 
     // Download historical data
     const endDate = new Date();
@@ -1508,6 +1509,7 @@ bot.command('backtest', async (ctx) => {
     const historicalData = await dataManager.downloadHistoricalData(dataConfig);
 
     if (historicalData.length < 100) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
       return ctx.reply('❌ Insufficient historical data for backtesting');
     }
 
@@ -1616,7 +1618,8 @@ Worst: ${result.worstTrade ? `$${result.worstTrade.profit?.toFixed(2)} (${result
 Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
         `;
 
-    ctx.reply(resultMessage);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    await ctx.reply(resultMessage);
   } catch (error) {
     logger.error({ err: error }, 'Backtest error:');
     await db.logError({
@@ -1649,12 +1652,14 @@ bot.command('papertrade', async (ctx) => {
     );
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
 
     // Ensure user exists in database
     const user = await ensureUser(ctx);
     if (!user) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
       return ctx.reply('❌ Failed to create user session.');
     }
 
@@ -1682,6 +1687,7 @@ bot.command('papertrade', async (ctx) => {
 Use /portfolio to check your positions
 Use /performance to see detailed metrics
 Use /stoptrading to stop trading`);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
   } catch (error) {
     logger.error({ err: error }, 'Paper trading error:');
     await db.logError({
@@ -1852,8 +1858,9 @@ bot.command('optimize', async (ctx) => {
     return ctx.reply('Days must be between 14 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting strategy optimization for ${symbol}...
+    loadingMsg = await ctx.reply(`🔄 Starting strategy optimization for ${symbol}...
 This may take several minutes. ⏳`);
 
     // Download historical data
@@ -1870,6 +1877,7 @@ This may take several minutes. ⏳`);
     const historicalData = await dataManager.downloadHistoricalData(dataConfig);
 
     if (historicalData.length < 200) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
       return ctx.reply('❌ Insufficient historical data for optimization');
     }
 
@@ -1893,6 +1901,7 @@ This may take several minutes. ⏳`);
     const results = await optimizer.optimize();
 
     if (results.length === 0) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
       return ctx.reply('❌ No valid optimization results found');
     }
 
@@ -1924,7 +1933,8 @@ ${Object.entries(analysis.parameterImportance)
 Tested ${results.length} parameter combinations.
         `;
 
-    ctx.reply(message);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    await ctx.reply(message);
   } catch (error) {
     logger.error({ err: error }, 'Optimization error:');
     ctx.reply(`❌ Error during optimization: ${(error as Error).message}`);
@@ -1947,8 +1957,9 @@ bot.command('download', async (ctx) => {
     return ctx.reply('Days must be between 1 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Downloading ${days} days of data for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Downloading ${days} days of data for ${symbol}...`);
 
     const endDate = new Date();
     const startDate = new Date(endDate.getTime() - days * 24 * 60 * 60 * 1000);
@@ -1987,7 +1998,8 @@ ${quality.gaps.length > 0 ? `Gaps: ${quality.gaps.length}` : ''}
 Data cached for future use. 💾
         `;
 
-    ctx.reply(message);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    await ctx.reply(message);
   } catch (error) {
     logger.error({ err: error }, 'Download error:');
     ctx.reply(`❌ Error downloading data: ${(error as Error).message}`);
@@ -2004,8 +2016,9 @@ bot.command('datainfo', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /datainfo BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Checking data quality for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Checking data quality for ${symbol}...`);
 
     // Get recent data for analysis
     const recentData = await dataManager.getRecentData(symbol, '5m', 100);
@@ -2032,7 +2045,8 @@ Cached Datasets: ${dataManager.getCacheSize()}
 ${quality.issues.length > 0 ? `\n⚠️ ISSUES:\n${quality.issues.slice(0, 3).join('\n')}` : ''}
         `;
 
-    ctx.reply(message);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    await ctx.reply(message);
   } catch (error) {
     logger.error({ err: error }, 'Data info error:');
     ctx.reply(`❌ Error checking data: ${(error as Error).message}`);
@@ -2823,9 +2837,10 @@ bot.command('impact', async (ctx) => {
     return ctx.reply('Please provide a symbol. Example: /impact BTCUSDT');
   }
 
+  let loadingMsg: any;
   try {
     logger.info(`[AI] [/impact] request symbol=${symbol} user=${ctx.message.from.id}`);
-    ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Quick impact analysis for ${symbol}...`);
 
     const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
     const newsItems = result.traditionalNews.articles;
@@ -2835,10 +2850,12 @@ bot.command('impact', async (ctx) => {
     );
 
     if (newsItems.length === 0 && result.redditSentiment.posts.length === 0) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
       return ctx.reply(`❌ No recent impactful news found for ${symbol}`);
     }
 
     if (!analysis) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
       return ctx.reply(`⚡ QUICK IMPACT: ${symbol}
 
 📊 Combined Sentiment: ${result.combinedSentiment.label}
@@ -2874,7 +2891,8 @@ ${newsItems
 
 💡 Use /pnews ${symbol} for detailed analysis`;
 
-    ctx.reply(quickSummary);
+    try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    await ctx.reply(quickSummary);
   } catch (error) {
     logger.error({ err: error }, 'Quick impact error:');
     ctx.reply(`❌ Error getting impact analysis: ${(error as Error).message}`);
