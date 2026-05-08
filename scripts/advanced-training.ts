@@ -19,8 +19,8 @@ async function advancedTraining() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 1000);
         
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
-            timestamp: c[0],
+        const candles: OHLCVCandle[] = rawCandles.map((c: (number | string)[]) => ({
+            timestamp: c[0] as number,
             open: parseFloat(c[1]),
             high: parseFloat(c[2]),
             low: parseFloat(c[3]),
@@ -100,8 +100,7 @@ async function advancedTraining() {
         console.log('Testing on most recent data (unseen during training)...\n');
 
         const validationSize = 50;
-        const validationFeatures = allFeatures.slice(-validationSize);
-        const validationResults: any[] = [];
+        const validationResults: { actual: string, predicted: string, correct: boolean }[] = [];
 
         for (let i = 0; i < validationSize; i++) {
             const idx = allFeatures.length - validationSize + i;

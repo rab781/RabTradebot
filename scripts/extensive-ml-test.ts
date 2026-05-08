@@ -19,14 +19,14 @@ async function extensiveTest() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 600);
 
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
-            timestamp: c[0],
-            open: parseFloat(c[1]),
-            high: parseFloat(c[2]),
-            low: parseFloat(c[3]),
-            close: parseFloat(c[4]),
-            volume: parseFloat(c[5]),
-            date: new Date(c[0])
+        const candles: OHLCVCandle[] = rawCandles.map((c: (number | string)[]) => ({
+            timestamp: c[0] as number,
+            open: parseFloat(c[1] as string),
+            high: parseFloat(c[2] as string),
+            low: parseFloat(c[3] as string),
+            close: parseFloat(c[4] as string),
+            volume: parseFloat(c[5] as string),
+            date: new Date(c[0] as number)
         }));
 
         console.log(`✓ Fetched ${candles.length} candles`);
@@ -76,7 +76,7 @@ async function extensiveTest() {
         console.log('\n📊 Step 5: Testing Predictions (30 tests)');
         console.log('='.repeat(80));
 
-        const testResults: any[] = [];
+        const testResults: { actual: string, predicted: string, correct: boolean }[] = [];
         const testCount = Math.min(30, testFeatures.length - 20);
 
         for (let i = 0; i < testCount; i++) {
