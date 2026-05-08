@@ -20,13 +20,13 @@ async function smartTest() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 400);
 
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
-            timestamp: c[0],
-            open: parseFloat(c[1]),
-            high: parseFloat(c[2]),
-            low: parseFloat(c[3]),
-            close: parseFloat(c[4]),
-            volume: parseFloat(c[5]),
+        const candles: OHLCVCandle[] = rawCandles.map((c: (number | string)[]) => ({
+            timestamp: c[0] as number,
+            open: parseFloat(c[1] as string),
+            high: parseFloat(c[2] as string),
+            low: parseFloat(c[3] as string),
+            close: parseFloat(c[4] as string),
+            volume: parseFloat(c[5] as string),
             date: new Date(c[0])
         }));
 
@@ -71,7 +71,7 @@ async function smartTest() {
         console.log('='.repeat(80));
         console.log('Testing on data BEFORE training period...\n');
 
-        const testResults: any[] = [];
+        const testResults: { actual: string, predicted: string, correct: boolean }[] = [];
         const testStartIdx = 50; // Start testing from earlier data
         const testEndIdx = features.length - 100 - 20; // Before training data
         const testCount = Math.min(40, testEndIdx - testStartIdx);

@@ -117,7 +117,7 @@ async function testBotIntegration() {
 
         // Test 11: Find open trade
         console.log('Test 11: Testing findOpenTrade...');
-        const openTrade = await db.saveTrade({
+        await db.saveTrade({
             userId: user.id,
             symbol: 'ETHUSDT',
             side: 'BUY',

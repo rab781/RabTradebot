@@ -67,14 +67,14 @@ async function testImplementation() {
             console.log(`   ✅ News search working!\n`);
         }
 
-    } catch (error: any) {
-        console.log(`   ❌ API Error: ${error.message}`);
-        if (error.response?.status === 401) {
+    } catch (error: unknown) {
+        console.log(`   ❌ API Error: ${(error as Error).message}`);
+        if ((error as { response?: { status: number, data: unknown }, request?: unknown }).response?.status === 401) {
             console.log('   💡 Check your API key - might be invalid');
-        } else if (error.response?.status === 400) {
+        } else if ((error as { response?: { status: number, data: unknown }, request?: unknown }).response?.status === 400) {
             console.log('   💡 Request format issue - will be handled by fallback');
         }
-        console.log('   💡 Commands will show appropriate error messages\n');
+        console.log('   💡 Commands will show appropriate (error as Error).messages\n');
     }
 
     // Test 4: Commands Status
