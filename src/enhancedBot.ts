@@ -1490,8 +1490,9 @@ bot.command('backtest', async (ctx) => {
     return ctx.reply('Days must be between 7 and 365');
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
+    loadingMsg = await ctx.reply(`🔄 Starting backtest for ${symbol} over ${days} days...`);
 
     // Download historical data
     const endDate = new Date();
@@ -1616,7 +1617,7 @@ Worst: ${result.worstTrade ? `$${result.worstTrade.profit?.toFixed(2)} (${result
 Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
         `;
 
-    ctx.reply(resultMessage);
+    await ctx.reply(resultMessage);
   } catch (error) {
     logger.error({ err: error }, 'Backtest error:');
     await db.logError({
@@ -1626,7 +1627,11 @@ Avg Trade Duration: ${(result.avgTradeDuration / 60).toFixed(1)} hours
       stackTrace: (error as Error).stack,
       symbol,
     });
-    ctx.reply(`❌ Error running backtest: ${(error as Error).message}`);
+    await ctx.reply(`❌ Error running backtest: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
@@ -1649,8 +1654,9 @@ bot.command('papertrade', async (ctx) => {
     );
   }
 
+  let loadingMsg: any;
   try {
-    ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
+    loadingMsg = await ctx.reply(`🔄 Starting paper trading for ${symbol}...`);
 
     // Ensure user exists in database
     const user = await ensureUser(ctx);
@@ -1674,7 +1680,7 @@ bot.command('papertrade', async (ctx) => {
     // Start paper trading
     await paperEngine.start(symbol, '5m', 500);
 
-    ctx.reply(`✅ Paper trading started for ${symbol}!
+    await ctx.reply(`✅ Paper trading started for ${symbol}!
 💰 Initial balance: $${paperConfig.initialBalance}
 📊 Strategy: ${strategy.name}
 ⚙️ Max open trades: ${paperConfig.maxOpenTrades}
@@ -1691,7 +1697,11 @@ Use /stoptrading to stop trading`);
       stackTrace: (error as Error).stack,
       symbol,
     });
-    ctx.reply(`❌ Error starting paper trading: ${(error as Error).message}`);
+    await ctx.reply(`❌ Error starting paper trading: ${(error as Error).message}`);
+  } finally {
+    if (loadingMsg) {
+      try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
   }
 
   return;
