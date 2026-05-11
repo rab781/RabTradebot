@@ -57,23 +57,33 @@ export class PriceAlertManager {
     async checkAlerts(): Promise<{ userId: number; message: string }[]> {
         const notifications: { userId: number; message: string }[] = [];
 
-        for (const alert of this.alerts) {
-            if (alert.triggered) continue;
+        if (this.alerts.length === 0) return notifications;
 
-            try {                const ticker = await this.binance.prices(alert.symbol);
-                const currentPrice = parseFloat(String(ticker[alert.symbol]));
+        try {
+            // OPTIMIZATION: Fetch all prices once instead of inside the loop (N API calls -> 1 API call)
+            const allPrices = await this.binance.prices();
 
-                if ((alert.type === 'above' && currentPrice >= alert.targetPrice) ||
-                    (alert.type === 'below' && currentPrice <= alert.targetPrice)) {
-                    alert.triggered = true;
-                    notifications.push({
-                        userId: alert.userId,
-                        message: `🔔 Price Alert: ${alert.symbol} has reached ${currentPrice} ${alert.type === 'above' ? 'above' : 'below'} your target of ${alert.targetPrice}`
-                    });
+            for (const alert of this.alerts) {
+                if (alert.triggered) continue;
+
+                try {
+                    const currentPrice = parseFloat(String(allPrices[alert.symbol]));
+                    if (isNaN(currentPrice)) continue;
+
+                    if ((alert.type === 'above' && currentPrice >= alert.targetPrice) ||
+                        (alert.type === 'below' && currentPrice <= alert.targetPrice)) {
+                        alert.triggered = true;
+                        notifications.push({
+                            userId: alert.userId,
+                            message: `🔔 Price Alert: ${alert.symbol} has reached ${currentPrice} ${alert.type === 'above' ? 'above' : 'below'} your target of ${alert.targetPrice}`
+                        });
+                    }
+                } catch (error) {
+                    logger.error({ err: error }, `Error checking price for ${alert.symbol}:`);
                 }
-            } catch (error) {
-                logger.error({ err: error }, `Error checking price for ${alert.symbol}:`);
             }
+        } catch (error) {
+            logger.error({ err: error }, `Error fetching prices for alerts:`);
         }
 
         return notifications;
