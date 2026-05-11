@@ -424,6 +424,13 @@ bot.command('go', async (ctx) => {
 });
 
 bot.command('logs', async (ctx) => {
+  // 🛡️ Sentinel: Enforce admin authorization to prevent log disclosure
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
+
   const user = await ensureUser(ctx);
   if (!user) return ctx.reply('❌ Gagal menyiapkan user session.');
   
