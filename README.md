@@ -1,6 +1,6 @@
 # Advanced Crypto Trading Bot
 
-> A comprehensive Telegram bot that provides professional-grade cryptocurrency trading signals, market analysis, backtesting, and paper trading capabilities directly in your chat.
+> A comprehensive Telegram bot that gives you professional-grade cryptocurrency trading signals, market analysis, backtesting, and paper trading capabilities directly in your chat.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
@@ -46,52 +46,6 @@ cd RabTradebot
 npm install
 ```
 
-## Configuration
-
-Configure the bot by editing the `.env` file.
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
-
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
-
-## Run With PM2 (Persistent)
-
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
-
-```bash
-# Build first
-npm run build
-
-# Start/recover with PM2
-npm run pm2:bootstrap
-
-# Check status/logs
-npm run pm2:status
-npm run pm2:logs
-```
-
-### Auto Start On Reboot (systemd)
-
-```bash
-# 1) Install service file (adjust username/path if needed)
-sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
-
-# 2) Reload systemd and enable service
-sudo systemctl daemon-reload
-sudo systemctl enable --now rabtradebot.service
-
-# 3) Verify
-systemctl status rabtradebot.service
-npm run pm2:status
-```
-
-The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
-
 ## Usage
 
 Interact with the bot via Telegram commands.
@@ -132,6 +86,42 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
+## Configuration
+
+Configure the bot by editing the `.env` file.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `DATABASE_URL` | `string` | `file:./prisma/dev.db` | Development SQLite database URL |
+| `DATABASE_POOL_MAX` | `number` | `10` | PostgreSQL pool maximum size |
+| `DATABASE_POOL_TIMEOUT_SEC` | `number` | `5` | PostgreSQL pool timeout in seconds |
+| `PGBOUNCER_ENABLED` | `boolean` | `true` | Enable PgBouncer compatibility |
+| `SQLITE_DATABASE_URL` | `string` | `file:./prisma/dev.db` | SQLite to Postgres migration source URL |
+| `POSTGRES_DATABASE_URL` | `string` | `postgresql://user:pass@localhost:5432/rabtradebot` | SQLite to Postgres migration target URL |
+| `MIGRATION_DRY_RUN` | `boolean` | `true` | Run migration in dry-run mode |
+| `MIGRATION_TRUNCATE_TARGET` | `boolean` | `false` | Truncate target database before migration |
+| `MIGRATION_BATCH_SIZE` | `number` | `500` | Batch size for migration |
+| `TELEGRAM_BOT_TOKEN` | `string` | `None` | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | `None` | Binance API Key (required for live trading and better rate limits) |
+| `BINANCE_API_SECRET` | `string` | `None` | Binance Secret Key (required for live trading and better rate limits) |
+| `BINANCE_TESTNET` | `boolean` | `true` | Enable Binance Spot Testnet |
+| `BINANCE_TESTNET_URL` | `string` | `https://testnet.binance.vision` | Explicit Testnet URL |
+| `BINANCE_BASE_URL` | `string` | `https://api.binance.com` | Override for region-specific endpoint |
+| `BINANCE_RECV_WINDOW` | `number` | `5000` | Order service tuning: receive window |
+| `BINANCE_ORDER_TIMEOUT_MS` | `number` | `12000` | Order service tuning: order timeout in ms |
+| `BINANCE_MAX_WEIGHT_PER_MINUTE` | `number` | `1200` | Order service tuning: max weight per minute |
+| `BINANCE_PROXY_URL` | `string` | `http://127.0.0.1:8080` | Outbound proxy URL when server IP is blocked |
+| `BINANCE_CA_CERT_PATH` | `string` | `/etc/ssl/certs/ca-certificates.crt` | TLS settings for environments with custom CA |
+| `BINANCE_TLS_INSECURE` | `boolean` | `false` | TLS settings for proxy inspection |
+| `TWITTER_API_KEY` | `string` | `None` | Twitter API Key |
+| `TWITTER_API_KEY_SECRET` | `string` | `None` | Twitter API Key Secret |
+| `TWITTER_ACCESS_TOKEN` | `string` | `None` | Twitter Access Token |
+| `TWITTER_ACCESS_TOKEN_SECRET` | `string` | `None` | Twitter Access Token Secret |
+| `TWITTER_BEARER_TOKEN` | `string` | `None` | Twitter Bearer Token |
+| `CHUTES_API_KEY` | `string` | `None` | Chutes AI API Key |
+
+> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+
 ## Telegram Command Reference
 
 ### Basic Analysis
@@ -160,6 +150,39 @@ The bot supports complex trading workflows, including simulated trading and stra
 - **Database**: Prisma ORM with SQLite
 - **Market Data**: Binance REST & WebSocket APIs
 - **AI/ML**: TensorFlow.js (GRU models), Chutes AI (News Sentiment)
+
+## Run With PM2 (Persistent)
+
+This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+
+```bash
+# Build first
+npm run build
+
+# Start/recover with PM2
+npm run pm2:bootstrap
+
+# Check status/logs
+npm run pm2:status
+npm run pm2:logs
+```
+
+### Auto Start On Reboot (systemd)
+
+```bash
+# 1) Install service file (adjust username/path if needed)
+sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
+
+# 2) Reload systemd and enable service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rabtradebot.service
+
+# 3) Verify
+systemctl status rabtradebot.service
+npm run pm2:status
+```
+
+The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
 ## Contributing
 
