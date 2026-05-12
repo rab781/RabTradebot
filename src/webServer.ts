@@ -17,6 +17,7 @@ const PORT = Number(process.env.WEB_PORT || 3000);
 const HOST = process.env.WEB_HOST || '0.0.0.0';
 
 const app = express();
+app.disable('x-powered-by'); // 🛡️ Sentinel: Disable Express identifier to reduce technology stack information leakage
 const httpServer = createServer(app);
 
 // 🛡️ Sentinel: Restrict CORS origin to prevent unauthorized access (High Priority: Overly permissive CORS)
