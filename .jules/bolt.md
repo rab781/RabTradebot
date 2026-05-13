@@ -71,3 +71,6 @@
 ## 2024-05-10 - [O(N) API Calls in PriceAlertManager]
 **Learning:** Found a classic N+1 issue in an alert checking loop where `await this.binance.prices(alert.symbol)` was called inside the loop for every alert.
 **Action:** Move the bulk API call `await this.binance.prices()` outside the loop and reuse the fetched data inside the loop to turn N network requests into 1.
+## 2026-05-13 - [O(N) Optimization for Pearson Correlation Calculation]
+**Learning:** In `StrategyOptimizer.calculateCorrelation`, calculating the sum of arrays via five consecutive `.reduce()` calls on identical data structures forces the JS engine to traverse the array five times, causing O(5N) iteration overhead and allocating five separate closures per function call.
+**Action:** When calculating complex statistical metrics (like Pearson correlation) over arrays, consolidate all sum/accumulation metrics into a single O(N) `for` loop to significantly reduce iteration and garbage collection overhead, especially when processing large parameter grid searches.
