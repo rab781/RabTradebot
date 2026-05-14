@@ -358,8 +358,20 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Calculate avgScore and scoreStd in a single O(N) loop
+        // to minimize iteration overhead and avoid repeated closure allocations
+        let sumScores = 0;
+        let sumScoresSq = 0;
+        const nResults = results.length;
+        for (let i = 0; i < nResults; i++) {
+            const score = results[i].score;
+            sumScores += score;
+            sumScoresSq += score * score;
+        }
+        const avgScore = sumScores / nResults;
+        // Var(X) = E[X^2] - (E[X])^2
+        const variance = Math.max(0, (sumScoresSq / nResults) - (avgScore * avgScore));
+        const scoreStd = Math.sqrt(variance);
         
         const summary = `
 Optimization Analysis Summary:
@@ -715,8 +727,20 @@ Trade-offs Identified:
 
             const performances = neighborhood.map(r => r.score);
             const bestPerf = Math.max(...performances);
-            const mean = performances.reduce((a, b) => a + b, 0) / performances.length;
-            const stdDev = Math.sqrt(performances.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / performances.length);
+            // ⚡ Bolt Optimization: Calculate mean and stdDev in a single O(N) loop
+            // to minimize iteration overhead and avoid repeated closure allocations
+            let sumPerf = 0;
+            let sumPerfSq = 0;
+            const nPerf = performances.length;
+            for (let i = 0; i < nPerf; i++) {
+                const perf = performances[i];
+                sumPerf += perf;
+                sumPerfSq += perf * perf;
+            }
+            const mean = sumPerf / nPerf;
+            // Var(X) = E[X^2] - (E[X])^2
+            const perfVariance = Math.max(0, (sumPerfSq / nPerf) - (mean * mean));
+            const stdDev = Math.sqrt(perfVariance);
 
             // Sensitivity score: coefficient of variation (std/mean)
             const sensitivityScore = mean !== 0 ? stdDev / mean : 0;
