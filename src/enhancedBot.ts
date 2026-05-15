@@ -526,180 +526,238 @@ bot.action(/^run:(.+)$/, async (ctx) => {
 async function handleInlineRun(ctx: any, action: string, symbol: string, chatId: number, telegramId: number, dbUserId: number) {
   switch (action) {
     case 'signal': {
-      const loading = await ctx.reply(`🔄 Generating signal for ${symbol}...`);
-      const signal = await signalGenerator.generateSignal(symbol);
-      stateManager.addSignal({ symbol, action: signal.action, price: signal.price, confidence: signal.confidence, timestamp: new Date(), indicators: {} });
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(signal.text);
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Generating signal for ${symbol}...`);
+        const signal = await signalGenerator.generateSignal(symbol);
+        stateManager.addSignal({ symbol, action: signal.action, price: signal.price, confidence: signal.confidence, timestamp: new Date(), indicators: {} });
+        await ctx.reply(signal.text);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'volume': {
-      const loading = await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
-      const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(`📊 Volume Analysis — ${symbol}\n\n${analysis}`);
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Analyzing volume for ${symbol}...`);
+        const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+        await ctx.reply(`📊 Volume Analysis — ${symbol}\n\n${analysis}`);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'sr': {
-      const loading = await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
-      const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(`🎯 Support/Resistance — ${symbol}\n\n${analysis}`);
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Calculating S/R for ${symbol}...`);
+        const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
+        await ctx.reply(`🎯 Support/Resistance — ${symbol}\n\n${analysis}`);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'openclaw': {
-      const loading = await ctx.reply(`🦅 Running OpenClaw for ${symbol}...`);
-      const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
-      if (candles.length < 100) { await ctx.reply('❌ Insufficient data'); break; }
-      const ocCandles: OHLCVCandle[] = candles.map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
-      }));
-      const df: any = {
-        open: ocCandles.map(c => c.open), high: ocCandles.map(c => c.high),
-        low: ocCandles.map(c => c.low), close: ocCandles.map(c => c.close),
-        volume: ocCandles.map(c => c.volume), date: ocCandles.map(c => c.date),
-      };
-      const meta = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
-      openClawStrategy.populateIndicators(df, meta);
-      openClawStrategy.populateEntryTrend(df, meta);
-      const getCol = (col: string, idx: number, def: any = 0) =>
-        Array.isArray(df[col]) ? (df[col][idx] ?? def) : def;
-      const lastIdx = df.close.length - 1;
-      const eLong = getCol('enter_long', lastIdx, 0);
-      const eShort = getCol('enter_short', lastIdx, 0);
-      const eTag = getCol('enter_tag', lastIdx, '');
-      const rsi = getCol('rsi', lastIdx, 50);
-      const macdH = getCol('macd_histogram', lastIdx, 0);
-      const adx = getCol('adx', lastIdx, 20);
-      const bbPct = getCol('bb_percentb', lastIdx, 0.5);
-      const sig = eLong === 1 ? '🟢 LONG' : eShort === 1 ? '🔴 SHORT' : '⚪ NEUTRAL';
-      const tag = eLong === 1 ? eTag.replace('_long', '').toUpperCase() : eShort === 1 ? eTag.replace('_short', '').toUpperCase() : 'No signal';
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(
-        `🦅 OPENCLAW — ${symbol}\n\n${sig} | ${tag}\n💰 $${df.close[lastIdx].toLocaleString()}\n\nRSI: ${rsi.toFixed(2)} | MACD: ${macdH > 0 ? '+' : ''}${macdH.toFixed(2)} | ADX: ${adx.toFixed(2)} | BB%B: ${bbPct.toFixed(2)}\n\n⚙️ OpenClawStrategy v${openClawStrategy.version}`,
-      );
+      let loading;
+      try {
+        loading = await ctx.reply(`🦅 Running OpenClaw for ${symbol}...`);
+        const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
+        if (candles.length < 100) { await ctx.reply('❌ Insufficient data'); break; }
+        const ocCandles: OHLCVCandle[] = candles.map((c: any) => ({
+          timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+          low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
+        }));
+        const df: any = {
+          open: ocCandles.map(c => c.open), high: ocCandles.map(c => c.high),
+          low: ocCandles.map(c => c.low), close: ocCandles.map(c => c.close),
+          volume: ocCandles.map(c => c.volume), date: ocCandles.map(c => c.date),
+        };
+        const meta = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
+        openClawStrategy.populateIndicators(df, meta);
+        openClawStrategy.populateEntryTrend(df, meta);
+        const getCol = (col: string, idx: number, def: any = 0) =>
+          Array.isArray(df[col]) ? (df[col][idx] ?? def) : def;
+        const lastIdx = df.close.length - 1;
+        const eLong = getCol('enter_long', lastIdx, 0);
+        const eShort = getCol('enter_short', lastIdx, 0);
+        const eTag = getCol('enter_tag', lastIdx, '');
+        const rsi = getCol('rsi', lastIdx, 50);
+        const macdH = getCol('macd_histogram', lastIdx, 0);
+        const adx = getCol('adx', lastIdx, 20);
+        const bbPct = getCol('bb_percentb', lastIdx, 0.5);
+        const sig = eLong === 1 ? '🟢 LONG' : eShort === 1 ? '🔴 SHORT' : '⚪ NEUTRAL';
+        const tag = eLong === 1 ? eTag.replace('_long', '').toUpperCase() : eShort === 1 ? eTag.replace('_short', '').toUpperCase() : 'No signal';
+        await ctx.reply(
+          `🦅 OPENCLAW — ${symbol}\n\n${sig} | ${tag}\n💰 $${df.close[lastIdx].toLocaleString()}\n\nRSI: ${rsi.toFixed(2)} | MACD: ${macdH > 0 ? '+' : ''}${macdH.toFixed(2)} | ADX: ${adx.toFixed(2)} | BB%B: ${bbPct.toFixed(2)}\n\n⚙️ OpenClawStrategy v${openClawStrategy.version}`,
+        );
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'mlpredict': {
-      const loading = await ctx.reply(`🧠 ML Predict for ${symbol}...`);
-      if (!mlModelLoaded) {
-        // eslint-disable-next-line @typescript-eslint/no-var-requires
-        const fs = require('fs');
-        if (fs.existsSync(mlModelPath)) {
-          await mlModel.loadModel(mlModelPath);
-          mlModelLoaded = true;
-        } else {
+      let loading;
+      try {
+        loading = await ctx.reply(`🧠 ML Predict for ${symbol}...`);
+        if (!mlModelLoaded) {
+          // eslint-disable-next-line @typescript-eslint/no-var-requires
+          const fs = require('fs');
+          if (fs.existsSync(mlModelPath)) {
+            await mlModel.loadModel(mlModelPath);
+            mlModelLoaded = true;
+          } else {
+            await ctx.reply('❌ ML model not found. Train first with /trainmodel');
+            break;
+          }
+        }
+        const mlCandles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
+        if (mlCandles.length < 100) {
+          await ctx.reply('❌ Insufficient data'); break;
+        }
+        const mlOhlcv: OHLCVCandle[] = mlCandles.map((c: any) => ({
+          timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
+          low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
+        }));
+        const features = featureService.extractFeatures(mlOhlcv, symbol);
+        if (features.length < 20) {
+          await ctx.reply('❌ Insufficient features'); break;
+        }
+        const prediction = await mlModel.predict(features);
+        const currentPrice = mlOhlcv[mlOhlcv.length - 1].close;
+        const direction = prediction.direction > 0 ? 'UP 📈' : 'DOWN 📉';
+        const mlEmoji = prediction.confidence > 0.4 ? (prediction.direction > 0 ? '🟢' : '🔴') : prediction.confidence > 0.2 ? '🟡' : '⚪';
+        const rec = prediction.confidence > 0.4 ? (prediction.direction > 0 ? 'BUY' : 'SELL') : prediction.confidence > 0.2 ? 'WATCH' : 'HOLD';
+        await ctx.reply(
+          `🧠 ML PREDICT — ${symbol}\n\n${mlEmoji} ${rec} | ${direction}\nConfidence: ${(prediction.confidence * 100).toFixed(1)}%\nExpected: ${prediction.priceChange > 0 ? '+' : ''}${prediction.priceChange.toFixed(2)}%\nPrice: $${currentPrice.toLocaleString()}`,
+        );
+      } finally {
+        if (loading) {
           try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-          await ctx.reply('❌ ML model not found. Train first with /trainmodel');
-          break;
         }
       }
-      const mlCandles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
-      if (mlCandles.length < 100) {
-        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-        await ctx.reply('❌ Insufficient data'); break;
-      }
-      const mlOhlcv: OHLCVCandle[] = mlCandles.map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
-      }));
-      const features = featureService.extractFeatures(mlOhlcv, symbol);
-      if (features.length < 20) {
-        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-        await ctx.reply('❌ Insufficient features'); break;
-      }
-      const prediction = await mlModel.predict(features);
-      const currentPrice = mlOhlcv[mlOhlcv.length - 1].close;
-      const direction = prediction.direction > 0 ? 'UP 📈' : 'DOWN 📉';
-      const mlEmoji = prediction.confidence > 0.4 ? (prediction.direction > 0 ? '🟢' : '🔴') : prediction.confidence > 0.2 ? '🟡' : '⚪';
-      const rec = prediction.confidence > 0.4 ? (prediction.direction > 0 ? 'BUY' : 'SELL') : prediction.confidence > 0.2 ? 'WATCH' : 'HOLD';
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(
-        `🧠 ML PREDICT — ${symbol}\n\n${mlEmoji} ${rec} | ${direction}\nConfidence: ${(prediction.confidence * 100).toFixed(1)}%\nExpected: ${prediction.priceChange > 0 ? '+' : ''}${prediction.priceChange.toFixed(2)}%\nPrice: $${currentPrice.toLocaleString()}`,
-      );
       break;
     }
     case 'chart': {
-      const loading = await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
-      const chartData = await dataManager.getRecentData(symbol, '1h', 100);
-      if (!chartData || chartData.length === 0) {
-        try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-        await ctx.reply(`❌ No data for ${symbol}`);
-        break;
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Generating chart for ${symbol} 1h...`);
+        const chartData = await dataManager.getRecentData(symbol, '1h', 100);
+        if (!chartData || chartData.length === 0) {
+          await ctx.reply(`❌ No data for ${symbol}`);
+          break;
+        }
+        const mapped = chartData.map(d => ({ t: d.timestamp, o: d.open, h: d.high, l: d.low, c: d.close, v: d.volume }));
+        const chartResult = await imageChartService.generateCandlestickChart(symbol, '1h', mapped as any);
+        const patternInfo = chartResult.patterns.length > 0
+          ? `\nPatterns: ${chartResult.patterns.map((p: any) => p.name).join(', ')}`
+          : '';
+        await bot.telegram.sendPhoto(chatId, { source: chartResult.buffer }, { caption: `📈 ${symbol} 1h Chart${patternInfo}` });
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
       }
-      const mapped = chartData.map(d => ({ t: d.timestamp, o: d.open, h: d.high, l: d.low, c: d.close, v: d.volume }));
-      const chartResult = await imageChartService.generateCandlestickChart(symbol, '1h', mapped as any);
-      const patternInfo = chartResult.patterns.length > 0
-        ? `\nPatterns: ${chartResult.patterns.map((p: any) => p.name).join(', ')}`
-        : '';
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await bot.telegram.sendPhoto(chatId, { source: chartResult.buffer }, { caption: `📈 ${symbol} 1h Chart${patternInfo}` });
       break;
     }
     case 'analyze': {
-      const loading = await ctx.reply(`🔄 Analyzing ${symbol}... (30-60s)`);
-      const result = await comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(
-        `📊 ANALYZE — ${symbol}\n\nPrice: $${result.currentPrice.toFixed(2)}\nTrend: ${result.technical.trend.toUpperCase()} (${(result.technical.strength * 100).toFixed(1)}%)\nRSI: ${result.technical.rsi.toFixed(1)} ${result.technical.rsi < 30 ? '🟢' : result.technical.rsi > 70 ? '🔴' : '🟡'}\nMACD: ${result.technical.macd.signal.toUpperCase()}\n\nSupport: $${result.technical.supportResistance.support.toFixed(2)}\nResistance: $${result.technical.supportResistance.resistance.toFixed(2)}\n\n⏰ 1H: ${result.timeframes['1h'].trend} | 4H: ${result.timeframes['4h'].trend} | 1D: ${result.timeframes['1d'].trend}`,
-      );
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Analyzing ${symbol}... (30-60s)`);
+        const result = await comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol);
+        await ctx.reply(
+          `📊 ANALYZE — ${symbol}\n\nPrice: $${result.currentPrice.toFixed(2)}\nTrend: ${result.technical.trend.toUpperCase()} (${(result.technical.strength * 100).toFixed(1)}%)\nRSI: ${result.technical.rsi.toFixed(1)} ${result.technical.rsi < 30 ? '🟢' : result.technical.rsi > 70 ? '🔴' : '🟡'}\nMACD: ${result.technical.macd.signal.toUpperCase()}\n\nSupport: $${result.technical.supportResistance.support.toFixed(2)}\nResistance: $${result.technical.supportResistance.resistance.toFixed(2)}\n\n⏰ 1H: ${result.timeframes['1h'].trend} | 4H: ${result.timeframes['4h'].trend} | 1D: ${result.timeframes['1d'].trend}`,
+        );
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'fullanalysis': {
-      const loading = await ctx.reply(`🔄 Full analysis for ${symbol}...`);
-      const [techRes, newsRes] = await Promise.allSettled([
-        comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
-        newsAnalyzer.analyzeComprehensiveNews(symbol).then(r => r.aiAnalysis ?? null),
-      ]);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (techRes.status === 'rejected') { await ctx.reply(`❌ Analysis failed`); break; }
-      const t = techRes.value;
-      const n = newsRes.status === 'fulfilled' ? newsRes.value : null;
-      const newsLine = n
-        ? `\n📰 News: ${n.overallSentiment} | ${n.marketMovement.direction} (${n.marketMovement.confidence.toFixed(1)}%)`
-        : '\n📰 News: N/A';
-      await ctx.reply(
-        `🌐 FULL ANALYSIS — ${symbol}\n\nPrice: $${t.currentPrice.toFixed(2)}\nTrend: ${t.technical.trend.toUpperCase()} (${(t.technical.strength * 100).toFixed(1)}%)\nRSI: ${t.technical.rsi.toFixed(1)} | MACD: ${t.technical.macd.signal.toUpperCase()}\n\n1H: ${t.timeframes['1h'].signal} | 4H: ${t.timeframes['4h'].signal} | 1D: ${t.timeframes['1d'].signal}${newsLine}\n\nAction: ${t.recommendation.action.toUpperCase()} | Conf: ${t.recommendation.confidence.toFixed(1)}%`,
-      );
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Full analysis for ${symbol}...`);
+        const [techRes, newsRes] = await Promise.allSettled([
+          comprehensiveAnalyzer.analyzeComprehensiveForBot(symbol),
+          newsAnalyzer.analyzeComprehensiveNews(symbol).then(r => r.aiAnalysis ?? null),
+        ]);
+        if (techRes.status === 'rejected') { await ctx.reply(`❌ Analysis failed`); break; }
+        const t = techRes.value;
+        const n = newsRes.status === 'fulfilled' ? newsRes.value : null;
+        const newsLine = n
+          ? `\n📰 News: ${n.overallSentiment} | ${n.marketMovement.direction} (${n.marketMovement.confidence.toFixed(1)}%)`
+          : '';
+        await ctx.reply(`🌐 FULL ANALYSIS — ${symbol}\n\nPrice: $${t.currentPrice.toFixed(2)}\nTrend: ${t.technical.trend.toUpperCase()} (${(t.technical.strength * 100).toFixed(1)}%)${newsLine}\n\n⏰ 1H: ${t.timeframes['1h'].trend} | 4H: ${t.timeframes['4h'].trend} | 1D: ${t.timeframes['1d'].trend}\n\nAction: ${t.overallRecommendation.action.toUpperCase()} (${(t.overallRecommendation.confidence * 100).toFixed(1)}%)`);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'pnews': {
       if (!chutesService.isConfigured()) { await ctx.reply('❌ Chutes AI not configured. Add CHUTES_API_KEY to .env'); break; }
-      const loading = await ctx.reply(`🔄 AI news analysis for ${symbol}... (2-3 min)`);
-      (async () => {
-        try {
-          const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
-          const articles = result.traditionalNews.articles;
-          const ai = result.aiAnalysis;
-          if (!ai) { await ctx.reply('❌ AI analysis not available (check CHUTES_API_KEY)'); return; }
-          const sent = ai.overallSentiment === 'BULLISH' ? '🟢 BULLISH' : ai.overallSentiment === 'BEARISH' ? '🔴 BEARISH' : '🟡 NEUTRAL';
-          const dir = ai.marketMovement.direction === 'UP' ? '📈' : ai.marketMovement.direction === 'DOWN' ? '📉' : '➡️';
-          const headlines = articles.slice(0, 3).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 70)}...`).join('\n');
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 AI news analysis for ${symbol}... (2-3 min)`);
+        const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+        const articles = result.traditionalNews.articles;
+        const ai = result.aiAnalysis;
+        if (!ai) { await ctx.reply('❌ AI analysis not available (check CHUTES_API_KEY)'); break; }
+        const sent = ai.overallSentiment === 'BULLISH' ? '🟢 BULLISH' : ai.overallSentiment === 'BEARISH' ? '🔴 BEARISH' : '🟡 NEUTRAL';
+        const dir = ai.marketMovement.direction === 'UP' ? '📈' : ai.marketMovement.direction === 'DOWN' ? '📉' : '➡️';
+        const headlines = articles.slice(0, 3).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 70)}...`).join('\n');
+        await ctx.reply(`🤖 AI NEWS — ${symbol}\n\n${sent}\n${dir} ${ai.marketMovement.direction} | Conf: ${ai.marketMovement.confidence.toFixed(1)}%\nRange: ${ai.marketMovement.expectedRange.low.toFixed(1)}% ~ ${ai.marketMovement.expectedRange.high.toFixed(1)}%\n\n24H: ${ai.impactPrediction.shortTerm}\n\nTop News:\n${headlines}`);
+      } catch (e: any) {
+        await ctx.reply(`❌ News error: ${e.message}`);
+      } finally {
+        if (loading) {
           try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-          await ctx.reply(`🤖 AI NEWS — ${symbol}\n\n${sent}\n${dir} ${ai.marketMovement.direction} | Conf: ${ai.marketMovement.confidence.toFixed(1)}%\nRange: ${ai.marketMovement.expectedRange.low.toFixed(1)}% ~ ${ai.marketMovement.expectedRange.high.toFixed(1)}%\n\n24H: ${ai.impactPrediction.shortTerm}\n\nTop News:\n${headlines}`);
-        } catch (e: any) { await ctx.reply(`❌ News error: ${e.message}`); }
-      })();
+        }
+      }
       break;
     }
     case 'impact': {
-      const loading = await ctx.reply(`🔄 Quick impact for ${symbol}...`);
-      const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
-      const ai = result.aiAnalysis;
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (!ai) { await ctx.reply(`⚡ IMPACT — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\nConf: ${result.combinedSentiment.confidence.toFixed(1)}%`); break; }
-      const sent = ai.overallSentiment === 'BULLISH' ? '🟢' : ai.overallSentiment === 'BEARISH' ? '🔴' : '🟡';
-      await ctx.reply(`⚡ IMPACT — ${symbol}\n\n${sent} ${ai.overallSentiment}\n24H: ${ai.impactPrediction.shortTerm}\nExpected: ${ai.marketMovement.direction} ${ai.marketMovement.expectedRange.low.toFixed(1)}~${ai.marketMovement.expectedRange.high.toFixed(1)}%\nConf: ${ai.marketMovement.confidence.toFixed(1)}%`);
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Quick impact for ${symbol}...`);
+        const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+        const ai = result.aiAnalysis;
+        if (!ai) { await ctx.reply(`⚡ IMPACT — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\nConf: ${result.combinedSentiment.confidence.toFixed(1)}%`); break; }
+        const sent = ai.overallSentiment === 'BULLISH' ? '🟢' : ai.overallSentiment === 'BEARISH' ? '🔴' : '🟡';
+        await ctx.reply(`⚡ IMPACT — ${symbol}\n\n${sent} ${ai.overallSentiment}\n24H: ${ai.impactPrediction.shortTerm}\nExpected: ${ai.marketMovement.direction} ${ai.marketMovement.expectedRange.low.toFixed(1)}~${ai.marketMovement.expectedRange.high.toFixed(1)}%\nConf: ${ai.marketMovement.confidence.toFixed(1)}%`);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'news': {
-      const loading = await ctx.reply(`🔄 Basic news for ${symbol}...`);
-      const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
-      const articles = result.traditionalNews.articles;
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (articles.length === 0) { await ctx.reply(`❌ No news found for ${symbol}`); break; }
-      const headlines = articles.slice(0, 5).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 80)}...`).join('\n');
-      await ctx.reply(`📰 NEWS — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\n\n${headlines}`);
+      let loading;
+      try {
+        loading = await ctx.reply(`🔄 Basic news for ${symbol}...`);
+        const result = await newsAnalyzer.analyzeComprehensiveNews(symbol);
+        const articles = result.traditionalNews.articles;
+        if (articles.length === 0) { await ctx.reply(`❌ No news found for ${symbol}`); break; }
+        const headlines = articles.slice(0, 5).map((a: any, i: number) => `${i + 1}. ${a.title.substring(0, 80)}...`).join('\n');
+        await ctx.reply(`📰 NEWS — ${symbol}\n\nSentiment: ${result.combinedSentiment.label}\n\n${headlines}`);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'papertrade': {
@@ -745,17 +803,23 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       break;
     }
     case 'apistatus': {
-      const loading = await ctx.reply('🔄 Checking Binance API...');
-      const status = await binanceService.getFullHealthStatus();
-      const report = binanceService.formatHealthReport(status);
-      // F3-18: tambah info WebSocket streams
-      const wsStatus = connectionManager.getStatus();
-      const streamLines = wsStatus.streams.length > 0
-        ? wsStatus.streams.map(s => `• ${s.type} [${s.symbol}${s.interval ? '/' + s.interval : ''}] — ${s.subscribers} subs`).join('\n')
-        : '• No active streams';
-      const wsReport = `\n\n📡 WebSocket Streams (${wsStatus.activeStreamCount}/${wsStatus.maxStreams}):\n${streamLines}`;
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      await ctx.reply(report + wsReport);
+      let loading;
+      try {
+        loading = await ctx.reply('🔄 Checking Binance API...');
+        const status = await binanceService.getFullHealthStatus();
+        const report = binanceService.formatHealthReport(status);
+        // F3-18: tambah info WebSocket streams
+        const wsStatus = connectionManager.getStatus();
+        const streamLines = wsStatus.streams.length > 0
+          ? wsStatus.streams.map(s => `• ${s.type} [${s.symbol}${s.interval ? '/' + s.interval : ''}] — ${s.subscribers} subs`).join('\n')
+          : '• No active streams';
+        const wsReport = `\n\n📡 WebSocket Streams (${wsStatus.activeStreamCount}/${wsStatus.maxStreams}):\n${streamLines}`;
+        await ctx.reply(report + wsReport);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'healthcheck': {
@@ -798,22 +862,34 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
     }
     case 'liveportfolio': {
       if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
-      const loading = await ctx.reply('🔄 Fetching live portfolio...');
-      const [balances, openOrders] = await Promise.all([binanceOrderService.getAccountBalance(), binanceOrderService.getOpenOrders()]);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (balances.length === 0) { await ctx.reply('📭 No non-zero balances.'); break; }
-      const balLines = balances.slice(0, 15).map((b: any) => `• ${b.asset}: ${b.free} (locked: ${b.locked})`).join('\n');
-      await ctx.reply(`💼 Live Portfolio\nOpen Orders: ${openOrders.length}\n\nBalances:\n${balLines}`);
+      let loading;
+      try {
+        loading = await ctx.reply('🔄 Fetching live portfolio...');
+        const [balances, openOrders] = await Promise.all([binanceOrderService.getAccountBalance(), binanceOrderService.getOpenOrders()]);
+        if (balances.length === 0) { await ctx.reply('📭 No non-zero balances.'); break; }
+        const balLines = balances.slice(0, 15).map((b: any) => `• ${b.asset}: ${b.free} (locked: ${b.locked})`).join('\n');
+        await ctx.reply(`💼 Live Portfolio\nOpen Orders: ${openOrders.length}\n\nBalances:\n${balLines}`);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'orders': {
       if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
-      const loading = await ctx.reply('🔄 Fetching open orders...');
-      const orders = await binanceOrderService.getOpenOrders(symbol);
-      try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
-      if (orders.length === 0) { await ctx.reply(`✅ No open orders for ${symbol}.`); break; }
-      const lines = orders.slice(0, 15).map((o: any) => `#${o.orderId} ${o.side} ${o.type}: ${o.executedQty}/${o.origQty} @ ${o.price}`).join('\n');
-      await ctx.reply(`📋 Open Orders — ${symbol}\n\n${lines}`);
+      let loading;
+      try {
+        loading = await ctx.reply('🔄 Fetching open orders...');
+        const orders = await binanceOrderService.getOpenOrders(symbol);
+        if (orders.length === 0) { await ctx.reply(`✅ No open orders for ${symbol}.`); break; }
+        const lines = orders.slice(0, 15).map((o: any) => `#${o.orderId} ${o.side} ${o.type}: ${o.executedQty}/${o.origQty} @ ${o.price}`).join('\n');
+        await ctx.reply(`📋 Open Orders — ${symbol}\n\n${lines}`);
+      } finally {
+        if (loading) {
+          try { await bot.telegram.deleteMessage(chatId, loading.message_id); } catch (_) { /* ignore */ }
+        }
+      }
       break;
     }
     case 'backtest': {
