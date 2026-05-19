@@ -74,3 +74,6 @@
 ## 2026-05-13 - [O(N) Optimization for Pearson Correlation Calculation]
 **Learning:** In `StrategyOptimizer.calculateCorrelation`, calculating the sum of arrays via five consecutive `.reduce()` calls on identical data structures forces the JS engine to traverse the array five times, causing O(5N) iteration overhead and allocating five separate closures per function call.
 **Action:** When calculating complex statistical metrics (like Pearson correlation) over arrays, consolidate all sum/accumulation metrics into a single O(N) `for` loop to significantly reduce iteration and garbage collection overhead, especially when processing large parameter grid searches.
+## 2025-05-19 - [O(N) Optimization for Multiple Reductions and Math.max]
+**Learning:** In `StrategyOptimizer`, calculating statistical properties like standard deviation and maximums by chaining `.map()`, `.reduce()`, and `Math.max(...array)` forces multiple passes over the array and closure allocations, scaling as O(N*M).
+**Action:** When calculating statistics over arrays, replace chained higher order functions and spread operator operations with a single O(N) `for` loop that simultaneously accumulates total sums, sum of squares, and compares the min/max value iteratively. The standard deviation is derived using mathematical principles to maximize performance.
