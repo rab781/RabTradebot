@@ -25,6 +25,7 @@ async function optimizedTraining() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData(symbol, '1h', days * 24);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
