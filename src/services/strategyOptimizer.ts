@@ -358,8 +358,19 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Single O(N) loop to accumulate totals and avoid closure allocations
+        let sumScore = 0;
+        let sumScoreSq = 0;
+        const nResults = results.length;
+        for (let i = 0; i < nResults; i++) {
+            const score = results[i].score;
+            sumScore += score;
+            sumScoreSq += score * score;
+        }
+        // Calculate statistical features
+        const avgScore = nResults > 0 ? sumScore / nResults : 0;
+        const varianceScore = nResults > 0 ? (sumScoreSq - ((sumScore * sumScore) / nResults)) / nResults : 0;
+        const scoreStd = Math.sqrt(Math.max(0, varianceScore));
         
         const summary = `
 Optimization Analysis Summary:
@@ -514,11 +525,16 @@ ${Object.entries(parameterImportance)
         }
 
         // Find most stable parameters
-        const bestStableWindow = windows.reduce((prev, current) =>
-            current.stabilityRatio > prev.stabilityRatio ? current : prev
-        );
-
-        const avgStabilityRatio = windows.reduce((sum, w) => sum + w.stabilityRatio, 0) / windows.length;
+        let bestStableWindow = windows[0];
+        let sumStabilityRatio = 0;
+        for (let i = 0; i < windows.length; i++) {
+             const w = windows[i];
+             if (w.stabilityRatio > bestStableWindow.stabilityRatio) {
+                 bestStableWindow = w;
+             }
+             sumStabilityRatio += w.stabilityRatio;
+        }
+        const avgStabilityRatio = sumStabilityRatio / windows.length;
         const summary = this.formatWFOSummary({ windows, bestStableParams: bestStableWindow.bestParams, avgStabilityRatio, summary: '' });
 
         return {
@@ -681,8 +697,16 @@ ${frontierDetails}
 
 Trade-offs Identified:
 - Higher returns usually associated with higher drawdowns
-- Best for profit maximization: ${result.frontier.reduce((max, p) => p.objectives.returnPct > max.objectives.returnPct ? p : max).objectives.returnPct.toFixed(2)}% return
-- Best for risk minimization: ${result.frontier.reduce((min, p) => p.objectives.drawdownPct < min.objectives.drawdownPct ? p : min).objectives.drawdownPct.toFixed(1)}% maximum drawdown
+${(() => {
+    let bestReturn = -Infinity;
+    let bestDrawdown = Infinity;
+    for (let i = 0; i < result.frontier.length; i++) {
+        const p = result.frontier[i];
+        if (p.objectives.returnPct > bestReturn) bestReturn = p.objectives.returnPct;
+        if (p.objectives.drawdownPct < bestDrawdown) bestDrawdown = p.objectives.drawdownPct;
+    }
+    return `- Best for profit maximization: ${bestReturn.toFixed(2)}% return\n- Best for risk minimization: ${bestDrawdown.toFixed(1)}% maximum drawdown`;
+})()}
         `;
     }
 
@@ -713,10 +737,23 @@ Trade-offs Identified:
                 continue;
             }
 
+            // ⚡ Bolt Optimization: Use single O(N) loop without intermediate map allocations
+            let bestPerf = -Infinity;
+            let sumPerf = 0;
+            let sumPerfSq = 0;
+            const nPerf = neighborhood.length;
+            for (let i = 0; i < nPerf; i++) {
+                const p = neighborhood[i].score;
+                if (p > bestPerf) bestPerf = p;
+                sumPerf += p;
+                sumPerfSq += p * p;
+            }
+            // Derive statistical features in O(1) time
+            const mean = nPerf > 0 ? sumPerf / nPerf : 0;
+            const variance = nPerf > 0 ? (sumPerfSq - ((sumPerf * sumPerf) / nPerf)) / nPerf : 0;
+            const stdDev = Math.sqrt(Math.max(0, variance));
+            // Preserve the original array for subsequent use if needed
             const performances = neighborhood.map(r => r.score);
-            const bestPerf = Math.max(...performances);
-            const mean = performances.reduce((a, b) => a + b, 0) / performances.length;
-            const stdDev = Math.sqrt(performances.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / performances.length);
 
             // Sensitivity score: coefficient of variation (std/mean)
             const sensitivityScore = mean !== 0 ? stdDev / mean : 0;
