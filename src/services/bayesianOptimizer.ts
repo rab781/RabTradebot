@@ -42,6 +42,7 @@ export class BayesianOptimizer {
         logger.info(`Starting Bayesian Optimization (TPE) with max ${this.config.maxEvals} evaluations`);
 
         const results: StrategyOptimizationResult[] = [];
+        let bestScoreSoFar = -Infinity;
         const initialRandomEvals = Math.min(10, Math.ceil(this.config.maxEvals * 0.2));
 
         // Phase 1: Random exploration
@@ -53,6 +54,7 @@ export class BayesianOptimizer {
             const result = await this.evaluateParams(params);
             results.push(result);
             this.evaluationHistory.push({ params, score: result.score });
+            if (result.score > bestScoreSoFar) bestScoreSoFar = result.score;
 
             if ((i + 1) % 5 === 0) {
                 logger.info(`Random phase: ${i + 1}/${initialRandomEvals}`);
@@ -72,10 +74,11 @@ export class BayesianOptimizer {
 
             results.push(result);
             this.evaluationHistory.push({ params: nextParams, score: result.score });
+            if (result.score > bestScoreSoFar) bestScoreSoFar = result.score;
 
             // Progress logging
             if ((i + 1) % 10 === 0 || i === this.config.maxEvals - 1) {
-                const bestScore = Math.max(...results.map(r => r.score));
+                const bestScore = bestScoreSoFar;
                 logger.info(`TPE phase: ${i + 1}/${this.config.maxEvals} (Best: ${bestScore.toFixed(4)})`);
             }
         }
