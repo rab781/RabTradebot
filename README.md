@@ -50,47 +50,14 @@ npm install
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `-` | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | `-` | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | `-` | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | `-` | Required for AI-powered news analysis and impact predictions |
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
-
-## Run With PM2 (Persistent)
-
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
-
-```bash
-# Build first
-npm run build
-
-# Start/recover with PM2
-npm run pm2:bootstrap
-
-# Check status/logs
-npm run pm2:status
-npm run pm2:logs
-```
-
-### Auto Start On Reboot (systemd)
-
-```bash
-# 1) Install service file (adjust username/path if needed)
-sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
-
-# 2) Reload systemd and enable service
-sudo systemctl daemon-reload
-sudo systemctl enable --now rabtradebot.service
-
-# 3) Verify
-systemctl status rabtradebot.service
-npm run pm2:status
-```
-
-The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
 ## Usage
 
@@ -98,7 +65,7 @@ Interact with the bot via Telegram commands.
 
 ### Basic Example
 
-To get a complete market analysis for a specific pair:
+To get a complete market analysis for a specific pair, send the following command to your bot:
 
 ```
 /analyze BTCUSDT
@@ -112,7 +79,7 @@ To get a complete market analysis for a specific pair:
 
 ### Advanced Usage
 
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
+You use the bot to support complex trading workflows, including simulated trading and strategy optimization.
 
 **Start a Paper Trading Session:**
 ```
@@ -152,6 +119,80 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
+
+## API Reference
+
+The bot includes a Web Dashboard and REST API available locally (default: `http://localhost:3000`).
+
+### Authentication
+Currently, the API runs locally without authentication. Ensure your deployment restricts access (e.g., via firewall or reverse proxy).
+
+### Rate Limiting
+Requests are limited to 100/minute per IP. Rate limit responses return HTTP 429 status codes.
+
+### Pagination
+List endpoints accept a `limit` query parameter to control the number of returned items.
+
+### Error Handling
+Errors return standard HTTP status codes (e.g., `400` for bad requests, `429` for rate limits, `500` for server errors) alongside a JSON payload:
+```json
+{
+  "error": "An internal server error occurred"
+}
+```
+
+### Endpoints
+
+#### GET /api/dashboard
+Retrieves high-level dashboard metrics.
+
+#### GET /api/trades
+Retrieves recent trades.
+- **Query Parameters**:
+  - `limit` (integer): Maximum number of trades to return (default: `50`).
+
+#### GET /api/signals
+Retrieves trading signals.
+- **Query Parameters**:
+  - `limit` (integer): Maximum number of signals to return (default: `20`).
+
+#### GET /api/news
+Retrieves market news.
+- **Query Parameters**:
+  - `limit` (integer): Maximum number of news items to return (default: `20`).
+
+## Run With PM2 (Persistent)
+
+This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+
+```bash
+# Build first
+npm run build
+
+# Start/recover with PM2
+npm run pm2:bootstrap
+
+# Check status/logs
+npm run pm2:status
+npm run pm2:logs
+```
+
+### Auto Start On Reboot (systemd)
+
+```bash
+# 1) Install service file (adjust username/path if needed)
+sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
+
+# 2) Reload systemd and enable service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rabtradebot.service
+
+# 3) Verify
+systemctl status rabtradebot.service
+npm run pm2:status
+```
+
+The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
 ## Architecture & Tech Stack
 
