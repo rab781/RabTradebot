@@ -92,6 +92,9 @@ export class StrategyOptimizer {
         const results: StrategyOptimizationResult[] = [];
         
         // Generate parameter combinations
+        // ⚡ Bolt Optimization: Track best score incrementally (O(1)) instead of spreading arrays inside the loop
+        // This prevents O(N^2) overhead and Math.max Maximum call stack size exceeded errors.
+        let bestScoreSoFar = -Infinity;
         const parameterCombinations = this.generateParameterCombinations();
         const totalCombinations = Math.min(parameterCombinations.length, this.config.maxEvals);
         
@@ -136,6 +139,10 @@ export class StrategyOptimizer {
                     score: score,
                     backtestResult: backtestResult
                 });
+
+                if (score > bestScoreSoFar) {
+                    bestScoreSoFar = score;
+                }
 
                 // Progress logging
                 if ((i + 1) % 10 === 0 || i === totalCombinations - 1) {

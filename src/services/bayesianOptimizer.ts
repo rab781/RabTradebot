@@ -42,6 +42,9 @@ export class BayesianOptimizer {
         logger.info(`Starting Bayesian Optimization (TPE) with max ${this.config.maxEvals} evaluations`);
 
         const results: StrategyOptimizationResult[] = [];
+        // ⚡ Bolt Optimization: Track best score incrementally (O(1)) instead of spreading arrays inside the loop
+        // This prevents O(N) allocation overhead and Math.max RangeError stack overflows.
+        let bestScoreSoFar = -Infinity;
         const initialRandomEvals = Math.min(10, Math.ceil(this.config.maxEvals * 0.2));
 
         // Phase 1: Random exploration

@@ -74,3 +74,6 @@
 ## 2026-05-13 - [O(N) Optimization for Pearson Correlation Calculation]
 **Learning:** In `StrategyOptimizer.calculateCorrelation`, calculating the sum of arrays via five consecutive `.reduce()` calls on identical data structures forces the JS engine to traverse the array five times, causing O(5N) iteration overhead and allocating five separate closures per function call.
 **Action:** When calculating complex statistical metrics (like Pearson correlation) over arrays, consolidate all sum/accumulation metrics into a single O(N) `for` loop to significantly reduce iteration and garbage collection overhead, especially when processing large parameter grid searches.
+## 2026-05-13 - [Math.max spreads in O(N) Loops Stack Overflow]
+**Learning:** In optimization loops (`StrategyOptimizer` and `BayesianOptimizer`), using `Math.max(...results.map(r => r.score))` to determine the best score during progress logging introduces severe O(N) array allocation overhead and throws a `RangeError: Maximum call stack size exceeded` when the parameter grid search combination count gets too large.
+**Action:** Replace `Math.max(...map())` inside execution/logging loops with a simple O(1) `bestScoreSoFar` primitive that updates incrementally (`if (score > bestScoreSoFar) bestScoreSoFar = score`).
