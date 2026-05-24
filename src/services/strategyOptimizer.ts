@@ -98,6 +98,8 @@ export class StrategyOptimizer {
         logger.info(`Generated ${parameterCombinations.length} parameter combinations`);
         logger.info(`Testing ${totalCombinations} combinations...`);
 
+        let bestScoreSoFar = -Infinity;
+
         for (let i = 0; i < totalCombinations; i++) {
             const params = parameterCombinations[i];
             
@@ -125,6 +127,10 @@ export class StrategyOptimizer {
                 // Calculate optimization score
                 const score = this.calculateScore(backtestResult);
                 
+                if (score > bestScoreSoFar) {
+                    bestScoreSoFar = score;
+                }
+
                 results.push({
                     params: params,
                     score: score,
@@ -134,7 +140,7 @@ export class StrategyOptimizer {
                 // Progress logging
                 if ((i + 1) % 10 === 0 || i === totalCombinations - 1) {
                     logger.info(`Progress: ${i + 1}/${totalCombinations} (${((i + 1) / totalCombinations * 100).toFixed(1)}%)`);
-                    logger.info(`Best score so far: ${Math.max(...results.map(r => r.score)).toFixed(4)}`);
+                    logger.info(`Best score so far: ${bestScoreSoFar.toFixed(4)}`);
                 }
 
             } catch (error) {
