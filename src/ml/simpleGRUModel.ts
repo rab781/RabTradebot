@@ -13,7 +13,7 @@
  * - [F4-12] PlattScaler untuk confidence calibration
  */
 
-import * as tf from '@tensorflow/tfjs';
+import * as tf from '@tensorflow/tfjs-node';
 import { FeatureSet } from '../services/featureEngineering';
 import { logger } from '../utils/logger';
 

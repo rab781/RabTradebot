@@ -6,7 +6,7 @@
  * Test non-training (class weights, targetToClass, Platt, WFV summary) berjalan real.
  */
 
-import * as tf from '@tensorflow/tfjs';
+import * as tf from '@tensorflow/tfjs-node';
 import {
     SimpleGRUModel,
     PlattScaler,
@@ -20,8 +20,8 @@ jest.setTimeout(60000);
 
 // ─── Mock tf.LayersModel.fit ──────────────────────────────────────────────────
 // Cegah real gradient descent. Kembalikan history palsu.
-jest.mock('@tensorflow/tfjs', () => {
-    const real = jest.requireActual('@tensorflow/tfjs');
+jest.mock('@tensorflow/tfjs-node', () => {
+    const real = jest.requireActual('@tensorflow/tfjs-node');
     return {
         ...real,
     };
