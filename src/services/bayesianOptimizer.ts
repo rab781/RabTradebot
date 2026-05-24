@@ -47,12 +47,17 @@ export class BayesianOptimizer {
         // Phase 1: Random exploration
         logger.info(`Phase 1: Random exploration with ${initialRandomEvals} evaluations...`);
         const randomParams = this.generateRandomParams(initialRandomEvals);
+        let bestScoreSoFar = -Infinity;
 
         for (let i = 0; i < randomParams.length; i++) {
             const params = randomParams[i];
             const result = await this.evaluateParams(params);
             results.push(result);
             this.evaluationHistory.push({ params, score: result.score });
+
+            if (result.score > bestScoreSoFar) {
+                bestScoreSoFar = result.score;
+            }
 
             if ((i + 1) % 5 === 0) {
                 logger.info(`Random phase: ${i + 1}/${initialRandomEvals}`);
@@ -73,10 +78,13 @@ export class BayesianOptimizer {
             results.push(result);
             this.evaluationHistory.push({ params: nextParams, score: result.score });
 
+            if (result.score > bestScoreSoFar) {
+                bestScoreSoFar = result.score;
+            }
+
             // Progress logging
             if ((i + 1) % 10 === 0 || i === this.config.maxEvals - 1) {
-                const bestScore = Math.max(...results.map(r => r.score));
-                logger.info(`TPE phase: ${i + 1}/${this.config.maxEvals} (Best: ${bestScore.toFixed(4)})`);
+                logger.info(`TPE phase: ${i + 1}/${this.config.maxEvals} (Best: ${bestScoreSoFar.toFixed(4)})`);
             }
         }
 
