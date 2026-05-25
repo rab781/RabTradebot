@@ -32,10 +32,7 @@ Open Telegram, find your bot, and send `/start`.
 
 ## Installation
 
-**Prerequisites**:
-- Node.js 20.19+
-- npm 9+
-- A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
+**Prerequisites**: Node.js 20.19+, npm 9+, and a Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather)).
 
 ```bash
 # 1. Clone the repository
@@ -45,52 +42,6 @@ cd RabTradebot
 # 2. Install dependencies
 npm install
 ```
-
-## Configuration
-
-Configure the bot by editing the `.env` file.
-
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
-
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
-
-## Run With PM2 (Persistent)
-
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
-
-```bash
-# Build first
-npm run build
-
-# Start/recover with PM2
-npm run pm2:bootstrap
-
-# Check status/logs
-npm run pm2:status
-npm run pm2:logs
-```
-
-### Auto Start On Reboot (systemd)
-
-```bash
-# 1) Install service file (adjust username/path if needed)
-sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
-
-# 2) Reload systemd and enable service
-sudo systemctl daemon-reload
-sudo systemctl enable --now rabtradebot.service
-
-# 3) Verify
-systemctl status rabtradebot.service
-npm run pm2:status
-```
-
-The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
 ## Usage
 
@@ -109,6 +60,19 @@ To get a complete market analysis for a specific pair:
 - **Multi-timeframe Analysis**: 1H, 4H, 1D trends
 - **Backtesting Results**: 30-day strategy performance
 - **Recommendations**: Entry/exit levels with reasoning
+
+### Configuration
+
+Configure the bot by editing the `.env` file.
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `-` | **Required.** Your Telegram bot token from @BotFather. |
+| `BINANCE_API_KEY` | `string` | `-` | Required for live trading and better rate limits. |
+| `BINANCE_API_SECRET` | `string` | `-` | Required for live trading and better rate limits. |
+| `CHUTES_API_KEY` | `string` | `-` | Required for AI-powered news analysis and impact predictions. |
+
+> **Note**: The bot automatically falls back to the public Binance API if you do not provide private credentials.
 
 ### Advanced Usage
 
@@ -153,6 +117,72 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
 
+## API Reference
+
+The project includes a REST API running on port `3000` by default.
+
+### Authentication
+The API is currently unauthenticated and designed for local or private network access.
+
+### Rate Limiting
+Requests are limited to 100 requests per minute per IP. When you exceed this limit, you receive a `429 Too Many Requests` response.
+
+### Pagination
+List endpoints accept a `limit` query parameter (e.g., `?limit=20`) to control the number of returned items.
+
+### Error Handling
+Errors return standard HTTP status codes along with a JSON body describing the issue:
+```json
+{
+  "error": "An internal server error occurred"
+}
+```
+
+### Endpoints
+
+- `GET /api/dashboard` - Retrieves comprehensive dashboard data.
+- `GET /api/trades?limit=50` - Retrieves the latest trades.
+- `GET /api/trades/open` - Retrieves currently open trades.
+- `GET /api/signals?limit=20` - Retrieves the latest trading signals.
+- `GET /api/news?limit=20` - Retrieves the latest news updates.
+- `GET /api/portfolio` - Retrieves the current portfolio balance and positions.
+- `GET /api/stats` - Retrieves bot operational statistics.
+- `GET /api/health` - Basic health check returning status and uptime.
+- `GET /health` - Detailed external monitoring endpoint.
+
+## Run With PM2
+
+This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+
+```bash
+# Build first
+npm run build
+
+# Start/recover with PM2
+npm run pm2:bootstrap
+
+# Check status/logs
+npm run pm2:status
+npm run pm2:logs
+```
+
+### Auto Start On Reboot (systemd)
+
+```bash
+# 1) Install service file (adjust username/path if needed)
+sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
+
+# 2) Reload systemd and enable service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rabtradebot.service
+
+# 3) Verify
+systemctl status rabtradebot.service
+npm run pm2:status
+```
+
+The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
+
 ## Architecture & Tech Stack
 
 - **Language**: TypeScript
@@ -163,8 +193,8 @@ The bot supports complex trading workflows, including simulated trading and stra
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+MIT © [rab781](https://github.com/rab781)
