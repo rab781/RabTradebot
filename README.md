@@ -50,12 +50,12 @@ npm install
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | - | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | - | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | - | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | - | Required for AI-powered news analysis and impact predictions |
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
@@ -152,6 +152,34 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
+
+## REST API Reference
+
+The Trading Bot Dashboard provides a REST API to access real-time trading data and bot status.
+
+### Authentication
+The API currently runs without authentication by default for local access.
+
+### Rate Limiting
+Requests are limited to 100 requests per minute per IP address. When the limit is exceeded, a `429 Too Many Requests` response is returned.
+
+### Pagination
+List endpoints (like `/api/trades` and `/api/signals`) support pagination via the `limit` query parameter (e.g., `?limit=50`).
+
+### Error Handling
+Failed requests return standard HTTP status codes (e.g., `500 Internal Server Error`) with a JSON payload containing an `error` message.
+
+### Endpoints
+
+* `GET /api/dashboard` - Get combined dashboard summary data
+* `GET /api/trades` - Get recent trades (supports `?limit=` parameter)
+* `GET /api/trades/open` - Get all currently open trades
+* `GET /api/signals` - Get recent trading signals (supports `?limit=` parameter)
+* `GET /api/news` - Get recent news and impact analysis (supports `?limit=` parameter)
+* `GET /api/portfolio` - Get current portfolio balance and asset allocation
+* `GET /api/stats` - Get overall bot performance statistics
+* `GET /api/health` - Simple health check endpoint returning status and uptime
+* `GET /health` - Detailed external monitoring endpoint for system components
 
 ## Architecture & Tech Stack
 
