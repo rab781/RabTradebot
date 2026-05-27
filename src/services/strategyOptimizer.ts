@@ -345,8 +345,21 @@ export class StrategyOptimizer {
             throw new Error('No optimization results to analyze');
         }
 
+        const numResults = results.length;
         const bestResult = results[0]; // Results are sorted by score
         const bestParams = bestResult.params;
+
+        let sumScore = 0;
+        let sumScoreSq = 0;
+
+        // ⚡ Bolt Optimization: Pre-calculate scores and aggregate metrics in a single O(N) pass
+        const scores = new Array(numResults);
+        for (let i = 0; i < numResults; i++) {
+            const score = results[i].score;
+            scores[i] = score;
+            sumScore += score;
+            sumScoreSq += score * score;
+        }
 
         // Calculate parameter importance (simplified)
         const parameterImportance: { [key: string]: number } = {};
@@ -354,9 +367,12 @@ export class StrategyOptimizer {
         
         const paramNames = Object.keys(bestParams);
         for (const paramName of paramNames) {
-            // Calculate correlation between parameter value and score
-            const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
+            // ⚡ Bolt Optimization: Avoid re-creating scores array inside the parameter loop
+            // Use pre-allocated paramValues instead of map for better memory efficiency
+            const paramValues = new Array(numResults);
+            for (let i = 0; i < numResults; i++) {
+                paramValues[i] = results[i].params[paramName];
+            }
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
@@ -364,8 +380,10 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        const avgScore = sumScore / numResults;
+        // ⚡ Bolt Optimization: Calculate variance mathematically without a second O(N) pass
+        const scoreVariance = (sumScoreSq - ((sumScore * sumScore) / numResults)) / numResults;
+        const scoreStd = Math.sqrt(Math.max(0, scoreVariance));
         
         const summary = `
 Optimization Analysis Summary:
@@ -719,10 +737,26 @@ Trade-offs Identified:
                 continue;
             }
 
-            const performances = neighborhood.map(r => r.score);
-            const bestPerf = Math.max(...performances);
-            const mean = performances.reduce((a, b) => a + b, 0) / performances.length;
-            const stdDev = Math.sqrt(performances.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / performances.length);
+            // ⚡ Bolt Optimization: Replace multiple map/reduce passes and unsafe spread with a single O(N) loop
+            const len = neighborhood.length;
+            const performances = new Array(len);
+            let sumPerf = 0;
+            let sumPerfSq = 0;
+            let bestPerf = -Infinity;
+
+            for (let i = 0; i < len; i++) {
+                const score = neighborhood[i].score;
+                performances[i] = score;
+                sumPerf += score;
+                sumPerfSq += score * score;
+                if (score > bestPerf) {
+                    bestPerf = score;
+                }
+            }
+
+            const mean = sumPerf / len;
+            const variance = (sumPerfSq - ((sumPerf * sumPerf) / len)) / len;
+            const stdDev = Math.sqrt(Math.max(0, variance));
 
             // Sensitivity score: coefficient of variation (std/mean)
             const sensitivityScore = mean !== 0 ? stdDev / mean : 0;
