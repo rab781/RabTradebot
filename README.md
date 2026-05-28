@@ -46,20 +46,60 @@ cd RabTradebot
 npm install
 ```
 
-## Configuration
+## Usage
+
+Interact with the bot via Telegram commands.
+
+### Basic Example
+
+To get a complete market analysis for a specific pair:
+
+```
+/analyze BTCUSDT
+```
+
+**What you get:**
+- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
+- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
+- **Backtesting Results**: 30-day strategy performance
+- **Recommendations**: Entry/exit levels with reasoning
+
+### Configuration
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `-` | **Required.** Your Telegram bot token from @BotFather |
+| `DATABASE_URL` | `string` | `file:./prisma/dev.db` | Connection string for SQLite or PostgreSQL database |
+| `BINANCE_API_KEY` | `string` | `-` | Required for live trading and better rate limits. The bot automatically falls back to the public Binance API if private credentials are not provided. |
+| `BINANCE_API_SECRET` | `string` | `-` | Required for live trading and better rate limits |
+| `BINANCE_TESTNET` | `boolean` | `false` | Enable Binance Spot Testnet (recommended for development) |
+| `CHUTES_API_KEY` | `string` | `-` | Required for AI-powered news analysis and impact predictions |
 
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+### Advanced Usage
 
-## Run With PM2 (Persistent)
+The bot supports complex trading workflows, including simulated trading and strategy optimization.
+
+**Start a Paper Trading Session:**
+```
+/papertrade ETHUSDT
+```
+*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+
+**Backtest a Strategy:**
+```
+/backtest SOLUSDT 30
+```
+*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
+
+**Optimize Strategy Parameters:**
+```
+/optimize ADAUSDT 60
+```
+*Runs optimization over a 60-day period to find the best parameters for maximum profit.*
+
+### Run With PM2 (Persistent)
 
 This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
 
@@ -92,62 +132,22 @@ npm run pm2:status
 
 The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
-## Usage
+### Telegram Command Reference
 
-Interact with the bot via Telegram commands.
-
-### Basic Example
-
-To get a complete market analysis for a specific pair:
-
-```
-/analyze BTCUSDT
-```
-
-**What you get:**
-- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
-- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
-- **Backtesting Results**: 30-day strategy performance
-- **Recommendations**: Entry/exit levels with reasoning
-
-### Advanced Usage
-
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
-
-**Start a Paper Trading Session:**
-```
-/papertrade ETHUSDT
-```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
-
-**Backtest a Strategy:**
-```
-/backtest SOLUSDT 30
-```
-*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
-
-**Optimize Strategy Parameters:**
-```
-/optimize ADAUSDT 60
-```
-*Runs optimization over a 60-day period to find the best parameters for maximum profit.*
-
-## Telegram Command Reference
-
-### Basic Analysis
+**Basic Analysis**
 - `/signal [symbol]` - Trading signals
 - `/volume [symbol]` - Volume analysis
 - `/sr [symbol]` - Support/resistance levels
 - `/chart [symbol]` - Generate interactive charts
 
-### Advanced Trading
+**Advanced Trading**
 - `/backtest [symbol] [days]` - Strategy backtesting
 - `/papertrade [symbol]` - Start paper trading simulation
 - `/portfolio` - View current positions and balance
 - `/performance` - Detailed performance metrics
 - `/optimize [symbol] [days]` - Optimize strategy parameters
 
-### Data & Status
+**Data & Status**
 - `/download [symbol] [days]` - Download historical data
 - `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
@@ -160,6 +160,33 @@ The bot supports complex trading workflows, including simulated trading and stra
 - **Database**: Prisma ORM with SQLite
 - **Market Data**: Binance REST & WebSocket APIs
 - **AI/ML**: TensorFlow.js (GRU models), Chutes AI (News Sentiment)
+
+## API Reference
+
+The project includes a REST API (Dashboard API) which runs locally.
+
+**Authentication:**
+The Dashboard API currently runs without authentication by default for local access.
+
+**Rate Limiting:**
+Requests are limited to 100 requests per minute per IP address. Rate limit exceeded errors return a `429 Too Many Requests` HTTP status code.
+
+**Pagination:**
+Endpoints that return lists (like `/api/trades` or `/api/signals`) support pagination via a `limit` query parameter (e.g., `?limit=50`).
+
+**Error Handling:**
+Errors return a standard JSON response with an `error` key and an appropriate HTTP status code (e.g., `400 Bad Request`, `500 Internal Server Error`).
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/dashboard` | GET | Returns general dashboard summary data. |
+| `/api/trades` | GET | Returns a list of past trades. Accepts `limit` query param. |
+| `/api/trades/open` | GET | Returns currently open trades. |
+| `/api/signals` | GET | Returns a list of recent trading signals. Accepts `limit` query param. |
+| `/api/news` | GET | Returns a list of recent news items. Accepts `limit` query param. |
+| `/api/portfolio` | GET | Returns the current portfolio balance and positions. |
+| `/api/stats` | GET | Returns overall bot performance statistics. |
+| `/api/health` | GET | Returns the health status, uptime, and memory usage. |
 
 ## Contributing
 
