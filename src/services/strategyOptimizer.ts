@@ -353,10 +353,21 @@ export class StrategyOptimizer {
         const correlations: { [key: string]: number } = {};
         
         const paramNames = Object.keys(bestParams);
+
+        // ⚡ Bolt Optimization: Replace O(N) map operations for parameters and scores extraction
+        // with a pre-calculated scores array to avoid N*M iterations.
+        const resultsLen = results.length;
+        const scores = new Array(resultsLen);
+        for (let i = 0; i < resultsLen; i++) {
+            scores[i] = results[i].score;
+        }
+
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
-            const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
+            const paramValues = new Array(resultsLen);
+            for (let i = 0; i < resultsLen; i++) {
+                paramValues[i] = results[i].params[paramName];
+            }
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
@@ -364,8 +375,24 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Calculate avg and std in a single O(N) pass
+        // avoiding multiple reduce iterations over the entire results array
+        const resLen = results.length;
+        let sumScore = 0;
+
+        for (let i = 0; i < resLen; i++) {
+            sumScore += results[i].score;
+        }
+
+        const avgScore = sumScore / resLen;
+
+        let sumSqDiff = 0;
+        for (let i = 0; i < resLen; i++) {
+            const diff = results[i].score - avgScore;
+            sumSqDiff += diff * diff;
+        }
+
+        const scoreStd = Math.sqrt(sumSqDiff / resLen);
         
         const summary = `
 Optimization Analysis Summary:
@@ -520,11 +547,20 @@ ${Object.entries(parameterImportance)
         }
 
         // Find most stable parameters
-        const bestStableWindow = windows.reduce((prev, current) =>
-            current.stabilityRatio > prev.stabilityRatio ? current : prev
-        );
+        // ⚡ Bolt Optimization: Replace double iteration over windows array with a single O(N) loop
+        const windowsLen = windows.length;
+        let bestStableWindow = windows[0];
+        let sumStability = 0;
 
-        const avgStabilityRatio = windows.reduce((sum, w) => sum + w.stabilityRatio, 0) / windows.length;
+        for (let i = 0; i < windowsLen; i++) {
+            const w = windows[i];
+            sumStability += w.stabilityRatio;
+            if (w.stabilityRatio > bestStableWindow.stabilityRatio) {
+                bestStableWindow = w;
+            }
+        }
+
+        const avgStabilityRatio = sumStability / windowsLen;
         const summary = this.formatWFOSummary({ windows, bestStableParams: bestStableWindow.bestParams, avgStabilityRatio, summary: '' });
 
         return {
@@ -687,8 +723,18 @@ ${frontierDetails}
 
 Trade-offs Identified:
 - Higher returns usually associated with higher drawdowns
-- Best for profit maximization: ${result.frontier.reduce((max, p) => p.objectives.returnPct > max.objectives.returnPct ? p : max).objectives.returnPct.toFixed(2)}% return
-- Best for risk minimization: ${result.frontier.reduce((min, p) => p.objectives.drawdownPct < min.objectives.drawdownPct ? p : min).objectives.drawdownPct.toFixed(1)}% maximum drawdown
+${(() => {
+  // ⚡ Bolt Optimization: Replace O(N) chained reduce for extremes with single O(N) loop
+  let bestReturn = -Infinity;
+  let bestDrawdown = Infinity;
+  const fLen = result.frontier.length;
+  for (let i = 0; i < fLen; i++) {
+    const p = result.frontier[i].objectives;
+    if (p.returnPct > bestReturn) bestReturn = p.returnPct;
+    if (p.drawdownPct < bestDrawdown) bestDrawdown = p.drawdownPct;
+  }
+  return `- Best for profit maximization: ${bestReturn.toFixed(2)}% return\n- Best for risk minimization: ${bestDrawdown.toFixed(1)}% maximum drawdown`;
+})()}
         `;
     }
 
@@ -720,9 +766,28 @@ Trade-offs Identified:
             }
 
             const performances = neighborhood.map(r => r.score);
-            const bestPerf = Math.max(...performances);
-            const mean = performances.reduce((a, b) => a + b, 0) / performances.length;
-            const stdDev = Math.sqrt(performances.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / performances.length);
+
+            // ⚡ Bolt Optimization: Calculate mean, stdDev, and max in a single O(N) pass
+            // instead of chaining reduce, map, and spread operators that iterate 4+ times
+            const perfLen = performances.length;
+            let sumPerf = 0;
+            let bestPerf = -Infinity;
+
+            for (let i = 0; i < perfLen; i++) {
+                const p = performances[i];
+                sumPerf += p;
+                if (p > bestPerf) bestPerf = p;
+            }
+
+            const mean = sumPerf / perfLen;
+
+            let sumSqDiff = 0;
+            for (let i = 0; i < perfLen; i++) {
+                const diff = performances[i] - mean;
+                sumSqDiff += diff * diff;
+            }
+
+            const stdDev = Math.sqrt(sumSqDiff / perfLen);
 
             // Sensitivity score: coefficient of variation (std/mean)
             const sensitivityScore = mean !== 0 ? stdDev / mean : 0;
