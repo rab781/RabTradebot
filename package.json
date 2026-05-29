@@ -54,8 +54,8 @@
     "@libsql/client": "^0.17.0",
     "@prisma/adapter-libsql": "^7.3.0",
     "@prisma/client": "^7.3.0",
-    "@tensorflow/tfjs-node": "^4.22.0",
     "@tensorflow/tfjs": "^4.22.0",
+    "@tensorflow/tfjs-node": "^4.22.0",
     "@types/cheerio": "^0.22.35",
     "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
@@ -82,7 +82,7 @@
     "telegraf": "^4.16.3",
     "ts-node": "^10.9.2",
     "uuid": "^11.1.0",
-    "ws": "^8.18.0"
+    "ws": "^8.18.3"
   },
   "devDependencies": {
     "@types/better-sqlite3": "^7.6.13",
