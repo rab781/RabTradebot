@@ -363,9 +363,21 @@ export class StrategyOptimizer {
             parameterImportance[paramName] = Math.abs(correlation);
         }
 
-        // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Calculate avgScore and scoreStd in a single O(N) loop
+        // Avoids multiple .reduce() passes and closure allocations
+        let sumScore = 0;
+        let sumScoreSq = 0;
+        const len = results.length;
+
+        for (let i = 0; i < len; i++) {
+            const s = results[i].score;
+            sumScore += s;
+            sumScoreSq += s * s;
+        }
+
+        const avgScore = sumScore / len;
+        const variance = (sumScoreSq / len) - (avgScore * avgScore);
+        const scoreStd = Math.sqrt(Math.max(0, variance));
         
         const summary = `
 Optimization Analysis Summary:
@@ -719,10 +731,24 @@ Trade-offs Identified:
                 continue;
             }
 
-            const performances = neighborhood.map(r => r.score);
-            const bestPerf = Math.max(...performances);
-            const mean = performances.reduce((a, b) => a + b, 0) / performances.length;
-            const stdDev = Math.sqrt(performances.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / performances.length);
+            // ⚡ Bolt Optimization: Replace O(N) chained array methods with a single O(N) loop
+            const n = neighborhood.length;
+            const performances = new Array(n);
+            let bestPerf = -Infinity;
+            let sum = 0;
+            let sumSq = 0;
+
+            for (let i = 0; i < n; i++) {
+                const s = neighborhood[i].score;
+                performances[i] = s;
+                if (s > bestPerf) bestPerf = s;
+                sum += s;
+                sumSq += s * s;
+            }
+
+            const mean = sum / n;
+            const variance = (sumSq / n) - (mean * mean);
+            const stdDev = Math.sqrt(Math.max(0, variance));
 
             // Sensitivity score: coefficient of variation (std/mean)
             const sensitivityScore = mean !== 0 ? stdDev / mean : 0;
