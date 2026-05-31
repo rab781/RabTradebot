@@ -28,7 +28,7 @@ async function testMLPredictions() {
         const rawCandles = await cryptoService.getCandlestickData(symbol, '1h', lookback * 24);
 
         // Convert to OHLCVCandle format
-        const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
+        const candles: OHLCVCandle[] = rawCandles.map((c: [number, string, string, string, string, string]) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
             high: parseFloat(c[2]),

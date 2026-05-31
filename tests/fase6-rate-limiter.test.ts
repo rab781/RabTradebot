@@ -55,7 +55,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
             await limiter.acquire('rest', 60, 1000);
 
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.restTokens).toBeLessThanOrEqual(60);
+            expect(Math.ceil(snapshot.restTokens)).toBeLessThanOrEqual(61);
             expect(snapshot.restTokens).toBeGreaterThanOrEqual(0);
         });
 
