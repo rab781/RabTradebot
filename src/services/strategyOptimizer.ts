@@ -719,10 +719,26 @@ Trade-offs Identified:
                 continue;
             }
 
-            const performances = neighborhood.map(r => r.score);
-            const bestPerf = Math.max(...performances);
-            const mean = performances.reduce((a, b) => a + b, 0) / performances.length;
-            const stdDev = Math.sqrt(performances.reduce((sum, p) => sum + Math.pow(p - mean, 2), 0) / performances.length);
+            // ⚡ Bolt Optimization: Replace multiple O(N) .map() and .reduce() passes and
+            // Math.max(...array) spread syntax with a single O(N) pre-allocated loop.
+            // Using E[X^2] - (E[X])^2 identity for variance to calculate stdDev in one pass.
+            const len = neighborhood.length;
+            const performances = new Array<number>(len);
+            let bestPerf = -Infinity;
+            let sum = 0;
+            let sumSq = 0;
+
+            for (let i = 0; i < len; i++) {
+                const score = neighborhood[i].score;
+                performances[i] = score;
+                if (score > bestPerf) bestPerf = score;
+                sum += score;
+                sumSq += score * score;
+            }
+
+            const mean = sum / len;
+            const variance = Math.max(0, (sumSq / len) - (mean * mean));
+            const stdDev = Math.sqrt(variance);
 
             // Sensitivity score: coefficient of variation (std/mean)
             const sensitivityScore = mean !== 0 ? stdDev / mean : 0;
