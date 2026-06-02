@@ -74,3 +74,7 @@
 ## 2026-05-13 - [O(N) Optimization for Pearson Correlation Calculation]
 **Learning:** In `StrategyOptimizer.calculateCorrelation`, calculating the sum of arrays via five consecutive `.reduce()` calls on identical data structures forces the JS engine to traverse the array five times, causing O(5N) iteration overhead and allocating five separate closures per function call.
 **Action:** When calculating complex statistical metrics (like Pearson correlation) over arrays, consolidate all sum/accumulation metrics into a single O(N) `for` loop to significantly reduce iteration and garbage collection overhead, especially when processing large parameter grid searches.
+
+## 2026-06-02 - [Optimize Array Operations in Rendering Loops]
+**Learning:** In `ImageChartService.ts`, calculating max/min using `Math.max(...data.map(d => d.h))` causes two performance issues: first, it creates unnecessary intermediate array allocations by chaining `map()` which creates garbage collection overhead; second, using the spread operator `...` on potentially large arrays can hit the V8 engine's maximum call stack size limits, causing `RangeError: Maximum call stack size exceeded`.
+**Action:** Replace `Math.max/min(...array.map())` and consecutive `Array.map` passes in calculation-heavy sections with a single, unified `for` loop that incrementally tracks metrics (e.g. `let maxH = -Infinity; for (...) { if (h > maxH) maxH = h; }`) and pre-allocates arrays where possible.
