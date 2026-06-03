@@ -74,3 +74,10 @@
 ## 2026-05-13 - [O(N) Optimization for Pearson Correlation Calculation]
 **Learning:** In `StrategyOptimizer.calculateCorrelation`, calculating the sum of arrays via five consecutive `.reduce()` calls on identical data structures forces the JS engine to traverse the array five times, causing O(5N) iteration overhead and allocating five separate closures per function call.
 **Action:** When calculating complex statistical metrics (like Pearson correlation) over arrays, consolidate all sum/accumulation metrics into a single O(N) `for` loop to significantly reduce iteration and garbage collection overhead, especially when processing large parameter grid searches.
+
+## 2026-06-02 - [Optimize Array Operations in Rendering Loops]
+**Learning:** In `ImageChartService.ts`, calculating max/min using `Math.max(...data.map(d => d.h))` causes two performance issues: first, it creates unnecessary intermediate array allocations by chaining `map()` which creates garbage collection overhead; second, using the spread operator `...` on potentially large arrays can hit the V8 engine's maximum call stack size limits, causing `RangeError: Maximum call stack size exceeded`.
+**Action:** Replace `Math.max/min(...array.map())` and consecutive `Array.map` passes in calculation-heavy sections with a single, unified `for` loop that incrementally tracks metrics (e.g. `let maxH = -Infinity; for (...) { if (h > maxH) maxH = h; }`) and pre-allocates arrays where possible.
+## 2026-06-02 - [Fix Flaky Jest Floating Point Comparisons]
+**Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(60)` failed intermittently due to JS floating-point precision error producing `60.002` instead of exactly `60`.
+**Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.

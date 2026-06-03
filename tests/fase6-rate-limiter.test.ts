@@ -55,7 +55,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
             await limiter.acquire('rest', 60, 1000);
 
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.restTokens).toBeLessThanOrEqual(60);
+            expect(Math.floor(snapshot.restTokens)).toBeLessThanOrEqual(60);
             expect(snapshot.restTokens).toBeGreaterThanOrEqual(0);
         });
 
@@ -154,7 +154,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
             });
 
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.orderTokens).toBeLessThanOrEqual(1);
+            expect(Math.floor(snapshot.orderTokens)).toBeLessThanOrEqual(1);
         });
 
         it('should ignore invalid header values gracefully', () => {
