@@ -670,28 +670,28 @@ export class FeatureEngineeringService {
         if (n === 0 || startIndex + n > x.length || startIndex + n > y.length) return 0;
         const end = startIndex + n;
 
+        // ⚡ Bolt Optimization: Replace O(2N) two-pass calculation with a single O(N) loop
+        // to minimize iteration overhead and derive the correlation directly from sums.
         let sumX = 0;
         let sumY = 0;
-        for (let i = startIndex; i < end; i++) {
-            sumX += x[i];
-            sumY += y[i];
-        }
-        const meanX = sumX / n;
-        const meanY = sumY / n;
-
-        let numerator = 0;
-        let sumXSquared = 0;
-        let sumYSquared = 0;
+        let sumXY = 0;
+        let sumX2 = 0;
+        let sumY2 = 0;
 
         for (let i = startIndex; i < end; i++) {
-            const diffX = x[i] - meanX;
-            const diffY = y[i] - meanY;
-            numerator += diffX * diffY;
-            sumXSquared += diffX * diffX;
-            sumYSquared += diffY * diffY;
+            const xi = x[i];
+            const yi = y[i];
+            sumX += xi;
+            sumY += yi;
+            sumXY += xi * yi;
+            sumX2 += xi * xi;
+            sumY2 += yi * yi;
         }
 
-        const denominator = Math.sqrt(sumXSquared * sumYSquared);
+        const numerator = n * sumXY - sumX * sumY;
+        // Guard against floating point imprecision causing negative values inside Math.sqrt
+        const denominator = Math.sqrt(Math.max(0, (n * sumX2 - sumX * sumX) * (n * sumY2 - sumY * sumY)));
+
         return denominator !== 0 ? numerator / denominator : 0;
     }
 
