@@ -721,7 +721,6 @@ Trade-offs Identified:
 
             // ⚡ Bolt Optimization: Consolidate loop to prevent Math.max spread overflow
             // and eliminate multiple reduce passes for statistical metrics
-            let bestPerf = -Infinity;
             let sumPerf = 0;
             let sumPerfSq = 0;
             const performances: number[] = new Array(neighborhood.length);
@@ -730,7 +729,6 @@ Trade-offs Identified:
             for (let i = 0; i < n; i++) {
                 const score = neighborhood[i].score;
                 performances[i] = score;
-                if (score > bestPerf) bestPerf = score;
                 sumPerf += score;
                 sumPerfSq += score * score;
             }
