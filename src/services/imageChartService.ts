@@ -257,7 +257,17 @@ export class ImageChartService {
     private calculateSupportResistance(data: CandleData[], swingPoints: SwingPoint[]): SupportResistance[] {
         const levels: SupportResistance[] = [];
         const currentPrice = data[data.length - 1].c;
-        const priceRange = Math.max(...data.map(d => d.h)) - Math.min(...data.map(d => d.l));
+
+        // ⚡ Bolt Optimization: Replace O(N) array mappings and spread max/min stack vulnerability
+        // with a single pre-allocated O(N) pass over the dataset.
+        let maxH = -Infinity;
+        let minL = Infinity;
+        for (let i = 0; i < data.length; i++) {
+            if (data[i].h > maxH) maxH = data[i].h;
+            if (data[i].l < minL) minL = data[i].l;
+        }
+
+        const priceRange = maxH - minL;
         const tolerance = priceRange * 0.01;
 
         const priceZones: { price: number; count: number; isResistance: boolean }[] = [];
@@ -312,10 +322,17 @@ export class ImageChartService {
         const changeText = `${sign}${changePercent.toFixed(2)}%`;
         const titleColor = changePercent >= 0 ? '#0ecb81' : '#f6465d';
 
-        const allHighs = limitedData.map(d => d.h);
-        const allLows = limitedData.map(d => d.l);
-        const minPrice = Math.min(...allLows) * 0.995;
-        const maxPrice = Math.max(...allHighs) * 1.005;
+        // ⚡ Bolt Optimization: Replaced O(N) multiple .map() closures and spread max/min
+        // with a single O(N) loop to compute high, low limits and pre-allocate data.
+        let localMaxPrice = -Infinity;
+        let localMinPrice = Infinity;
+        for (let i = 0; i < limitedData.length; i++) {
+            if (limitedData[i].h > localMaxPrice) localMaxPrice = limitedData[i].h;
+            if (limitedData[i].l < localMinPrice) localMinPrice = limitedData[i].l;
+        }
+
+        const minPrice = localMinPrice * 0.995;
+        const maxPrice = localMaxPrice * 1.005;
 
         const labels = limitedData.map((d, i) => {
             if (i % 10 === 0 || i === limitedData.length - 1) {
@@ -585,8 +602,16 @@ export class ImageChartService {
         const limited = normalized.slice(-200);
         const startBalance = limited[0].balance;
         const endBalance = limited[limited.length - 1].balance;
-        const minBalance = Math.min(...limited.map((p) => p.balance));
-        const maxBalance = Math.max(...limited.map((p) => p.balance));
+
+        // ⚡ Bolt Optimization: Replace nested O(N) map operations and stack-unsafe spread Math.max/min
+        // with a single O(N) loop over the limited balance.
+        let minBalance = Infinity;
+        let maxBalance = -Infinity;
+        for (let i = 0; i < limited.length; i++) {
+            if (limited[i].balance < minBalance) minBalance = limited[i].balance;
+            if (limited[i].balance > maxBalance) maxBalance = limited[i].balance;
+        }
+
         const changePct = startBalance !== 0 ? ((endBalance - startBalance) / startBalance) * 100 : 0;
         const lineColor = changePct >= 0 ? '#0ecb81' : '#f6465d';
         const fillColor = changePct >= 0 ? 'rgba(14, 203, 129, 0.15)' : 'rgba(246, 70, 93, 0.15)';
