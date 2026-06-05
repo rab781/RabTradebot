@@ -1090,6 +1090,7 @@ bot.command('signal', async (ctx) => {
   }
 
   let loadingMsg: any;
+  let responseText: string | undefined;
   try {
     loadingMsg = await ctx.reply('🔄 Generating signal...');
     const signal = await signalGenerator.generateSignal(symbol);
@@ -1104,13 +1105,16 @@ bot.command('signal', async (ctx) => {
       indicators: {},
     });
 
-    ctx.reply(signal.text);
+    responseText = signal.text;
   } catch (error) {
     logger.error({ err: error }, `Error generating signal for ${symbol}:`);
-    ctx.reply(`❌ Error generating signal for ${symbol}. Please check the symbol and try again.`);
+    responseText = `❌ Error generating signal for ${symbol}. Please check the symbol and try again.`;
   } finally {
     if (loadingMsg) {
       try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
+    if (responseText) {
+      await ctx.reply(responseText);
     }
   }
 
@@ -3554,19 +3558,21 @@ bot.command('volume', async (ctx) => {
   }
 
   let loadingMsg: any;
+  let responseText: string | undefined;
   try {
     loadingMsg = await ctx.reply('🔄 Analyzing volume data...');
     // Use existing analyzer method
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
-    ctx.reply(
-      `📊 Volume Analysis for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for comprehensive analysis.`
-    );
+    responseText = `📊 Volume Analysis for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for comprehensive analysis.`;
   } catch (error) {
     logger.error({ err: error }, 'Volume analysis error:');
-    ctx.reply(`❌ Error analyzing volume for ${symbol}. Please try again later.`);
+    responseText = `❌ Error analyzing volume for ${symbol}. Please try again later.`;
   } finally {
     if (loadingMsg) {
       try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
+    if (responseText) {
+      await ctx.reply(responseText);
     }
   }
 
@@ -3582,18 +3588,20 @@ bot.command('sr', async (ctx) => {
   }
 
   let loadingMsg: any;
+  let responseText: string | undefined;
   try {
     loadingMsg = await ctx.reply('🔄 Calculating support and resistance levels...');
     const analysis = await technicalAnalyzer.analyzeSymbol(symbol);
-    ctx.reply(
-      `🎯 Support/Resistance for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for detailed levels.`
-    );
+    responseText = `🎯 Support/Resistance for ${symbol}:\n\n${analysis}\n\n💡 Use /analyze ${symbol} for detailed levels.`;
   } catch (error) {
     logger.error({ err: error }, 'Support/Resistance analysis error:');
-    ctx.reply(`❌ Error analyzing support/resistance for ${symbol}. Please try again later.`);
+    responseText = `❌ Error analyzing support/resistance for ${symbol}. Please try again later.`;
   } finally {
     if (loadingMsg) {
       try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
+    }
+    if (responseText) {
+      await ctx.reply(responseText);
     }
   }
 
@@ -3640,13 +3648,27 @@ bot.command('chart', async (ctx) => {
       chartResult.patterns.length > 0
         ? `\n📊 Patterns: ${chartResult.patterns.map((p) => `${p.name} (${p.confidence}%)`).join(', ')}`
         : '';
+
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+    loadingMsg = null; // Prevent finally from trying to delete it again
+
     await ctx.replyWithPhoto(
       { source: chartResult.buffer },
       { caption: `📈 ${symbol} ${timeframe} Chart${patternInfo}` }
     );
   } catch (error) {
     logger.error({ err: error }, 'Chart generation error:');
-    ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
+    try {
+      if (loadingMsg) {
+        await ctx.deleteMessage(loadingMsg.message_id);
+        loadingMsg = null;
+      }
+    } catch (e) { /* ignore */ }
+    await ctx.reply(`❌ Error generating chart for ${symbol}. Please try again later.`);
   } finally {
     if (loadingMsg) {
       try { await ctx.deleteMessage(loadingMsg.message_id); } catch (e) { /* ignore */ }
