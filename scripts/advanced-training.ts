@@ -203,7 +203,7 @@ async function advancedTraining() {
         console.log(`  2. Use in bot: /mlpredict BTCUSDT`);
         console.log(`  3. Combine with: /openclaw BTCUSDT`);
 
-    } catch (error) {
+    } catch (error: unknown) {
         console.error('\n❌ Error:', error);
         if (error instanceof Error) {
             console.error(error.message);

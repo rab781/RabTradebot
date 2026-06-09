@@ -217,7 +217,7 @@ async function extensiveTest() {
             console.log(`  ⚠️  Consider increasing epochs or getting more data`);
         }
 
-    } catch (error) {
+    } catch (error: unknown) {
         console.error('\n❌ Error:', error);
         if (error instanceof Error) {
             console.error('Details:', error.message);
