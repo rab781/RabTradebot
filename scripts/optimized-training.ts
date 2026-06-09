@@ -143,7 +143,7 @@ async function optimizedTraining() {
         console.log(`   Total Features: 60 technical indicators`);
         console.log(`   Sequence Length: 20 timesteps`);
 
-    } catch (error) {
+    } catch (error: unknown) {
         console.error('\n❌ Error:', error);
         if (error instanceof Error) {
             console.error('Details:', error.message);

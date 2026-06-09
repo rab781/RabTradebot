@@ -214,7 +214,7 @@ async function productionTraining() {
         console.log(`  /mlstats             — Model + WFV stats`);
         console.log(`  /trainmodel BTCUSDT 1h — Re-train from Telegram`);
 
-    } catch (error) {
+    } catch (error: unknown) {
         console.error('\n❌ Error:', error);
         if (error instanceof Error) console.error(error.stack);
         process.exit(1);

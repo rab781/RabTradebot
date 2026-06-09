@@ -80,7 +80,7 @@ async function quickTest() {
         console.log(`Confidence: ${(prediction.confidence * 100).toFixed(1)}%`);
         console.log(`\n✅ ML Prediction Test PASSED!`);
 
-    } catch (error) {
+    } catch (error: unknown) {
         console.error('\n❌ Test failed:', error);
         if (error instanceof Error) {
             console.error('Stack:', error.stack);
