@@ -353,10 +353,12 @@ export class StrategyOptimizer {
         const correlations: { [key: string]: number } = {};
         
         const paramNames = Object.keys(bestParams);
+        // ⚡ Bolt Optimization: Hoist scores array extraction out of parameter loop to avoid O(P*N) redundant allocations
+        const scores = results.map(r => r.score);
+
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
             const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
@@ -364,8 +366,17 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Calculate average and standard deviation in a single O(N) loop
+        let sumScores = 0;
+        let sumScoresSq = 0;
+        for (let i = 0; i < results.length; i++) {
+            const score = results[i].score;
+            sumScores += score;
+            sumScoresSq += score * score;
+        }
+        const avgScore = sumScores / results.length;
+        const variance = (sumScoresSq - ((sumScores * sumScores) / results.length)) / results.length;
+        const scoreStd = Math.sqrt(Math.max(0, variance));
         
         const summary = `
 Optimization Analysis Summary:
@@ -519,12 +530,19 @@ ${Object.entries(parameterImportance)
             throw new Error('No valid windows for Walk-Forward Optimization');
         }
 
-        // Find most stable parameters
-        const bestStableWindow = windows.reduce((prev, current) =>
-            current.stabilityRatio > prev.stabilityRatio ? current : prev
-        );
+        // ⚡ Bolt Optimization: Replace chained array reduce with a single loop
+        let bestStableWindow = windows[0];
+        let sumStability = 0;
 
-        const avgStabilityRatio = windows.reduce((sum, w) => sum + w.stabilityRatio, 0) / windows.length;
+        for (let i = 0; i < windows.length; i++) {
+            const current = windows[i];
+            if (current.stabilityRatio > bestStableWindow.stabilityRatio) {
+                bestStableWindow = current;
+            }
+            sumStability += current.stabilityRatio;
+        }
+
+        const avgStabilityRatio = sumStability / windows.length;
         const summary = this.formatWFOSummary({ windows, bestStableParams: bestStableWindow.bestParams, avgStabilityRatio, summary: '' });
 
         return {
@@ -673,22 +691,36 @@ Higher ratio (closer to 1.0) indicates less overfitting.
     }
 
     private formatParetoSummary(result: ParetoResult): string {
-        const frontierDetails = result.frontier.map(p =>
-            `Return: ${p.objectives.returnPct.toFixed(2)}%, Drawdown: ${p.objectives.drawdownPct.toFixed(1)}%, ` +
-            `Win Rate: ${p.objectives.winRate.toFixed(1)}%, Profit Factor: ${p.objectives.profitFactor.toFixed(2)}`
-        ).join('\n');
+        // ⚡ Bolt Optimization: Calculate max/min during single pass to avoid multiple reduce calls
+        let maxReturn = -Infinity;
+        let minDrawdown = Infinity;
+        const frontierDetailsArray = [];
+
+        for (let i = 0; i < result.frontier.length; i++) {
+            const p = result.frontier[i];
+            if (p.objectives.returnPct > maxReturn) maxReturn = p.objectives.returnPct;
+            if (p.objectives.drawdownPct < minDrawdown) minDrawdown = p.objectives.drawdownPct;
+
+            frontierDetailsArray.push(
+                `Return: ${p.objectives.returnPct.toFixed(2)}%, Drawdown: ${p.objectives.drawdownPct.toFixed(1)}%, ` +
+                `Win Rate: ${p.objectives.winRate.toFixed(1)}%, Profit Factor: ${p.objectives.profitFactor.toFixed(2)}`
+            );
+        }
+
+        const maxReturnStr = result.frontier.length > 0 ? maxReturn.toFixed(2) : "0.00";
+        const minDrawdownStr = result.frontier.length > 0 ? minDrawdown.toFixed(1) : "0.0";
 
         return `
 Pareto Frontier Analysis:
 ========================
 
 Non-dominated Solutions (${result.frontierSize} found):
-${frontierDetails}
+${frontierDetailsArray.join('\n')}
 
 Trade-offs Identified:
 - Higher returns usually associated with higher drawdowns
-- Best for profit maximization: ${result.frontier.reduce((max, p) => p.objectives.returnPct > max.objectives.returnPct ? p : max).objectives.returnPct.toFixed(2)}% return
-- Best for risk minimization: ${result.frontier.reduce((min, p) => p.objectives.drawdownPct < min.objectives.drawdownPct ? p : min).objectives.drawdownPct.toFixed(1)}% maximum drawdown
+- Best for profit maximization: ${maxReturnStr}% return
+- Best for risk minimization: ${minDrawdownStr}% maximum drawdown
         `;
     }
 

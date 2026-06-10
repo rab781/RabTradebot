@@ -84,3 +84,6 @@
 ## 2026-06-02 - [Fix Flaky Jest Floating Point Comparisons]
 **Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(60)` failed intermittently due to JS floating-point precision error producing `60.002` instead of exactly `60`.
 **Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.
+## 2026-06-10 - [Optimize Array Operations in Statistical Metrics]
+**Learning:** Using multiple `.reduce()` and `.map()` passes for statistical metrics (mean, std dev) over the same arrays adds unnecessary iteration overhead. Additionally, using `Math.max(...array)` with `.map()` inside array extractions introduces multiple iterations and can lead to stack overflow on very large arrays.
+**Action:** Consolidate the calculation of sum, sum of squares, max, and min values into a single `O(N)` loop. Avoid `Math.max(...array)` on dynamically mapped arrays and manually track maximums to improve memory allocation overhead and reduce iterations.
