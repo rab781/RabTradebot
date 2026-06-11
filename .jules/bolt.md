@@ -84,3 +84,7 @@
 ## 2026-06-02 - [Fix Flaky Jest Floating Point Comparisons]
 **Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(60)` failed intermittently due to JS floating-point precision error producing `60.002` instead of exactly `60`.
 **Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.
+
+## 2026-06-11 - [Optimize Pearson Correlation Parameter Summary]
+**Learning:** In `StrategyOptimizer.ts`, when iterating over parameter keys to calculate the parameter summary and correlations for different optimization variables, recreating the entire `results.map(r => r.score)` array repeatedly inside the loop creates redundant O(N) array allocations for each parameter. Moreover, creating the summary average and standard deviation of scores involved multiple O(N) reduce passes and math operations.
+**Action:** Always extract shared array mappings out of optimization loops when possible, and compute statistical variables (mean, variance) using single O(N) inline accumulation loops (e.g. tracking `sum` and `sumSq`) to minimize garbage collection and loop overhead in high-intensity operations.
