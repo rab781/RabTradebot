@@ -364,8 +364,18 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Replace double O(N) reduce operations with a single O(N) loop
+        // for statistical accumulation of score metrics
+        let sumScore = 0;
+        let sumScoreSq = 0;
+        const nResults = results.length;
+        for (let i = 0; i < nResults; i++) {
+            const s = results[i].score;
+            sumScore += s;
+            sumScoreSq += s * s;
+        }
+        const avgScore = sumScore / nResults;
+        const scoreStd = Math.sqrt(Math.max(0, (sumScoreSq / nResults) - (avgScore * avgScore)));
         
         const summary = `
 Optimization Analysis Summary:
