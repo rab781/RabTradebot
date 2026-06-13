@@ -431,15 +431,30 @@ export class SimpleGRUModel {
             return { windowCount: 0, meanAccuracy: 0, bestAccuracy: 0, worstAccuracy: 0, stdDevAccuracy: 0, results: [] };
         }
 
-        const accs = results.map(r => r.accuracy);
-        const mean = accs.reduce((a, b) => a + b, 0) / accs.length;
-        const variance = accs.reduce((sum, a) => sum + Math.pow(a - mean, 2), 0) / accs.length;
+        // ⚡ Bolt Optimization: Replace chained O(N) map, multiple reduces, and stack-unsafe
+        // spread Math.max/min with a single O(N) statistical accumulation loop
+        const nResults = results.length;
+        let sumAcc = 0;
+        let sumAccSq = 0;
+        let bestAccuracy = -Infinity;
+        let worstAccuracy = Infinity;
+
+        for (let i = 0; i < nResults; i++) {
+            const acc = results[i].accuracy;
+            sumAcc += acc;
+            sumAccSq += acc * acc;
+            if (acc > bestAccuracy) bestAccuracy = acc;
+            if (acc < worstAccuracy) worstAccuracy = acc;
+        }
+
+        const meanAccuracy = sumAcc / nResults;
+        const variance = Math.max(0, (sumAccSq / nResults) - (meanAccuracy * meanAccuracy));
 
         return {
-            windowCount: results.length,
-            meanAccuracy: mean,
-            bestAccuracy: Math.max(...accs),
-            worstAccuracy: Math.min(...accs),
+            windowCount: nResults,
+            meanAccuracy,
+            bestAccuracy,
+            worstAccuracy,
             stdDevAccuracy: Math.sqrt(variance),
             results,
         };
@@ -478,11 +493,26 @@ export class SimpleGRUModel {
         for (let b = 0; b < buckets; b++) {
             const lo = b * step;
             const hi = (b + 1) * step;
-            const bucket = preds.filter(p => p.conf >= lo && p.conf < hi);
-            if (bucket.length === 0) continue;
-            const meanConf = bucket.reduce((s, p) => s + p.conf, 0) / bucket.length;
-            const accuracy = bucket.filter(p => p.correct).length / bucket.length;
-            out.push({ bucket: `${(lo * 100).toFixed(0)}-${(hi * 100).toFixed(0)}%`, count: bucket.length, meanConf, accuracy });
+            // ⚡ Bolt Optimization: Replace multiple filter and reduce passes over the bucket
+            // with a single loop over preds to aggregate metrics incrementally
+            let count = 0;
+            let sumConf = 0;
+            let correctCount = 0;
+
+            for (let i = 0; i < preds.length; i++) {
+                const p = preds[i];
+                if (p.conf >= lo && p.conf < hi) {
+                    count++;
+                    sumConf += p.conf;
+                    if (p.correct) correctCount++;
+                }
+            }
+
+            if (count === 0) continue;
+
+            const meanConf = sumConf / count;
+            const accuracy = correctCount / count;
+            out.push({ bucket: `${(lo * 100).toFixed(0)}-${(hi * 100).toFixed(0)}%`, count, meanConf, accuracy });
         }
 
         return out;
