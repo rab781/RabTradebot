@@ -431,15 +431,32 @@ export class SimpleGRUModel {
             return { windowCount: 0, meanAccuracy: 0, bestAccuracy: 0, worstAccuracy: 0, stdDevAccuracy: 0, results: [] };
         }
 
-        const accs = results.map(r => r.accuracy);
-        const mean = accs.reduce((a, b) => a + b, 0) / accs.length;
-        const variance = accs.reduce((sum, a) => sum + Math.pow(a - mean, 2), 0) / accs.length;
+        // ⚡ Bolt Optimization: Replace multiple array traversals (.map, .reduce)
+        // and spread operators (Math.max(...)) with a single O(N) pass.
+        // This eliminates intermediate array allocations and prevents potential
+        // 'Maximum call stack size exceeded' errors on large WFV result sets.
+        let sum = 0;
+        let sumSq = 0;
+        let best = -Infinity;
+        let worst = Infinity;
+        const n = results.length;
+
+        for (let i = 0; i < n; i++) {
+            const acc = results[i].accuracy;
+            sum += acc;
+            sumSq += acc * acc;
+            if (acc > best) best = acc;
+            if (acc < worst) worst = acc;
+        }
+
+        const mean = sum / n;
+        const variance = Math.max(0, (sumSq / n) - (mean * mean));
 
         return {
-            windowCount: results.length,
+            windowCount: n,
             meanAccuracy: mean,
-            bestAccuracy: Math.max(...accs),
-            worstAccuracy: Math.min(...accs),
+            bestAccuracy: best,
+            worstAccuracy: worst,
             stdDevAccuracy: Math.sqrt(variance),
             results,
         };
