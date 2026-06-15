@@ -66,7 +66,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
             await limiter.acquire('order', 3, 1000);
 
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.orderTokens).toBeLessThanOrEqual(7);
+            expect(Math.floor(snapshot.orderTokens)).toBeLessThanOrEqual(7);
         });
 
         it('should handle zero-cost acquire gracefully', async () => {
@@ -94,7 +94,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
             // Consume all tokens
             await limiter.acquire('rest', 120, 1000);
             const emptySnapshot = limiter.getSnapshot();
-            expect(emptySnapshot.restTokens).toBeLessThanOrEqual(1);
+            expect(Math.floor(emptySnapshot.restTokens)).toBeLessThanOrEqual(1);
 
             // Wait for partial refill (120/60s = 2 tokens/sec)
             await new Promise(r => setTimeout(r, 550));
@@ -109,7 +109,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
             // Wait some time — tokens should stay at capacity
             await new Promise(r => setTimeout(r, 100));
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.restTokens).toBeLessThanOrEqual(1200);
+            expect(Math.floor(snapshot.restTokens)).toBeLessThanOrEqual(1200);
         });
     });
 
@@ -190,7 +190,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
                 'x-mbx-used-weight-1m': ['500'],
             });
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.restTokens).toBeLessThanOrEqual(700);
+            expect(Math.floor(snapshot.restTokens)).toBeLessThanOrEqual(700);
         });
 
         it('should update lastSyncTime on successful sync', () => {

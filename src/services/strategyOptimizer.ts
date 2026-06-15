@@ -348,24 +348,53 @@ export class StrategyOptimizer {
         const bestResult = results[0]; // Results are sorted by score
         const bestParams = bestResult.params;
 
-        // Calculate parameter importance (simplified)
         const parameterImportance: { [key: string]: number } = {};
         const correlations: { [key: string]: number } = {};
         
+        // ⚡ Bolt Optimization: Replace multiple array traversals (.map, .reduce)
+        // and chained reduce operations with a single O(N) pass to calculate score sums,
+        // and a single O(N) pass per parameter to calculate correlations.
+        let sumScore = 0;
+        let sumScoreSq = 0;
+        const nScore = results.length;
+
+        for (let i = 0; i < nScore; i++) {
+            const score = results[i].score;
+            sumScore += score;
+            sumScoreSq += score * score;
+        }
+
+        const avgScore = sumScore / nScore;
+        const varianceScore = Math.max(0, (sumScoreSq / nScore) - (avgScore * avgScore));
+        const scoreStd = Math.sqrt(varianceScore);
+
         const paramNames = Object.keys(bestParams);
         for (const paramName of paramNames) {
-            // Calculate correlation between parameter value and score
-            const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
+            let sumX = 0;
+            let sumXY = 0;
+            let sumX2 = 0;
             
-            const correlation = this.calculateCorrelation(paramValues, scores);
+            for (let i = 0; i < nScore; i++) {
+                const x = results[i].params[paramName];
+                const y = results[i].score;
+                sumX += x;
+                sumXY += x * y;
+                sumX2 += x * x;
+            }
+
+            const sumY = sumScore;
+            const sumY2 = sumScoreSq;
+
+            let correlation = 0;
+            if (nScore > 0) {
+                const denomPart = Math.max(0, (nScore * sumX2 - sumX * sumX) * (nScore * sumY2 - sumY * sumY));
+                const denominator = Math.sqrt(denomPart);
+                correlation = denominator === 0 ? 0 : (nScore * sumXY - sumX * sumY) / denominator;
+            }
+
             correlations[paramName] = correlation;
             parameterImportance[paramName] = Math.abs(correlation);
         }
-
-        // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
         
         const summary = `
 Optimization Analysis Summary:
@@ -520,11 +549,18 @@ ${Object.entries(parameterImportance)
         }
 
         // Find most stable parameters
-        const bestStableWindow = windows.reduce((prev, current) =>
-            current.stabilityRatio > prev.stabilityRatio ? current : prev
-        );
 
-        const avgStabilityRatio = windows.reduce((sum, w) => sum + w.stabilityRatio, 0) / windows.length;
+        let bestStableWindow = windows[0];
+        let sumStabilityRatio = 0;
+        const wfoWinCount = windows.length;
+        for (let i = 0; i < wfoWinCount; i++) {
+            const w = windows[i];
+            if (w.stabilityRatio > bestStableWindow.stabilityRatio) {
+                bestStableWindow = w;
+            }
+            sumStabilityRatio += w.stabilityRatio;
+        }
+        const avgStabilityRatio = sumStabilityRatio / wfoWinCount;
         const summary = this.formatWFOSummary({ windows, bestStableParams: bestStableWindow.bestParams, avgStabilityRatio, summary: '' });
 
         return {
@@ -673,6 +709,17 @@ Higher ratio (closer to 1.0) indicates less overfitting.
     }
 
     private formatParetoSummary(result: ParetoResult): string {
+        let maxReturn = 0;
+        let minDrawdown = Infinity;
+        if (result.frontier.length > 0) {
+            maxReturn = result.frontier[0].objectives.returnPct;
+            minDrawdown = result.frontier[0].objectives.drawdownPct;
+            for (let i = 1; i < result.frontier.length; i++) {
+                if (result.frontier[i].objectives.returnPct > maxReturn) maxReturn = result.frontier[i].objectives.returnPct;
+                if (result.frontier[i].objectives.drawdownPct < minDrawdown) minDrawdown = result.frontier[i].objectives.drawdownPct;
+            }
+        }
+
         const frontierDetails = result.frontier.map(p =>
             `Return: ${p.objectives.returnPct.toFixed(2)}%, Drawdown: ${p.objectives.drawdownPct.toFixed(1)}%, ` +
             `Win Rate: ${p.objectives.winRate.toFixed(1)}%, Profit Factor: ${p.objectives.profitFactor.toFixed(2)}`
@@ -687,8 +734,8 @@ ${frontierDetails}
 
 Trade-offs Identified:
 - Higher returns usually associated with higher drawdowns
-- Best for profit maximization: ${result.frontier.reduce((max, p) => p.objectives.returnPct > max.objectives.returnPct ? p : max).objectives.returnPct.toFixed(2)}% return
-- Best for risk minimization: ${result.frontier.reduce((min, p) => p.objectives.drawdownPct < min.objectives.drawdownPct ? p : min).objectives.drawdownPct.toFixed(1)}% maximum drawdown
+- Best for profit maximization: ${maxReturn.toFixed(2)}% return
+- Best for risk minimization: ${minDrawdown === Infinity ? "0.0" : minDrawdown.toFixed(1)}% maximum drawdown
         `;
     }
 
