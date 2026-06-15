@@ -87,3 +87,7 @@
 ## 2026-06-15 - [StrategyOptimizer Array Overhead]
 **Learning:** Using chained `.map().reduce()` for statistical metrics (like `avgScore` and `scoreStd`) over array data forces V8 to allocate new intermediate arrays and closure functions per element. In `StrategyOptimizer.ts`, these operations inside the analysis of large grid search and parameter sensitivity batches significantly degraded performance. Using `.reduce()` on finding the `bestStableWindow` was also ~5x slower than a standard `for` loop.
 **Action:** Replace multiple array map/reduce passes and spread operators (like `Math.max(...arr)`) with a single pre-allocated O(N) `for` loop in statistical and performance aggregation hot paths. This allows computing min, max, sum, and sum of squares simultaneously in one pass, avoiding call stack size limits and GC pressure.
+
+## 2026-06-15 - [Fix Flaky Jest Floating Point Comparisons in RateLimiter tests]
+**Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(700)` failed intermittently in CI due to JS floating-point precision error producing `700.02` instead of exactly `700`.
+**Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.
