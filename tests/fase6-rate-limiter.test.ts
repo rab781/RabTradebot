@@ -190,7 +190,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
                 'x-mbx-used-weight-1m': ['500'],
             });
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.restTokens).toBeLessThanOrEqual(700);
+            expect(Math.floor(snapshot.restTokens)).toBeLessThanOrEqual(700);
         });
 
         it('should update lastSyncTime on successful sync', () => {

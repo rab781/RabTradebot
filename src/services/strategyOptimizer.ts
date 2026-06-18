@@ -353,19 +353,38 @@ export class StrategyOptimizer {
         const correlations: { [key: string]: number } = {};
         
         const paramNames = Object.keys(bestParams);
+
+        // ⚡ Bolt Optimization: Replace O(N*P) chained array methods with a single O(N) extraction and calculation loop.
+        // Also consolidates sum and sumSq calculations to avoid multiple reduce passes over the same dataset.
+        const len = results.length;
+        const scores = new Array(len);
+        let sumScore = 0;
+        let sumSqScore = 0;
+
+        for (let i = 0; i < len; i++) {
+            const score = results[i].score;
+            scores[i] = score;
+            sumScore += score;
+            sumSqScore += score * score;
+        }
+
         for (const paramName of paramNames) {
-            // Calculate correlation between parameter value and score
-            const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
+            // Extract param values into pre-allocated array
+            const paramValues = new Array(len);
+            for (let i = 0; i < len; i++) {
+                paramValues[i] = results[i].params[paramName];
+            }
             
+            // Calculate correlation between parameter value and score
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
             parameterImportance[paramName] = Math.abs(correlation);
         }
 
-        // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // Generate summary incrementally to prevent extra iteration/closure overhead
+        const avgScore = sumScore / len;
+        const variance = (sumSqScore / len) - (avgScore * avgScore);
+        const scoreStd = Math.sqrt(Math.max(0, variance));
         
         const summary = `
 Optimization Analysis Summary:
