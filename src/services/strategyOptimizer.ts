@@ -348,24 +348,39 @@ export class StrategyOptimizer {
         const bestResult = results[0]; // Results are sorted by score
         const bestParams = bestResult.params;
 
-        // Calculate parameter importance (simplified)
+        // ⚡ Bolt Optimization: Consolidate repeated .map() and .reduce() operations over results
+        // into a single O(N) loop to minimize iteration overhead and avoid closure allocations
         const parameterImportance: { [key: string]: number } = {};
         const correlations: { [key: string]: number } = {};
         
+        const len = results.length;
+        const scores = new Array(len);
+        let sumScore = 0;
+        let sumScoreSq = 0;
+
+        for (let i = 0; i < len; i++) {
+            const score = results[i].score;
+            scores[i] = score;
+            sumScore += score;
+            sumScoreSq += score * score;
+        }
+
+        const avgScore = sumScore / len;
+        // Var(X) = E[X^2] - (E[X])^2
+        const variance = Math.max(0, (sumScoreSq / len) - (avgScore * avgScore));
+        const scoreStd = Math.sqrt(variance);
+
         const paramNames = Object.keys(bestParams);
         for (const paramName of paramNames) {
-            // Calculate correlation between parameter value and score
-            const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
+            const paramValues = new Array(len);
+            for (let i = 0; i < len; i++) {
+                paramValues[i] = results[i].params[paramName];
+            }
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
             parameterImportance[paramName] = Math.abs(correlation);
         }
-
-        // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
         
         const summary = `
 Optimization Analysis Summary:
