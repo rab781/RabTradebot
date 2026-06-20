@@ -353,10 +353,14 @@ export class StrategyOptimizer {
         const correlations: { [key: string]: number } = {};
         
         const paramNames = Object.keys(bestParams);
+
+        // ⚡ Bolt Optimization: Hoist score extraction outside the parameter loop
+        // to prevent redundant O(N) array allocations per parameter.
+        const scores = results.map(r => r.score);
+
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
             const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;

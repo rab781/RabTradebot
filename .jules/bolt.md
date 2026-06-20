@@ -84,3 +84,7 @@
 ## 2026-06-02 - [Fix Flaky Jest Floating Point Comparisons]
 **Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(60)` failed intermittently due to JS floating-point precision error producing `60.002` instead of exactly `60`.
 **Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.
+
+## 2026-06-03 - [Hoist Shared Array Extractions Outside Loops]
+**Learning:** In \`StrategyOptimizer.analyzeResults\`, calculating an array of scores using \`results.map(r => r.score)\` inside a \`for\` loop that iterates over parameter names caused redundant O(N) memory allocations per parameter, even though the scores array is independent of the parameter.
+**Action:** When performing statistical analysis across multiple parameters (e.g., calculating correlations), always hoist shared array extractions (like mapping overall scores) outside of the parameter iteration loops to prevent redundant O(N) memory allocations per parameter.
