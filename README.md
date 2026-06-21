@@ -132,6 +132,10 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
+## API Reference
+
+See [full API reference →](docs/API_REFERENCE.md)
+
 ## Telegram Command Reference
 
 ### Basic Analysis
