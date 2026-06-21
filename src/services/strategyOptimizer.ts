@@ -364,8 +364,20 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Replace O(N) chained reduce operations with a single loop
+        const lenResults = results.length;
+        let sumScore = 0;
+        for (let i = 0; i < lenResults; i++) {
+            sumScore += results[i].score;
+        }
+        const avgScore = sumScore / lenResults;
+
+        let sumSqDiff = 0;
+        for (let i = 0; i < lenResults; i++) {
+            const diff = results[i].score - avgScore;
+            sumSqDiff += diff * diff;
+        }
+        const scoreStd = Math.sqrt(sumSqDiff / lenResults);
         
         const summary = `
 Optimization Analysis Summary:
@@ -873,37 +885,40 @@ Trade-offs Identified:
             sharpeResults.push(sharpe);
         }
 
-        // Calculate percentiles
-        const getPercentile = (data: number[], p: number) => {
-            const sorted = [...data].sort((a, b) => a - b);
-            const idx = Math.ceil((p / 100) * sorted.length) - 1;
-            return sorted[Math.max(0, idx)];
-        };
+        // ⚡ Bolt Optimization: Sort arrays once to avoid redundant O(N log N) sorting
+        const sortedProfit = [...profitResults].sort((a, b) => a - b);
+        const sortedDrawdown = [...drawdownResults].sort((a, b) => a - b);
+        const sortedSharpe = [...sharpeResults].sort((a, b) => a - b);
 
-        const medianIndex = Math.floor(profitResults.length / 2);
+        const len = numSimulations;
+        const i5 = Math.max(0, Math.ceil(0.05 * len) - 1);
+        const i25 = Math.max(0, Math.ceil(0.25 * len) - 1);
+        const i50 = Math.floor(len / 2);
+        const i75 = Math.max(0, Math.ceil(0.75 * len) - 1);
+        const i95 = Math.max(0, Math.ceil(0.95 * len) - 1);
         
         const result: MonteCarloResult = {
             simulations: numSimulations,
             profitDistribution: {
-                p5: getPercentile(profitResults, 5),
-                p25: getPercentile(profitResults, 25),
-                median: profitResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(profitResults, 75),
-                p95: getPercentile(profitResults, 95)
+                p5: sortedProfit[i5],
+                p25: sortedProfit[i25],
+                median: sortedProfit[i50],
+                p75: sortedProfit[i75],
+                p95: sortedProfit[i95]
             },
             drawdownDistribution: {
-                p5: getPercentile(drawdownResults, 5),
-                p25: getPercentile(drawdownResults, 25),
-                median: drawdownResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(drawdownResults, 75),
-                p95: getPercentile(drawdownResults, 95)
+                p5: sortedDrawdown[i5],
+                p25: sortedDrawdown[i25],
+                median: sortedDrawdown[i50],
+                p75: sortedDrawdown[i75],
+                p95: sortedDrawdown[i95]
             },
             sharpeDistribution: {
-                p5: getPercentile(sharpeResults, 5),
-                p25: getPercentile(sharpeResults, 25),
-                median: sharpeResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(sharpeResults, 75),
-                p95: getPercentile(sharpeResults, 95)
+                p5: sortedSharpe[i5],
+                p25: sortedSharpe[i25],
+                median: sortedSharpe[i50],
+                p75: sortedSharpe[i75],
+                p95: sortedSharpe[i95]
             },
             summary: ''
         };
