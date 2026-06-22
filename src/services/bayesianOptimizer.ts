@@ -161,13 +161,21 @@ export class BayesianOptimizer {
         // Scott's bandwidth rule
         const bandwidth = Math.pow(samples.length, -1 / 5);
 
+        // ⚡ Bolt Optimization: Hoist Object.entries to prevent O(N) array allocations
+        const pointEntries = Object.entries(point);
+        const dimensionsCount = pointEntries.length;
+
+        // ⚡ Bolt Optimization: Pre-calculate constants outside the loop
+        const bandwidthSq = bandwidth * bandwidth;
+        const denominator = samples.length * Math.pow(bandwidth, dimensionsCount);
+
         let density = 0;
         for (const sample of samples) {
             // Calculate Euclidean distance
             let distSq = 0;
             let dimensions = 0;
 
-            for (const [key, value] of Object.entries(point)) {
+            for (const [key, value] of pointEntries) {
                 if (key in sample) {
                     const diff = (sample[key] as number) - (value as number);
                     distSq += diff * diff;
@@ -177,13 +185,12 @@ export class BayesianOptimizer {
 
             if (dimensions === 0) continue;
 
-            // Gaussian kernel
-            const dist = Math.sqrt(distSq);
-            const kernelValue = Math.exp(-0.5 * Math.pow(dist / bandwidth, 2));
+            // ⚡ Bolt Optimization: Eliminate Math.sqrt and Math.pow in hot loop
+            const kernelValue = Math.exp(-0.5 * distSq / bandwidthSq);
             density += kernelValue;
         }
 
-        return density / (samples.length * Math.pow(bandwidth, Object.keys(point).length));
+        return density / denominator;
     }
 
     /**

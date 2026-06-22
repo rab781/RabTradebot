@@ -84,3 +84,7 @@
 ## 2026-06-02 - [Fix Flaky Jest Floating Point Comparisons]
 **Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(60)` failed intermittently due to JS floating-point precision error producing `60.002` instead of exactly `60`.
 **Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.
+
+## 2026-06-03 - [Optimize Bayesian KDE Performance]
+**Learning:** In hot functions like Kernel Density Estimation (KDE) which evaluate densities across many samples, repeating `Object.entries(point)`, `Math.sqrt()`, and `Math.pow()` inside loops significantly increases array allocation overhead and floating-point computations.
+**Action:** Always hoist invariant variable transformations (like `Object.entries()`) and pre-calculate invariant constants (like denominators and squared bounds) outside the simulation loops to reduce runtime overhead. Replace `Math.pow(dist / bandwidth, 2)` with pre-computed squared denominators (`distSq / bandwidthSq`) to skip unnecessary `Math.sqrt` and `Math.pow` calls altogether.
