@@ -84,3 +84,7 @@
 ## 2026-06-02 - [Fix Flaky Jest Floating Point Comparisons]
 **Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(60)` failed intermittently due to JS floating-point precision error producing `60.002` instead of exactly `60`.
 **Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.
+
+## 2026-06-27 - [Optimize O(N) Array Accumulation in StrategyOptimizer]
+**Learning:** In `StrategyOptimizer.analyzeResults`, extracting array columns inside loops using `.map()` creates severe O(P * N) allocation overhead. Furthermore, chaining `.reduce()` calls to calculate basic statistical metrics (like `avgScore` and `scoreStd`) over those generated arrays incurs additional iterator and closure allocation overhead.
+**Action:** When calculating statistics over generated datasets (like optimization results), hoist column extraction into pre-allocated loops, and consolidate statistical metric calculations (sums and sums of squares) into a single O(N) traversal. Use the `Var(X) = E[X^2] - (E[X])^2` formulation to compute variance without a second pass.
