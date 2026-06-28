@@ -84,3 +84,6 @@
 ## 2026-06-02 - [Fix Flaky Jest Floating Point Comparisons]
 **Learning:** In `RateLimiter.ts`, the logic for refilling rate limiting tokens over elapsed time uses floating point arithmetic. When testing limits with exact numeric thresholds in Jest, `expect(snapshot.restTokens).toBeLessThanOrEqual(60)` failed intermittently due to JS floating-point precision error producing `60.002` instead of exactly `60`.
 **Action:** When validating calculated metrics affected by system time and floating-point math in tests (especially token buckets and timers), always apply bounds truncation like `Math.floor()` before evaluating against tight assertions to prevent non-deterministic CI failures.
+## 2026-06-28 - Optimize Monte Carlo simulation loop
+**Learning:** In hot simulation loops like `strategyOptimizer.ts`, performing multiple `.map()` and `.sort()` calls for array operations (like calculating percentiles for distributions) incurs redundant O(N log N) overhead per percentile.
+**Action:** When evaluating multiple percentiles from a distribution array in simulation logic, sort the distribution array exactly once and extract all percentiles simultaneously in O(1) time using pre-calculated index lookups.
