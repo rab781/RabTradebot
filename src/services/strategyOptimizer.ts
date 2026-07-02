@@ -353,10 +353,27 @@ export class StrategyOptimizer {
         const correlations: { [key: string]: number } = {};
         
         const paramNames = Object.keys(bestParams);
+
+        // ⚡ Bolt Optimization: Hoist shared array extractions outside the loop to prevent O(N)
+        // memory allocations per parameter, and calculate mean/stdDev in a single O(N) pass.
+        const numResults = results.length;
+        const scores = new Array(numResults);
+        let sumScore = 0;
+        let sumSqScore = 0;
+
+        for (let i = 0; i < numResults; i++) {
+            const s = results[i].score;
+            scores[i] = s;
+            sumScore += s;
+            sumSqScore += s * s;
+        }
+
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
-            const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
+            const paramValues = new Array(numResults);
+            for (let i = 0; i < numResults; i++) {
+                paramValues[i] = results[i].params[paramName];
+            }
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
@@ -364,8 +381,9 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        const avgScore = sumScore / numResults;
+        const variance = (sumSqScore - ((sumScore * sumScore) / numResults)) / numResults;
+        const scoreStd = Math.sqrt(Math.max(0, variance));
         
         const summary = `
 Optimization Analysis Summary:
