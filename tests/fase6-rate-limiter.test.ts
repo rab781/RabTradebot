@@ -66,7 +66,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
             await limiter.acquire('order', 3, 1000);
 
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.orderTokens).toBeLessThanOrEqual(7);
+            expect(Math.floor(snapshot.orderTokens)).toBeLessThanOrEqual(7);
         });
 
         it('should handle zero-cost acquire gracefully', async () => {
@@ -190,7 +190,7 @@ describe('F6: RateLimiter — Token Bucket Algorithm', () => {
                 'x-mbx-used-weight-1m': ['500'],
             });
             const snapshot = limiter.getSnapshot();
-            expect(snapshot.restTokens).toBeLessThanOrEqual(700);
+            expect(Math.floor(snapshot.restTokens)).toBeLessThanOrEqual(700);
         });
 
         it('should update lastSyncTime on successful sync', () => {

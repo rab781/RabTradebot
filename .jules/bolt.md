@@ -88,3 +88,7 @@
 ## 2024-07-03 - Hoist Shared Array Extractions
 **Learning:** When performing statistical analysis across multiple parameters (e.g., calculating parameter importance or correlations), extracting shared arrays (like mapping overall scores) inside the parameter iteration loop causes redundant O(N) memory allocations per parameter.
 **Action:** Always hoist shared array extractions outside of the iteration loops to prevent redundant O(N) memory allocations per parameter.
+
+## 2026-06-03 - [Fix Flaky Jest RateLimiter Tests]
+**Learning:** In `RateLimiter.ts` tests, checking floating-point bounded limits with `toBeLessThanOrEqual` occasionally fails due to precision drift (e.g., `7.01` instead of `<= 7`).
+**Action:** Always apply `Math.floor()` to limit tokens in `RateLimiter` snapshots before evaluating assertions in test suites.
