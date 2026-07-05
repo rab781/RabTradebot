@@ -353,19 +353,32 @@ export class StrategyOptimizer {
         const correlations: { [key: string]: number } = {};
         
         const paramNames = Object.keys(bestParams);
+
+        // ⚡ Bolt Optimization: Hoist score extraction and calculate mean/variance mathematically in one O(N) pass
+        const len = results.length;
+        const scores = new Array(len);
+        let scoreSum = 0;
+        let scoreSumSq = 0;
+
+        for (let i = 0; i < len; i++) {
+            const score = results[i].score;
+            scores[i] = score;
+            scoreSum += score;
+            scoreSumSq += score * score;
+        }
+
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
             const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
-            
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
             parameterImportance[paramName] = Math.abs(correlation);
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        const avgScore = scoreSum / len;
+        const scoreVariance = Math.max(0, (scoreSumSq - (scoreSum * scoreSum) / len) / len);
+        const scoreStd = Math.sqrt(scoreVariance);
         
         const summary = `
 Optimization Analysis Summary:
