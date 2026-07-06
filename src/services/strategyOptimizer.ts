@@ -873,38 +873,26 @@ Trade-offs Identified:
             sharpeResults.push(sharpe);
         }
 
-        // Calculate percentiles
-        const getPercentile = (data: number[], p: number) => {
+        // ⚡ Bolt Optimization: Sort once and extract percentiles in O(1)
+        // to avoid redundant O(N log N) sorting overhead when generating distributions
+        const extractPercentiles = (data: number[]) => {
             const sorted = [...data].sort((a, b) => a - b);
-            const idx = Math.ceil((p / 100) * sorted.length) - 1;
-            return sorted[Math.max(0, idx)];
+            const len = sorted.length;
+            const getP = (p: number) => sorted[Math.max(0, Math.ceil((p / 100) * len) - 1)];
+            return {
+                p5: getP(5),
+                p25: getP(25),
+                median: sorted[Math.floor(len / 2)],
+                p75: getP(75),
+                p95: getP(95)
+            };
         };
-
-        const medianIndex = Math.floor(profitResults.length / 2);
         
         const result: MonteCarloResult = {
             simulations: numSimulations,
-            profitDistribution: {
-                p5: getPercentile(profitResults, 5),
-                p25: getPercentile(profitResults, 25),
-                median: profitResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(profitResults, 75),
-                p95: getPercentile(profitResults, 95)
-            },
-            drawdownDistribution: {
-                p5: getPercentile(drawdownResults, 5),
-                p25: getPercentile(drawdownResults, 25),
-                median: drawdownResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(drawdownResults, 75),
-                p95: getPercentile(drawdownResults, 95)
-            },
-            sharpeDistribution: {
-                p5: getPercentile(sharpeResults, 5),
-                p25: getPercentile(sharpeResults, 25),
-                median: sharpeResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(sharpeResults, 75),
-                p95: getPercentile(sharpeResults, 95)
-            },
+            profitDistribution: extractPercentiles(profitResults),
+            drawdownDistribution: extractPercentiles(drawdownResults),
+            sharpeDistribution: extractPercentiles(sharpeResults),
             summary: ''
         };
 
