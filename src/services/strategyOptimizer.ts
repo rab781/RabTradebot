@@ -873,38 +873,26 @@ Trade-offs Identified:
             sharpeResults.push(sharpe);
         }
 
-        // Calculate percentiles
-        const getPercentile = (data: number[], p: number) => {
+        // ⚡ Bolt Optimization: Sort distribution arrays exactly once to extract all percentiles
+        // in O(1) time using pre-calculated index lookups, avoiding redundant O(N log N) sorting overhead.
+        const extractPercentiles = (data: number[]) => {
             const sorted = [...data].sort((a, b) => a - b);
-            const idx = Math.ceil((p / 100) * sorted.length) - 1;
-            return sorted[Math.max(0, idx)];
+            const len = sorted.length;
+            const getIndex = (p: number) => Math.max(0, Math.ceil((p / 100) * len) - 1);
+            return {
+                p5: sorted[getIndex(5)] || 0,
+                p25: sorted[getIndex(25)] || 0,
+                median: sorted[Math.floor(len / 2)] || 0,
+                p75: sorted[getIndex(75)] || 0,
+                p95: sorted[getIndex(95)] || 0
+            };
         };
 
-        const medianIndex = Math.floor(profitResults.length / 2);
-        
         const result: MonteCarloResult = {
             simulations: numSimulations,
-            profitDistribution: {
-                p5: getPercentile(profitResults, 5),
-                p25: getPercentile(profitResults, 25),
-                median: profitResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(profitResults, 75),
-                p95: getPercentile(profitResults, 95)
-            },
-            drawdownDistribution: {
-                p5: getPercentile(drawdownResults, 5),
-                p25: getPercentile(drawdownResults, 25),
-                median: drawdownResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(drawdownResults, 75),
-                p95: getPercentile(drawdownResults, 95)
-            },
-            sharpeDistribution: {
-                p5: getPercentile(sharpeResults, 5),
-                p25: getPercentile(sharpeResults, 25),
-                median: sharpeResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(sharpeResults, 75),
-                p95: getPercentile(sharpeResults, 95)
-            },
+            profitDistribution: extractPercentiles(profitResults),
+            drawdownDistribution: extractPercentiles(drawdownResults),
+            sharpeDistribution: extractPercentiles(sharpeResults),
             summary: ''
         };
 
