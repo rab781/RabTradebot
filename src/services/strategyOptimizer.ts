@@ -352,20 +352,30 @@ export class StrategyOptimizer {
         const parameterImportance: { [key: string]: number } = {};
         const correlations: { [key: string]: number } = {};
         
+        // ⚡ Bolt Optimization: Hoist shared array extractions outside the parameter iteration loop
+        const scores = results.map(r => r.score);
+
         const paramNames = Object.keys(bestParams);
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
             const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
             parameterImportance[paramName] = Math.abs(correlation);
         }
 
-        // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Consolidate sum and sum of squares into a single O(N) loop
+        let sumScore = 0;
+        let sumSqScore = 0;
+        for (let i = 0; i < results.length; i++) {
+            const s = results[i].score;
+            sumScore += s;
+            sumSqScore += s * s;
+        }
+        const avgScore = sumScore / results.length;
+        const variance = Math.max(0, (sumSqScore / results.length) - (avgScore * avgScore));
+        const scoreStd = Math.sqrt(variance);
         
         const summary = `
 Optimization Analysis Summary:
@@ -873,38 +883,26 @@ Trade-offs Identified:
             sharpeResults.push(sharpe);
         }
 
-        // Calculate percentiles
-        const getPercentile = (data: number[], p: number) => {
-            const sorted = [...data].sort((a, b) => a - b);
-            const idx = Math.ceil((p / 100) * sorted.length) - 1;
-            return sorted[Math.max(0, idx)];
+        // ⚡ Bolt Optimization: Sort exactly once and extract all percentiles simultaneously
+        // to avoid redundant O(N log N) sorting overhead for every percentile request.
+        const extractPercentiles = (data: number[]) => {
+            data.sort((a, b) => a - b);
+            const len = data.length;
+            const getP = (p: number) => data[Math.max(0, Math.ceil((p / 100) * len) - 1)];
+            return {
+                p5: getP(5),
+                p25: getP(25),
+                median: data[Math.floor(len / 2)],
+                p75: getP(75),
+                p95: getP(95)
+            };
         };
-
-        const medianIndex = Math.floor(profitResults.length / 2);
         
         const result: MonteCarloResult = {
             simulations: numSimulations,
-            profitDistribution: {
-                p5: getPercentile(profitResults, 5),
-                p25: getPercentile(profitResults, 25),
-                median: profitResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(profitResults, 75),
-                p95: getPercentile(profitResults, 95)
-            },
-            drawdownDistribution: {
-                p5: getPercentile(drawdownResults, 5),
-                p25: getPercentile(drawdownResults, 25),
-                median: drawdownResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(drawdownResults, 75),
-                p95: getPercentile(drawdownResults, 95)
-            },
-            sharpeDistribution: {
-                p5: getPercentile(sharpeResults, 5),
-                p25: getPercentile(sharpeResults, 25),
-                median: sharpeResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(sharpeResults, 75),
-                p95: getPercentile(sharpeResults, 95)
-            },
+            profitDistribution: extractPercentiles(profitResults),
+            drawdownDistribution: extractPercentiles(drawdownResults),
+            sharpeDistribution: extractPercentiles(sharpeResults),
             summary: ''
         };
 
