@@ -353,10 +353,11 @@ export class StrategyOptimizer {
         const correlations: { [key: string]: number } = {};
         
         const paramNames = Object.keys(bestParams);
+        // ⚡ Bolt Optimization: Hoist shared array extraction outside the parameter iteration loops
+        const scores = results.map(r => r.score);
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
             const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
@@ -874,37 +875,24 @@ Trade-offs Identified:
         }
 
         // Calculate percentiles
-        const getPercentile = (data: number[], p: number) => {
+        // ⚡ Bolt Optimization: Sort exactly once and extract all percentiles in O(1) time
+        const getPercentiles = (data: number[]) => {
             const sorted = [...data].sort((a, b) => a - b);
-            const idx = Math.ceil((p / 100) * sorted.length) - 1;
-            return sorted[Math.max(0, idx)];
+            const getP = (p: number) => sorted[Math.max(0, Math.ceil((p / 100) * sorted.length) - 1)];
+            return {
+                p5: getP(5),
+                p25: getP(25),
+                median: getP(50),
+                p75: getP(75),
+                p95: getP(95)
+            };
         };
 
-        const medianIndex = Math.floor(profitResults.length / 2);
-        
         const result: MonteCarloResult = {
             simulations: numSimulations,
-            profitDistribution: {
-                p5: getPercentile(profitResults, 5),
-                p25: getPercentile(profitResults, 25),
-                median: profitResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(profitResults, 75),
-                p95: getPercentile(profitResults, 95)
-            },
-            drawdownDistribution: {
-                p5: getPercentile(drawdownResults, 5),
-                p25: getPercentile(drawdownResults, 25),
-                median: drawdownResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(drawdownResults, 75),
-                p95: getPercentile(drawdownResults, 95)
-            },
-            sharpeDistribution: {
-                p5: getPercentile(sharpeResults, 5),
-                p25: getPercentile(sharpeResults, 25),
-                median: sharpeResults.sort((a, b) => a - b)[medianIndex],
-                p75: getPercentile(sharpeResults, 75),
-                p95: getPercentile(sharpeResults, 95)
-            },
+            profitDistribution: getPercentiles(profitResults),
+            drawdownDistribution: getPercentiles(drawdownResults),
+            sharpeDistribution: getPercentiles(sharpeResults),
             summary: ''
         };
 
