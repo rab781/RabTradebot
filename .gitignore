@@ -179,7 +179,8 @@ config/local.json
 config/production.json
 
 # Generated documentation
-docs/
+docs/*
+!docs/API_REFERENCE.md
 
 # Test coverage
 coverage/
