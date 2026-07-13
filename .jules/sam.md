@@ -1,0 +1,3 @@
+## 2024-07-13 - API Reference Creation
+**Learning:** For new API documentation tasks, ensure the document explicitly covers authentication requirements (or lack thereof), rate limits, pagination query parameters, general error handling, and includes at least one working code example (e.g., a runnable `curl` command) and explicit JSON response payloads for every documented endpoint.
+**Action:** Use targeted reads on the relevant TypeScript interfaces and route handlers to explicitly discover the exact payload structures before constructing the documentation. Ensure working `curl` examples are included.
