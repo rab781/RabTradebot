@@ -352,20 +352,34 @@ export class StrategyOptimizer {
         const parameterImportance: { [key: string]: number } = {};
         const correlations: { [key: string]: number } = {};
         
+        // ⚡ Bolt Optimization: Hoist shared scores array extraction outside the parameter loop
+        // to avoid redundant O(N) memory allocations per parameter, and consolidate statistical
+        // accumulation into a single O(N) loop to eliminate multiple .reduce() passes.
+        const len = results.length;
+        const scores = new Array(len);
+        let sumScore = 0;
+        let sumScoreSq = 0;
+
+        for (let i = 0; i < len; i++) {
+            const score = results[i].score;
+            scores[i] = score;
+            sumScore += score;
+            sumScoreSq += score * score;
+        }
+
+        const avgScore = sumScore / len;
+        const variance = Math.max(0, (sumScoreSq / len) - (avgScore * avgScore));
+        const scoreStd = Math.sqrt(variance);
+
         const paramNames = Object.keys(bestParams);
         for (const paramName of paramNames) {
             // Calculate correlation between parameter value and score
             const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
             parameterImportance[paramName] = Math.abs(correlation);
         }
-
-        // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
         
         const summary = `
 Optimization Analysis Summary:
