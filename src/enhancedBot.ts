@@ -555,11 +555,23 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
         timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
         low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
       }));
+      // ⚡ Bolt Optimization: Use a single loop to populate the dataframe arrays
+      // avoiding 6 separate O(N) map operations
+      const len = ocCandles.length;
       const df: any = {
-        open: ocCandles.map(c => c.open), high: ocCandles.map(c => c.high),
-        low: ocCandles.map(c => c.low), close: ocCandles.map(c => c.close),
-        volume: ocCandles.map(c => c.volume), date: ocCandles.map(c => c.date),
+        open: new Array(len), high: new Array(len),
+        low: new Array(len), close: new Array(len),
+        volume: new Array(len), date: new Array(len),
       };
+      for (let i = 0; i < len; i++) {
+        const c = ocCandles[i];
+        df.open[i] = c.open;
+        df.high[i] = c.high;
+        df.low[i] = c.low;
+        df.close[i] = c.close;
+        df.volume[i] = c.volume;
+        df.date[i] = c.date;
+      }
       const meta = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
       openClawStrategy.populateIndicators(df, meta);
       openClawStrategy.populateEntryTrend(df, meta);
@@ -2108,14 +2120,23 @@ bot.command('openclaw', async (ctx) => {
     }));
 
     // Create DataFrame and populate indicators
+    // ⚡ Bolt Optimization: Use a single loop to populate the dataframe arrays
+    // avoiding 6 separate O(N) map operations
+    const len = ohlcvCandles.length;
     const dataframe = {
-      open: ohlcvCandles.map((c) => c.open),
-      high: ohlcvCandles.map((c) => c.high),
-      low: ohlcvCandles.map((c) => c.low),
-      close: ohlcvCandles.map((c) => c.close),
-      volume: ohlcvCandles.map((c) => c.volume),
-      date: ohlcvCandles.map((c) => c.date),
+      open: new Array(len), high: new Array(len),
+      low: new Array(len), close: new Array(len),
+      volume: new Array(len), date: new Array(len),
     };
+    for (let i = 0; i < len; i++) {
+      const c = ohlcvCandles[i];
+      dataframe.open[i] = c.open;
+      dataframe.high[i] = c.high;
+      dataframe.low[i] = c.low;
+      dataframe.close[i] = c.close;
+      dataframe.volume[i] = c.volume;
+      dataframe.date[i] = c.date;
+    }
 
     const metadata = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
     openClawStrategy.populateIndicators(dataframe, metadata);
