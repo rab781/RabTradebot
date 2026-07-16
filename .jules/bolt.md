@@ -87,3 +87,7 @@
 ## 2026-07-14 - [Optimize Percentile Calculations]
 **Learning:** In simulation or Monte Carlo contexts (like `StrategyOptimizer.ts`), calculating multiple percentiles (p5, p25, median, p75, p95) using a helper that copies and sorts the array on every call is highly inefficient, leading to O(P * N log N) overhead where P is the number of percentiles.
 **Action:** Sort the distribution array exactly once and extract all percentiles simultaneously in O(1) time using pre-calculated index lookups (e.g., `sorted[Math.ceil((p / 100) * len) - 1]`) to avoid redundant O(N log N) sorting overhead.
+
+## 2026-07-16 - [Optimize Array Operations in DataFrame Generation]
+**Learning:** In `TradingViewService.ts`, mapping historical market data rows into separate columnar arrays for open, high, low, close, and volume using consecutive `Array.map()` passes forces multiple O(N) array traversals and allocates intermediate closures, causing significant object allocation overhead when processing hundreds of candles.
+**Action:** Replace multiple `.map()` passes with a single, pre-allocated O(N) `for` loop that iterates over the historical data exactly once and populates all columnar arrays simultaneously. This prevents unnecessary garbage collection pressure in data transformation steps.
