@@ -423,7 +423,7 @@ bot.command('go', async (ctx) => {
   return replyMainMenu(ctx, user.id, '🚀 Quick Menu');
 });
 
-bot.command('logs', async (ctx) => {
+bot.command('syslogs', async (ctx) => {
   // 🛡️ Sentinel: Enforce admin authorization to prevent log disclosure
   const adminChat = process.env.ADMIN_CHAT_ID;
   const requesterChat = String(ctx.chat?.id || '');
@@ -2049,7 +2049,7 @@ ${quality.issues.length > 0 ? `\n⚠️ ISSUES:\n${quality.issues.slice(0, 3).jo
 });
 
 // Strategies list command
-bot.command('strategies', (ctx) => {
+bot.command('simplestrategies', (ctx) => {
   const message = `
 📚 AVAILABLE TRADING STRATEGIES
 
