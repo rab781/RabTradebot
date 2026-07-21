@@ -87,3 +87,7 @@
 ## 2026-07-14 - [Optimize Percentile Calculations]
 **Learning:** In simulation or Monte Carlo contexts (like `StrategyOptimizer.ts`), calculating multiple percentiles (p5, p25, median, p75, p95) using a helper that copies and sorts the array on every call is highly inefficient, leading to O(P * N log N) overhead where P is the number of percentiles.
 **Action:** Sort the distribution array exactly once and extract all percentiles simultaneously in O(1) time using pre-calculated index lookups (e.g., `sorted[Math.ceil((p / 100) * len) - 1]`) to avoid redundant O(N log N) sorting overhead.
+
+## 2024-05-30 - Optimize DataFrame construction
+**Learning:** When extracting multiple columns (open, high, low, close) from an array of arrays or objects, chaining `.map()` calls creates multiple O(N) traversals and intermediate arrays, hurting performance.
+**Action:** Pre-allocate fixed-size arrays using `new Array(len)` and populate them in a single O(N) `for` loop to avoid closure overhead and redundant iterations.
