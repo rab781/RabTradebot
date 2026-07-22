@@ -87,3 +87,6 @@
 ## 2026-07-14 - [Optimize Percentile Calculations]
 **Learning:** In simulation or Monte Carlo contexts (like `StrategyOptimizer.ts`), calculating multiple percentiles (p5, p25, median, p75, p95) using a helper that copies and sorts the array on every call is highly inefficient, leading to O(P * N log N) overhead where P is the number of percentiles.
 **Action:** Sort the distribution array exactly once and extract all percentiles simultaneously in O(1) time using pre-calculated index lookups (e.g., `sorted[Math.ceil((p / 100) * len) - 1]`) to avoid redundant O(N log N) sorting overhead.
+## 2026-07-22 - Optimize strategy parameter importance mapping
+**Learning:** Found redundant O(N) memory allocations and traversals during nested `.map()` loops when extracting shared array data (like overall scores) while calculating correlations for strategy optimization parameter permutations.
+**Action:** Always hoist shared array extractions out of parameter iteration loops when executing statistical analysis across multiple parameters to prevent redundant performance degradation.
