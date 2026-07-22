@@ -1,0 +1,3 @@
+## 2026-07-22 - Add API Reference Documentation
+**Learning:** For documenting an existing API without authentication, ensure the API Reference explicitly mentions the lack of authentication, documents the custom rate limit middleware, clarifies pagination parameters for array endpoints, and includes a working curl example with detailed JSON schemas extrapolated directly from the application code (e.g. `src/webServer.ts` and `botStateManager.ts`).
+**Action:** Next time I need to write an API Reference, I will look directly at the server routes, rate limiting logic, and state manager models to build an accurate markdown document, and ensure `.gitignore` allows the file to be tracked.
