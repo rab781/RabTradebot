@@ -352,11 +352,34 @@ export class StrategyOptimizer {
         const parameterImportance: { [key: string]: number } = {};
         const correlations: { [key: string]: number } = {};
         
+        // ⚡ Bolt Optimization: Extract scores and calculate stats in a single pass to avoid
+        // multiple redundant array map allocations inside the parameter loop and multiple reduce passes.
+        const len = results.length;
+        const scores = new Array(len);
+        let sumScore = 0;
+
+        for (let i = 0; i < len; i++) {
+            const score = results[i].score;
+            scores[i] = score;
+            sumScore += score;
+        }
+
+        const avgScore = sumScore / len;
+
+        let sumSqDiff = 0;
+        for (let i = 0; i < len; i++) {
+            const diff = scores[i] - avgScore;
+            sumSqDiff += diff * diff;
+        }
+        const scoreStd = Math.sqrt(sumSqDiff / len);
+
         const paramNames = Object.keys(bestParams);
         for (const paramName of paramNames) {
-            // Calculate correlation between parameter value and score
-            const paramValues = results.map(r => r.params[paramName]);
-            const scores = results.map(r => r.score);
+            // ⚡ Bolt Optimization: Pre-allocate array for parameter values
+            const paramValues = new Array(len);
+            for (let i = 0; i < len; i++) {
+                paramValues[i] = results[i].params[paramName];
+            }
             
             const correlation = this.calculateCorrelation(paramValues, scores);
             correlations[paramName] = correlation;
@@ -364,8 +387,6 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
         
         const summary = `
 Optimization Analysis Summary:
