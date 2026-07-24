@@ -595,7 +595,8 @@ export class FeatureEngineeringService {
 
         let sumSquaredDiff = 0;
         for (let i = startIndex; i < end; i++) {
-            sumSquaredDiff += Math.pow(values[i] - mean, 2);
+            const diff = values[i] - mean;
+            sumSquaredDiff += diff * diff;
         }
 
         const variance = sumSquaredDiff / n;
@@ -617,7 +618,8 @@ export class FeatureEngineeringService {
 
         let acc = 0;
         for (let i = startIndex; i < end; i++) {
-            acc += Math.pow((values[i] - mean) / stdDev, 3);
+            const z = (values[i] - mean) / stdDev;
+            acc += z * z * z;
         }
         return (n / ((n - 1) * (n - 2))) * acc;
     }
@@ -637,7 +639,8 @@ export class FeatureEngineeringService {
 
         let acc = 0;
         for (let i = startIndex; i < end; i++) {
-            acc += Math.pow((values[i] - mean) / stdDev, 4);
+            const z = (values[i] - mean) / stdDev;
+            acc += z * z * z * z;
         }
         return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * acc - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
     }

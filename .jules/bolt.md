@@ -87,3 +87,6 @@
 ## 2026-07-14 - [Optimize Percentile Calculations]
 **Learning:** In simulation or Monte Carlo contexts (like `StrategyOptimizer.ts`), calculating multiple percentiles (p5, p25, median, p75, p95) using a helper that copies and sorts the array on every call is highly inefficient, leading to O(P * N log N) overhead where P is the number of percentiles.
 **Action:** Sort the distribution array exactly once and extract all percentiles simultaneously in O(1) time using pre-calculated index lookups (e.g., `sorted[Math.ceil((p / 100) * len) - 1]`) to avoid redundant O(N log N) sorting overhead.
+## 2026-07-24 - Math.pow vs Multiplication Optimization
+**Learning:** In hot loops such as statistical metric calculation (standard deviation, skewness, kurtosis), replacing `Math.pow(x, N)` with direct multiplication (e.g. `x * x` for squared) saves function call overhead and can be measurably faster.
+**Action:** When working on numerical metrics where exponent is small and statically known (like 2, 3, or 4), use direct multiplication instead of `Math.pow`.
