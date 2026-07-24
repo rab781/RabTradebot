@@ -1,0 +1,3 @@
+## 2024-07-24 - Documented Advanced Crypto Trading Bot API
+**Learning:** Understanding the exact route configurations and payload shapes is essential before writing docs. We needed to parse the Express routers to accurately document API endpoints, rate limiting properties, and pagination parameters.
+**Action:** Always do targeted reads on source routers (`src/webServer.ts`) and typescript interfaces (`src/services/botStateManager.ts`) before synthesizing documentation templates to prevent hallucinating payload fields. Ensure `API_REFERENCE.md` is included in source control by modifying the `.gitignore` correctly.
