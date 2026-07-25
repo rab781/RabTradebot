@@ -122,15 +122,24 @@ export class DataManager {
     }
 
     private mapCryptoCompareRows(rows: any[]): OHLCVCandle[] {
-        return rows.map((row: any) => ({
-            timestamp: Number(row.time || 0) * 1000,
-            open: Number(row.open || 0),
-            high: Number(row.high || 0),
-            low: Number(row.low || 0),
-            close: Number(row.close || 0),
-            volume: Number(row.volumeto || row.volumefrom || 0),
-            date: new Date(Number(row.time || 0) * 1000),
-        }));
+        // ⚡ Bolt Optimization: Replace O(N) map and closure allocation
+        // with pre-allocated loop for parsing OHLCV rows
+        const len = rows.length;
+        const result = new Array(len);
+        for (let i = 0; i < len; i++) {
+            const row = rows[i];
+            const time = Number(row.time || 0) * 1000;
+            result[i] = {
+                timestamp: time,
+                open: Number(row.open || 0),
+                high: Number(row.high || 0),
+                low: Number(row.low || 0),
+                close: Number(row.close || 0),
+                volume: Number(row.volumeto || row.volumefrom || 0),
+                date: new Date(time),
+            };
+        }
+        return result;
     }
 
     private async getRecentDataFromCryptoCompare(symbol: string, timeframe: string, limit: number): Promise<OHLCVCandle[]> {
@@ -201,15 +210,21 @@ export class DataManager {
                     break;
                 }
 
-                const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                    timestamp: candle[0],
-                    open: parseFloat(candle[1]),
-                    high: parseFloat(candle[2]),
-                    low: parseFloat(candle[3]),
-                    close: parseFloat(candle[4]),
-                    volume: parseFloat(candle[5]),
-                    date: new Date(candle[0])
-                }));
+                // ⚡ Bolt Optimization: Optimize historical data chunk mapping
+                const len = rawCandles.length;
+                const candles = new Array(len);
+                for (let i = 0; i < len; i++) {
+                    const candle = rawCandles[i];
+                    candles[i] = {
+                        timestamp: candle[0],
+                        open: parseFloat(candle[1]),
+                        high: parseFloat(candle[2]),
+                        low: parseFloat(candle[3]),
+                        close: parseFloat(candle[4]),
+                        volume: parseFloat(candle[5]),
+                        date: new Date(candle[0])
+                    };
+                }
 
                 allCandles.push(...candles);
 
@@ -252,15 +267,21 @@ export class DataManager {
             });
 
             const rawCandles = response.data;
-            const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                timestamp: candle[0],
-                open: parseFloat(candle[1]),
-                high: parseFloat(candle[2]),
-                low: parseFloat(candle[3]),
-                close: parseFloat(candle[4]),
-                volume: parseFloat(candle[5]),
-                date: new Date(candle[0])
-            }));
+            // ⚡ Bolt Optimization: Optimize recent data chunk mapping
+            const len = rawCandles.length;
+            const candles = new Array(len);
+            for (let i = 0; i < len; i++) {
+                const candle = rawCandles[i];
+                candles[i] = {
+                    timestamp: candle[0],
+                    open: parseFloat(candle[1]),
+                    high: parseFloat(candle[2]),
+                    low: parseFloat(candle[3]),
+                    close: parseFloat(candle[4]),
+                    volume: parseFloat(candle[5]),
+                    date: new Date(candle[0])
+                };
+            }
 
             return candles;
 
