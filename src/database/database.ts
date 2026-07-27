@@ -8,90 +8,90 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 export interface Trade {
-    id?: number;
-    symbol: string;
-    strategy: string;
-    action: 'BUY' | 'SELL';
-    entryPrice: number;
-    exitPrice?: number;
-    quantity: number;
-    profit?: number;
-    profitPct?: number;
-    entryTime: number;
-    exitTime?: number;
-    reason: string;
-    metadata?: string;
+  id?: number;
+  symbol: string;
+  strategy: string;
+  action: 'BUY' | 'SELL';
+  entryPrice: number;
+  exitPrice?: number;
+  quantity: number;
+  profit?: number;
+  profitPct?: number;
+  entryTime: number;
+  exitTime?: number;
+  reason: string;
+  metadata?: string;
 }
 
 export interface BacktestResult {
-    id?: number;
-    strategy: string;
-    symbol: string;
-    startDate: number;
-    endDate: number;
-    initialBalance: number;
-    finalBalance: number;
-    totalProfit: number;
-    totalProfitPct: number;
-    totalTrades: number;
-    winningTrades: number;
-    losingTrades: number;
-    winRate: number;
-    maxDrawdown: number;
-    maxDrawdownPct: number;
-    sharpeRatio: number;
-    sortinoRatio: number;
-    calmarRatio: number;
-    profitFactor: number;
-    parameters: string;
-    createdAt: number;
+  id?: number;
+  strategy: string;
+  symbol: string;
+  startDate: number;
+  endDate: number;
+  initialBalance: number;
+  finalBalance: number;
+  totalProfit: number;
+  totalProfitPct: number;
+  totalTrades: number;
+  winningTrades: number;
+  losingTrades: number;
+  winRate: number;
+  maxDrawdown: number;
+  maxDrawdownPct: number;
+  sharpeRatio: number;
+  sortinoRatio: number;
+  calmarRatio: number;
+  profitFactor: number;
+  parameters: string;
+  createdAt: number;
 }
 
 export interface ModelVersion {
-    id?: number;
-    modelName: string;
-    version: string;
-    architecture: string;
-    accuracy: number;
-    mae: number;
-    rmse: number;
-    directionalAccuracy: number;
-    trainedOn: string;
-    trainingPeriod: string;
-    filePath: string;
-    metadata: string;
-    createdAt: number;
+  id?: number;
+  modelName: string;
+  version: string;
+  architecture: string;
+  accuracy: number;
+  mae: number;
+  rmse: number;
+  directionalAccuracy: number;
+  trainedOn: string;
+  trainingPeriod: string;
+  filePath: string;
+  metadata: string;
+  createdAt: number;
 }
 
 export interface FeatureCache {
-    id?: number;
-    symbol: string;
-    timestamp: number;
-    features: string;
-    createdAt: number;
+  id?: number;
+  symbol: string;
+  timestamp: number;
+  features: string;
+  createdAt: number;
 }
 
 export class TradingDatabase {
-    private db: Database.Database;
-    private dbPath: string;
+  private db: Database.Database;
+  private dbPath: string;
 
-    constructor(dbPath: string = './data/trading.db') {
-        this.dbPath = dbPath;
+  constructor(dbPath: string = './data/trading.db') {
+    this.dbPath = dbPath;
 
-        // Create data directory if it doesn't exist
-        const dir = path.dirname(dbPath);
-        if (!fs.existsSync(dir)) {
-            fs.mkdirSync(dir, { recursive: true });
-        }
-
-        this.db = new Database(dbPath);
-        this.db.pragma('journal_mode = WAL'); // Write-Ahead Logging for better concurrency
-        this.initializeSchema();
+    // Create data directory if it doesn't exist
+    const dir = path.dirname(dbPath);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
     }
 
-    private initializeSchema(): void {
-        // Create trades table
-        this.db.exec(`
+    this.db = new Database(dbPath);
+    this.db.pragma('journal_mode = WAL'); // Write-Ahead Logging for better concurrency
+    this.initializeSchema();
+  }
+
+  private initializeSchema(): void {
+    // Create trades table
+    this.db.exec(`
             CREATE TABLE IF NOT EXISTS trades (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
@@ -110,8 +110,8 @@ export class TradingDatabase {
             )
         `);
 
-        // Create backtest_results table
-        this.db.exec(`
+    // Create backtest_results table
+    this.db.exec(`
             CREATE TABLE IF NOT EXISTS backtest_results (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 strategy TEXT NOT NULL,
@@ -137,8 +137,8 @@ export class TradingDatabase {
             )
         `);
 
-        // Create model_versions table
-        this.db.exec(`
+    // Create model_versions table
+    this.db.exec(`
             CREATE TABLE IF NOT EXISTS model_versions (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 modelName TEXT NOT NULL,
@@ -157,8 +157,8 @@ export class TradingDatabase {
             )
         `);
 
-        // Create feature_cache table
-        this.db.exec(`
+    // Create feature_cache table
+    this.db.exec(`
             CREATE TABLE IF NOT EXISTS feature_cache (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
@@ -169,8 +169,8 @@ export class TradingDatabase {
             )
         `);
 
-        // Create indexes for better query performance
-        this.db.exec(`
+    // Create indexes for better query performance
+    this.db.exec(`
             CREATE INDEX IF NOT EXISTS idx_trades_symbol ON trades(symbol);
             CREATE INDEX IF NOT EXISTS idx_trades_strategy ON trades(strategy);
             CREATE INDEX IF NOT EXISTS idx_trades_entryTime ON trades(entryTime);
@@ -179,61 +179,78 @@ export class TradingDatabase {
             CREATE INDEX IF NOT EXISTS idx_model_name ON model_versions(modelName);
             CREATE INDEX IF NOT EXISTS idx_feature_symbol_timestamp ON feature_cache(symbol, timestamp);
         `);
-    }
+  }
 
-    // ==================== TRADE OPERATIONS ====================
+  // ==================== TRADE OPERATIONS ====================
 
-    insertTrade(trade: Trade): number {
-        const stmt = this.db.prepare(`
+  insertTrade(trade: Trade): number {
+    const stmt = this.db.prepare(`
             INSERT INTO trades (symbol, strategy, action, entryPrice, exitPrice, quantity, profit, profitPct, entryTime, exitTime, reason, metadata)
             VALUES (@symbol, @strategy, @action, @entryPrice, @exitPrice, @quantity, @profit, @profitPct, @entryTime, @exitTime, @reason, @metadata)
         `);
-        const result = stmt.run({
-            symbol: trade.symbol,
-            strategy: trade.strategy,
-            action: trade.action,
-            entryPrice: trade.entryPrice,
-            exitPrice: trade.exitPrice || null,
-            quantity: trade.quantity,
-            profit: trade.profit || null,
-            profitPct: trade.profitPct || null,
-            entryTime: trade.entryTime,
-            exitTime: trade.exitTime || null,
-            reason: trade.reason,
-            metadata: trade.metadata || null
-        });
-        return result.lastInsertRowid as number;
-    }
+    const result = stmt.run({
+      symbol: trade.symbol,
+      strategy: trade.strategy,
+      action: trade.action,
+      entryPrice: trade.entryPrice,
+      exitPrice: trade.exitPrice || null,
+      quantity: trade.quantity,
+      profit: trade.profit || null,
+      profitPct: trade.profitPct || null,
+      entryTime: trade.entryTime,
+      exitTime: trade.exitTime || null,
+      reason: trade.reason,
+      metadata: trade.metadata || null,
+    });
+    return result.lastInsertRowid as number;
+  }
 
-    updateTrade(id: number, updates: Partial<Trade>): void {
-        const allowedColumns = ['symbol', 'strategy', 'action', 'entryPrice', 'exitPrice', 'quantity', 'profit', 'profitPct', 'entryTime', 'exitTime', 'reason', 'metadata'];
-        const validUpdates = Object.keys(updates).filter(key => allowedColumns.includes(key));
-        if (validUpdates.length === 0) return;
+  updateTrade(id: number, updates: Partial<Trade>): void {
+    const allowedColumns = [
+      'symbol',
+      'strategy',
+      'action',
+      'entryPrice',
+      'exitPrice',
+      'quantity',
+      'profit',
+      'profitPct',
+      'entryTime',
+      'exitTime',
+      'reason',
+      'metadata',
+    ];
+    const validUpdates = Object.keys(updates).filter((key) => allowedColumns.includes(key));
+    if (validUpdates.length === 0) return;
 
-        const fields = validUpdates.map(key => `${key} = @${key}`).join(', ');
-        const stmt = this.db.prepare(`UPDATE trades SET ${fields} WHERE id = @id`);
-        stmt.run({ ...updates, id });
-    }
+    const fields = validUpdates.map((key) => `${key} = @${key}`).join(', ');
+    const stmt = this.db.prepare(`UPDATE trades SET ${fields} WHERE id = @id`);
+    stmt.run({ ...updates, id });
+  }
 
-    getTrade(id: number): Trade | undefined {
-        const stmt = this.db.prepare('SELECT * FROM trades WHERE id = ?');
-        return stmt.get(id) as Trade | undefined;
-    }
+  getTrade(id: number): Trade | undefined {
+    const stmt = this.db.prepare('SELECT * FROM trades WHERE id = ?');
+    return stmt.get(id) as Trade | undefined;
+  }
 
-    getTradesBySymbol(symbol: string, limit: number = 100): Trade[] {
-        const stmt = this.db.prepare('SELECT * FROM trades WHERE symbol = ? ORDER BY entryTime DESC LIMIT ?');
-        return stmt.all(symbol, limit) as Trade[];
-    }
+  getTradesBySymbol(symbol: string, limit: number = 100): Trade[] {
+    const stmt = this.db.prepare(
+      'SELECT * FROM trades WHERE symbol = ? ORDER BY entryTime DESC LIMIT ?'
+    );
+    return stmt.all(symbol, limit) as Trade[];
+  }
 
-    getTradesByStrategy(strategy: string, limit: number = 100): Trade[] {
-        const stmt = this.db.prepare('SELECT * FROM trades WHERE strategy = ? ORDER BY entryTime DESC LIMIT ?');
-        return stmt.all(strategy, limit) as Trade[];
-    }
+  getTradesByStrategy(strategy: string, limit: number = 100): Trade[] {
+    const stmt = this.db.prepare(
+      'SELECT * FROM trades WHERE strategy = ? ORDER BY entryTime DESC LIMIT ?'
+    );
+    return stmt.all(strategy, limit) as Trade[];
+  }
 
-    // ==================== BACKTEST OPERATIONS ====================
+  // ==================== BACKTEST OPERATIONS ====================
 
-    insertBacktestResult(result: BacktestResult): number {
-        const stmt = this.db.prepare(`
+  insertBacktestResult(result: BacktestResult): number {
+    const stmt = this.db.prepare(`
             INSERT INTO backtest_results (
                 strategy, symbol, startDate, endDate, initialBalance, finalBalance,
                 totalProfit, totalProfitPct, totalTrades, winningTrades, losingTrades,
@@ -246,48 +263,52 @@ export class TradingDatabase {
                 @calmarRatio, @profitFactor, @parameters
             )
         `);
-        const res = stmt.run(result);
-        return res.lastInsertRowid as number;
+    const res = stmt.run(result);
+    return res.lastInsertRowid as number;
+  }
+
+  getBacktestResults(strategy?: string, symbol?: string, limit: number = 50): BacktestResult[] {
+    let query = 'SELECT * FROM backtest_results WHERE 1=1';
+    const params: any[] = [];
+
+    if (strategy) {
+      query += ' AND strategy = ?';
+      params.push(strategy);
+    }
+    if (symbol) {
+      query += ' AND symbol = ?';
+      params.push(symbol);
     }
 
-    getBacktestResults(strategy?: string, symbol?: string, limit: number = 50): BacktestResult[] {
-        let query = 'SELECT * FROM backtest_results WHERE 1=1';
-        const params: any[] = [];
+    query += ' ORDER BY createdAt DESC LIMIT ?';
+    params.push(limit);
 
-        if (strategy) {
-            query += ' AND strategy = ?';
-            params.push(strategy);
-        }
-        if (symbol) {
-            query += ' AND symbol = ?';
-            params.push(symbol);
-        }
+    const stmt = this.db.prepare(query);
+    return stmt.all(...params) as BacktestResult[];
+  }
 
-        query += ' ORDER BY createdAt DESC LIMIT ?';
-        params.push(limit);
+  getBestBacktestResult(
+    strategy: string,
+    symbol: string,
+    metric: 'sharpeRatio' | 'totalProfitPct' | 'winRate' = 'sharpeRatio'
+  ): BacktestResult | undefined {
+    // 🛡️ Sentinel: Enforce runtime whitelisting for dynamic SQL identifiers to prevent injection
+    const allowedMetrics = ['sharpeRatio', 'totalProfitPct', 'winRate'];
+    const safeMetric = allowedMetrics.includes(metric) ? metric : 'sharpeRatio';
 
-        const stmt = this.db.prepare(query);
-        return stmt.all(...params) as BacktestResult[];
-    }
-
-    getBestBacktestResult(strategy: string, symbol: string, metric: 'sharpeRatio' | 'totalProfitPct' | 'winRate' = 'sharpeRatio'): BacktestResult | undefined {
-        // 🛡️ Sentinel: Enforce runtime whitelisting for dynamic SQL identifiers to prevent injection
-        const allowedMetrics = ['sharpeRatio', 'totalProfitPct', 'winRate'];
-        const safeMetric = allowedMetrics.includes(metric) ? metric : 'sharpeRatio';
-
-        const stmt = this.db.prepare(`
+    const stmt = this.db.prepare(`
             SELECT * FROM backtest_results
             WHERE strategy = ? AND symbol = ?
             ORDER BY ${safeMetric} DESC
             LIMIT 1
         `);
-        return stmt.get(strategy, symbol) as BacktestResult | undefined;
-    }
+    return stmt.get(strategy, symbol) as BacktestResult | undefined;
+  }
 
-    // ==================== MODEL VERSION OPERATIONS ====================
+  // ==================== MODEL VERSION OPERATIONS ====================
 
-    insertModelVersion(model: ModelVersion): number {
-        const stmt = this.db.prepare(`
+  insertModelVersion(model: ModelVersion): number {
+    const stmt = this.db.prepare(`
             INSERT OR REPLACE INTO model_versions (
                 modelName, version, architecture, accuracy, mae, rmse,
                 directionalAccuracy, trainedOn, trainingPeriod, filePath, metadata
@@ -296,99 +317,103 @@ export class TradingDatabase {
                 @directionalAccuracy, @trainedOn, @trainingPeriod, @filePath, @metadata
             )
         `);
-        const result = stmt.run(model);
-        return result.lastInsertRowid as number;
-    }
+    const result = stmt.run(model);
+    return result.lastInsertRowid as number;
+  }
 
-    getLatestModelVersion(modelName: string): ModelVersion | undefined {
-        const stmt = this.db.prepare(`
+  getLatestModelVersion(modelName: string): ModelVersion | undefined {
+    const stmt = this.db.prepare(`
             SELECT * FROM model_versions
             WHERE modelName = ?
             ORDER BY createdAt DESC
             LIMIT 1
         `);
-        return stmt.get(modelName) as ModelVersion | undefined;
+    return stmt.get(modelName) as ModelVersion | undefined;
+  }
+
+  getAllModelVersions(modelName?: string): ModelVersion[] {
+    if (modelName) {
+      const stmt = this.db.prepare(
+        'SELECT * FROM model_versions WHERE modelName = ? ORDER BY createdAt DESC'
+      );
+      return stmt.all(modelName) as ModelVersion[];
     }
+    const stmt = this.db.prepare('SELECT * FROM model_versions ORDER BY createdAt DESC');
+    return stmt.all() as ModelVersion[];
+  }
 
-    getAllModelVersions(modelName?: string): ModelVersion[] {
-        if (modelName) {
-            const stmt = this.db.prepare('SELECT * FROM model_versions WHERE modelName = ? ORDER BY createdAt DESC');
-            return stmt.all(modelName) as ModelVersion[];
-        }
-        const stmt = this.db.prepare('SELECT * FROM model_versions ORDER BY createdAt DESC');
-        return stmt.all() as ModelVersion[];
-    }
+  // ==================== FEATURE CACHE OPERATIONS ====================
 
-    // ==================== FEATURE CACHE OPERATIONS ====================
-
-    insertFeatureCache(cache: FeatureCache): number {
-        const stmt = this.db.prepare(`
+  insertFeatureCache(cache: FeatureCache): number {
+    const stmt = this.db.prepare(`
             INSERT OR REPLACE INTO feature_cache (symbol, timestamp, features)
             VALUES (@symbol, @timestamp, @features)
         `);
-        const result = stmt.run(cache);
-        return result.lastInsertRowid as number;
-    }
+    const result = stmt.run(cache);
+    return result.lastInsertRowid as number;
+  }
 
-    getFeatureCache(symbol: string, timestamp: number): FeatureCache | undefined {
-        const stmt = this.db.prepare('SELECT * FROM feature_cache WHERE symbol = ? AND timestamp = ?');
-        return stmt.get(symbol, timestamp) as FeatureCache | undefined;
-    }
+  getFeatureCache(symbol: string, timestamp: number): FeatureCache | undefined {
+    const stmt = this.db.prepare('SELECT * FROM feature_cache WHERE symbol = ? AND timestamp = ?');
+    return stmt.get(symbol, timestamp) as FeatureCache | undefined;
+  }
 
-    cleanOldFeatureCache(olderThanDays: number = 30): number {
-        const cutoffTime = Date.now() - (olderThanDays * 24 * 60 * 60 * 1000);
-        const stmt = this.db.prepare('DELETE FROM feature_cache WHERE createdAt < ?');
-        const result = stmt.run(cutoffTime);
-        return result.changes;
-    }
+  cleanOldFeatureCache(olderThanDays: number = 30): number {
+    const cutoffTime = Date.now() - olderThanDays * 24 * 60 * 60 * 1000;
+    const stmt = this.db.prepare('DELETE FROM feature_cache WHERE createdAt < ?');
+    const result = stmt.run(cutoffTime);
+    return result.changes;
+  }
 
-    // ==================== UTILITY OPERATIONS ====================
+  // ==================== UTILITY OPERATIONS ====================
 
-    getStats(): {
-        totalTrades: number;
-        totalBacktests: number;
-        totalModels: number;
-        totalCachedFeatures: number;
-        dbSize: number;
-    } {
-        const trades = this.db.prepare('SELECT COUNT(*) as count FROM trades').get() as any;
-        const backtests = this.db.prepare('SELECT COUNT(*) as count FROM backtest_results').get() as any;
-        const models = this.db.prepare('SELECT COUNT(*) as count FROM model_versions').get() as any;
-        const features = this.db.prepare('SELECT COUNT(*) as count FROM feature_cache').get() as any;
+  getStats(): {
+    totalTrades: number;
+    totalBacktests: number;
+    totalModels: number;
+    totalCachedFeatures: number;
+    dbSize: number;
+  } {
+    const trades = this.db.prepare('SELECT COUNT(*) as count FROM trades').get() as any;
+    const backtests = this.db
+      .prepare('SELECT COUNT(*) as count FROM backtest_results')
+      .get() as any;
+    const models = this.db.prepare('SELECT COUNT(*) as count FROM model_versions').get() as any;
+    const features = this.db.prepare('SELECT COUNT(*) as count FROM feature_cache').get() as any;
 
-        const dbSize = fs.existsSync(this.dbPath) ? fs.statSync(this.dbPath).size : 0;
+    const dbSize = fs.existsSync(this.dbPath) ? fs.statSync(this.dbPath).size : 0;
 
-        return {
-            totalTrades: trades.count,
-            totalBacktests: backtests.count,
-            totalModels: models.count,
-            totalCachedFeatures: features.count,
-            dbSize
-        };
-    }
+    return {
+      totalTrades: trades.count,
+      totalBacktests: backtests.count,
+      totalModels: models.count,
+      totalCachedFeatures: features.count,
+      dbSize,
+    };
+  }
 
-    vacuum(): void {
-        this.db.exec('VACUUM');
-    }
+  vacuum(): void {
+    this.db.exec('VACUUM');
+  }
 
-    close(): void {
-        this.db.close();
-    }
+  close(): void {
+    this.db.close();
+  }
 }
 
 // Singleton instance
 let dbInstance: TradingDatabase | null = null;
 
 export function getDatabase(dbPath?: string): TradingDatabase {
-    if (!dbInstance) {
-        dbInstance = new TradingDatabase(dbPath);
-    }
-    return dbInstance;
+  if (!dbInstance) {
+    dbInstance = new TradingDatabase(dbPath);
+  }
+  return dbInstance;
 }
 
 export function closeDatabase(): void {
-    if (dbInstance) {
-        dbInstance.close();
-        dbInstance = null;
-    }
+  if (dbInstance) {
+    dbInstance.close();
+    dbInstance = null;
+  }
 }
