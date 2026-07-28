@@ -122,15 +122,22 @@ export class DataManager {
     }
 
     private mapCryptoCompareRows(rows: any[]): OHLCVCandle[] {
-        return rows.map((row: any) => ({
-            timestamp: Number(row.time || 0) * 1000,
-            open: Number(row.open || 0),
-            high: Number(row.high || 0),
-            low: Number(row.low || 0),
-            close: Number(row.close || 0),
-            volume: Number(row.volumeto || row.volumefrom || 0),
-            date: new Date(Number(row.time || 0) * 1000),
-        }));
+        const len = rows.length;
+        const candles = new Array<OHLCVCandle>(len);
+        for (let i = 0; i < len; i++) {
+            const row = rows[i];
+            const ts = Number(row.time || 0) * 1000;
+            candles[i] = {
+                timestamp: ts,
+                open: Number(row.open || 0),
+                high: Number(row.high || 0),
+                low: Number(row.low || 0),
+                close: Number(row.close || 0),
+                volume: Number(row.volumeto || row.volumefrom || 0),
+                date: new Date(ts),
+            };
+        }
+        return candles;
     }
 
     private async getRecentDataFromCryptoCompare(symbol: string, timeframe: string, limit: number): Promise<OHLCVCandle[]> {
@@ -201,15 +208,20 @@ export class DataManager {
                     break;
                 }
 
-                const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                    timestamp: candle[0],
-                    open: parseFloat(candle[1]),
-                    high: parseFloat(candle[2]),
-                    low: parseFloat(candle[3]),
-                    close: parseFloat(candle[4]),
-                    volume: parseFloat(candle[5]),
-                    date: new Date(candle[0])
-                }));
+                const len = rawCandles.length;
+                const candles = new Array<OHLCVCandle>(len);
+                for (let i = 0; i < len; i++) {
+                    const candle = rawCandles[i];
+                    candles[i] = {
+                        timestamp: candle[0],
+                        open: parseFloat(candle[1]),
+                        high: parseFloat(candle[2]),
+                        low: parseFloat(candle[3]),
+                        close: parseFloat(candle[4]),
+                        volume: parseFloat(candle[5]),
+                        date: new Date(candle[0])
+                    };
+                }
 
                 allCandles.push(...candles);
 
@@ -252,15 +264,20 @@ export class DataManager {
             });
 
             const rawCandles = response.data;
-            const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                timestamp: candle[0],
-                open: parseFloat(candle[1]),
-                high: parseFloat(candle[2]),
-                low: parseFloat(candle[3]),
-                close: parseFloat(candle[4]),
-                volume: parseFloat(candle[5]),
-                date: new Date(candle[0])
-            }));
+            const len = rawCandles.length;
+            const candles = new Array<OHLCVCandle>(len);
+            for (let i = 0; i < len; i++) {
+                const candle = rawCandles[i];
+                candles[i] = {
+                    timestamp: candle[0],
+                    open: parseFloat(candle[1]),
+                    high: parseFloat(candle[2]),
+                    low: parseFloat(candle[3]),
+                    close: parseFloat(candle[4]),
+                    volume: parseFloat(candle[5]),
+                    date: new Date(candle[0])
+                };
+            }
 
             return candles;
 

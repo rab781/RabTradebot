@@ -180,14 +180,25 @@ export class TradingViewService {
             throw new Error(`CryptoCompare returned no data for ${symbol}`);
         }
 
-        return {
-            date: rows.map((d: any) => new Date((d.time || 0) * 1000)),
-            open: rows.map((d: any) => Number(d.open || 0)),
-            high: rows.map((d: any) => Number(d.high || 0)),
-            low: rows.map((d: any) => Number(d.low || 0)),
-            close: rows.map((d: any) => Number(d.close || 0)),
-            volume: rows.map((d: any) => Number(d.volumeto || d.volumefrom || 0)),
-        };
+        const len = rows.length;
+        const date = new Array(len);
+        const open = new Array(len);
+        const high = new Array(len);
+        const low = new Array(len);
+        const close = new Array(len);
+        const volume = new Array(len);
+
+        for (let i = 0; i < len; i++) {
+            const d = rows[i];
+            date[i] = new Date((d.time || 0) * 1000);
+            open[i] = Number(d.open || 0);
+            high[i] = Number(d.high || 0);
+            low[i] = Number(d.low || 0);
+            close[i] = Number(d.close || 0);
+            volume[i] = Number(d.volumeto || d.volumefrom || 0);
+        }
+
+        return { date, open, high, low, close, volume };
     }
 
     private async getYahooFinanceData(symbol: string, interval: string): Promise<DataFrame> {
@@ -204,8 +215,14 @@ export class TradingViewService {
         const timestamps = result.timestamp;
         const ohlcv = result.indicators.quote[0];
 
+        const len = timestamps.length;
+        const date = new Array(len);
+        for (let i = 0; i < len; i++) {
+            date[i] = new Date(timestamps[i] * 1000);
+        }
+
         return {
-            date: timestamps.map((t: number) => new Date(t * 1000)),
+            date,
             open: ohlcv.open,
             high: ohlcv.high,
             low: ohlcv.low,
@@ -243,23 +260,26 @@ export class TradingViewService {
             volume: number;
         }
 
-        const data: AlphaVantageData[] = Object.entries(timeSeries).map(([time, values]: [string, any]) => ({
-            date: new Date(time),
-            open: parseFloat(values['1. open']),
-            high: parseFloat(values['2. high']),
-            low: parseFloat(values['3. low']),
-            close: parseFloat(values['4. close']),
-            volume: parseFloat(values['5. volume'])
-        }));
+        const entries = Object.entries(timeSeries);
+        const len = entries.length;
+        const date = new Array(len);
+        const open = new Array(len);
+        const high = new Array(len);
+        const low = new Array(len);
+        const close = new Array(len);
+        const volume = new Array(len);
 
-        return {
-            date: data.map((d: AlphaVantageData) => d.date),
-            open: data.map((d: AlphaVantageData) => d.open),
-            high: data.map((d: AlphaVantageData) => d.high),
-            low: data.map((d: AlphaVantageData) => d.low),
-            close: data.map((d: AlphaVantageData) => d.close),
-            volume: data.map((d: AlphaVantageData) => d.volume)
-        };
+        for (let i = 0; i < len; i++) {
+            const [time, values] = entries[i];
+            date[i] = new Date(time);
+            open[i] = parseFloat((values as any)['1. open']);
+            high[i] = parseFloat((values as any)['2. high']);
+            low[i] = parseFloat((values as any)['3. low']);
+            close[i] = parseFloat((values as any)['4. close']);
+            volume[i] = parseFloat((values as any)['5. volume']);
+        }
+
+        return { date, open, high, low, close, volume };
     }
 
     private async getBinanceData(symbol: string, interval: string): Promise<DataFrame> {
@@ -282,23 +302,26 @@ export class TradingViewService {
             volume: number;
         }
 
-        const data: BinanceKlineData[] = response.data.map((kline: any[]) => ({
-            date: new Date(kline[0]),
-            open: parseFloat(kline[1]),
-            high: parseFloat(kline[2]),
-            low: parseFloat(kline[3]),
-            close: parseFloat(kline[4]),
-            volume: parseFloat(kline[5])
-        }));
+        const klines = response.data;
+        const len = klines.length;
+        const date = new Array(len);
+        const open = new Array(len);
+        const high = new Array(len);
+        const low = new Array(len);
+        const close = new Array(len);
+        const volume = new Array(len);
 
-        return {
-            date: data.map((d: BinanceKlineData) => d.date),
-            open: data.map((d: BinanceKlineData) => d.open),
-            high: data.map((d: BinanceKlineData) => d.high),
-            low: data.map((d: BinanceKlineData) => d.low),
-            close: data.map((d: BinanceKlineData) => d.close),
-            volume: data.map((d: BinanceKlineData) => d.volume)
-        };
+        for (let i = 0; i < len; i++) {
+            const kline = klines[i];
+            date[i] = new Date(kline[0]);
+            open[i] = parseFloat(kline[1]);
+            high[i] = parseFloat(kline[2]);
+            low[i] = parseFloat(kline[3]);
+            close[i] = parseFloat(kline[4]);
+            volume[i] = parseFloat(kline[5]);
+        }
+
+        return { date, open, high, low, close, volume };
     }
 
     private convertToBinanceInterval(interval: string): string {
