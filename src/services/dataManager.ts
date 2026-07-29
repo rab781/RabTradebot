@@ -122,15 +122,24 @@ export class DataManager {
     }
 
     private mapCryptoCompareRows(rows: any[]): OHLCVCandle[] {
-        return rows.map((row: any) => ({
-            timestamp: Number(row.time || 0) * 1000,
-            open: Number(row.open || 0),
-            high: Number(row.high || 0),
-            low: Number(row.low || 0),
-            close: Number(row.close || 0),
-            volume: Number(row.volumeto || row.volumefrom || 0),
-            date: new Date(Number(row.time || 0) * 1000),
-        }));
+        // ⚡ Bolt Optimization: Replace .map() with pre-allocated for loop and hoisted variables
+        // This avoids callback closures and repeated type conversions per iteration
+        const len = rows.length;
+        const result = new Array(len);
+        for (let i = 0; i < len; i++) {
+            const row = rows[i];
+            const timestamp = Number(row.time || 0) * 1000;
+            result[i] = {
+                timestamp,
+                open: Number(row.open || 0),
+                high: Number(row.high || 0),
+                low: Number(row.low || 0),
+                close: Number(row.close || 0),
+                volume: Number(row.volumeto || row.volumefrom || 0),
+                date: new Date(timestamp),
+            };
+        }
+        return result;
     }
 
     private async getRecentDataFromCryptoCompare(symbol: string, timeframe: string, limit: number): Promise<OHLCVCandle[]> {
@@ -201,15 +210,22 @@ export class DataManager {
                     break;
                 }
 
-                const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                    timestamp: candle[0],
-                    open: parseFloat(candle[1]),
-                    high: parseFloat(candle[2]),
-                    low: parseFloat(candle[3]),
-                    close: parseFloat(candle[4]),
-                    volume: parseFloat(candle[5]),
-                    date: new Date(candle[0])
-                }));
+                // ⚡ Bolt Optimization: Replace .map() with pre-allocated for loop
+                const len = rawCandles.length;
+                const candles = new Array(len);
+                for (let i = 0; i < len; i++) {
+                    const c = rawCandles[i];
+                    const timestamp = c[0];
+                    candles[i] = {
+                        timestamp,
+                        open: parseFloat(c[1]),
+                        high: parseFloat(c[2]),
+                        low: parseFloat(c[3]),
+                        close: parseFloat(c[4]),
+                        volume: parseFloat(c[5]),
+                        date: new Date(timestamp)
+                    };
+                }
 
                 allCandles.push(...candles);
 
@@ -252,15 +268,22 @@ export class DataManager {
             });
 
             const rawCandles = response.data;
-            const candles: OHLCVCandle[] = rawCandles.map((candle: any[]) => ({
-                timestamp: candle[0],
-                open: parseFloat(candle[1]),
-                high: parseFloat(candle[2]),
-                low: parseFloat(candle[3]),
-                close: parseFloat(candle[4]),
-                volume: parseFloat(candle[5]),
-                date: new Date(candle[0])
-            }));
+            // ⚡ Bolt Optimization: Replace .map() with pre-allocated for loop
+            const len = rawCandles.length;
+            const candles = new Array(len);
+            for (let i = 0; i < len; i++) {
+                const c = rawCandles[i];
+                const timestamp = c[0];
+                candles[i] = {
+                    timestamp,
+                    open: parseFloat(c[1]),
+                    high: parseFloat(c[2]),
+                    low: parseFloat(c[3]),
+                    close: parseFloat(c[4]),
+                    volume: parseFloat(c[5]),
+                    date: new Date(timestamp)
+                };
+            }
 
             return candles;
 
@@ -354,14 +377,7 @@ export class DataManager {
             const c = candles[i];
 
             if (c.low < min) min = c.low;
-            if (c.open < min) min = c.open;
-            if (c.close < min) min = c.close;
-            if (c.high < min) min = c.high;
-
             if (c.high > max) max = c.high;
-            if (c.open > max) max = c.open;
-            if (c.close > max) max = c.close;
-            if (c.low > max) max = c.low;
 
             sumVolume += c.volume;
         }
