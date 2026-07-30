@@ -503,7 +503,17 @@ bot.action('coin:prompt', async (ctx) => {
 });
 
 bot.action(/^run:(.+)$/, async (ctx) => {
+
   const action = ctx.match![1];
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (action.startsWith('live') || action === 'orders' || action === 'cancelorder') {
+    if (!adminChat || requesterChat !== adminChat) {
+      await ctx.answerCbQuery('❌ Unauthorized. Fitur ini khusus admin.', { show_alert: true });
+      return;
+    }
+  }
+
   const user = await ensureUserFromCallback(ctx);
   if (!user) {
     await ctx.answerCbQuery('❌ Session error');
@@ -3216,6 +3226,13 @@ bot.command('logs', async (ctx) => {
 // ============================================================================
 
 bot.command('orders', async (ctx) => {
+
+  // 🛡️ Sentinel: Enforce admin authorization to prevent unauthorized access
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
   try {
     if (!binanceOrderService.isConfigured()) {
       return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
@@ -3257,6 +3274,13 @@ bot.command('orders', async (ctx) => {
 });
 
 bot.command('cancelorder', async (ctx) => {
+
+  // 🛡️ Sentinel: Enforce admin authorization to prevent unauthorized access
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
   try {
     if (!binanceOrderService.isConfigured()) {
       return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
@@ -3373,6 +3397,13 @@ bot.command('unsubscribe', async (ctx) => {
 });
 
 bot.command('liveportfolio', async (ctx) => {
+
+  // 🛡️ Sentinel: Enforce admin authorization to prevent unauthorized access
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
   try {
     if (!binanceOrderService.isConfigured()) {
       return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
@@ -3416,6 +3447,13 @@ bot.command('liveportfolio', async (ctx) => {
 });
 
 bot.command('livetrade', async (ctx) => {
+
+  // 🛡️ Sentinel: Enforce admin authorization to prevent unauthorized access
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
   const args = ctx.message.text.split(' ').slice(1);
   const action = (args[0] || '').toLowerCase();
   const session = getUserSession(ctx.message.from.id);
