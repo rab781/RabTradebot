@@ -551,14 +551,25 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const loading = await ctx.reply(`🦅 Running OpenClaw for ${symbol}...`);
       const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
       if (candles.length < 100) { await ctx.reply('❌ Insufficient data'); break; }
-      const ocCandles: OHLCVCandle[] = candles.map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
-      }));
+      // ⚡ Bolt Optimization: Replace multiple .map() passes with single pre-allocated loop
+      const cLen = candles.length;
+      const opens = new Array(cLen);
+      const highs = new Array(cLen);
+      const lows = new Array(cLen);
+      const closes = new Array(cLen);
+      const volumes = new Array(cLen);
+      const dates = new Array(cLen);
+      for (let i = 0; i < cLen; i++) {
+        const c = candles[i];
+        opens[i] = parseFloat(c[1]);
+        highs[i] = parseFloat(c[2]);
+        lows[i] = parseFloat(c[3]);
+        closes[i] = parseFloat(c[4]);
+        volumes[i] = parseFloat(c[5]);
+        dates[i] = new Date(c[0]);
+      }
       const df: any = {
-        open: ocCandles.map(c => c.open), high: ocCandles.map(c => c.high),
-        low: ocCandles.map(c => c.low), close: ocCandles.map(c => c.close),
-        volume: ocCandles.map(c => c.volume), date: ocCandles.map(c => c.date),
+        open: opens, high: highs, low: lows, close: closes, volume: volumes, date: dates,
       };
       const meta = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
       openClawStrategy.populateIndicators(df, meta);
@@ -2097,24 +2108,33 @@ bot.command('openclaw', async (ctx) => {
     }
 
     // Convert to OHLCV format
-    const ohlcvCandles: OHLCVCandle[] = candles.map((c: any) => ({
-      timestamp: c[0],
-      open: parseFloat(c[1]),
-      high: parseFloat(c[2]),
-      low: parseFloat(c[3]),
-      close: parseFloat(c[4]),
-      volume: parseFloat(c[5]),
-      date: new Date(c[0]),
-    }));
+    // ⚡ Bolt Optimization: Replace multiple .map() passes with single pre-allocated loop
+    const cLen = candles.length;
+    const opens = new Array(cLen);
+    const highs = new Array(cLen);
+    const lows = new Array(cLen);
+    const closes = new Array(cLen);
+    const volumes = new Array(cLen);
+    const dates = new Array(cLen);
+
+    for (let i = 0; i < cLen; i++) {
+        const c = candles[i];
+        opens[i] = parseFloat(c[1]);
+        highs[i] = parseFloat(c[2]);
+        lows[i] = parseFloat(c[3]);
+        closes[i] = parseFloat(c[4]);
+        volumes[i] = parseFloat(c[5]);
+        dates[i] = new Date(c[0]);
+    }
 
     // Create DataFrame and populate indicators
     const dataframe = {
-      open: ohlcvCandles.map((c) => c.open),
-      high: ohlcvCandles.map((c) => c.high),
-      low: ohlcvCandles.map((c) => c.low),
-      close: ohlcvCandles.map((c) => c.close),
-      volume: ohlcvCandles.map((c) => c.volume),
-      date: ohlcvCandles.map((c) => c.date),
+      open: opens,
+      high: highs,
+      low: lows,
+      close: closes,
+      volume: volumes,
+      date: dates,
     };
 
     const metadata = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
