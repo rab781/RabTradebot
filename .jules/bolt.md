@@ -87,3 +87,6 @@
 ## 2026-07-14 - [Optimize Percentile Calculations]
 **Learning:** In simulation or Monte Carlo contexts (like `StrategyOptimizer.ts`), calculating multiple percentiles (p5, p25, median, p75, p95) using a helper that copies and sorts the array on every call is highly inefficient, leading to O(P * N log N) overhead where P is the number of percentiles.
 **Action:** Sort the distribution array exactly once and extract all percentiles simultaneously in O(1) time using pre-calculated index lookups (e.g., `sorted[Math.ceil((p / 100) * len) - 1]`) to avoid redundant O(N log N) sorting overhead.
+## 2024-07-29 - O(N) Array Construction
+**Learning:** In highly repetitive data conversion paths (like `OHLCVCandle[]` mapping to separate column arrays in `enhancedBot.ts`), calling `.map()` multiple times sequentially on the same list of objects creates multiple full O(N) passes over the array and introduces unnecessary closure overhead and memory pressure.
+**Action:** Replace sequential `.map()` calls with a single pre-allocated `for` loop (e.g. `new Array(len)`) and populate all target arrays simultaneously.
