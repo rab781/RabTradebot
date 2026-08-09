@@ -101,11 +101,11 @@ export class JsonlResearchDatasetStore implements SpotResearchDatasetStore {
         return true;
     }
 
-    async loadFeaturesSince(referenceObservedAtInclusive: number): Promise<SpotResearchFeatureRecord[]> {
+    async loadFeaturesSince(sampledAtInclusive: number): Promise<SpotResearchFeatureRecord[]> {
         this.ensureInitialized();
         return [...this.featuresById.values()]
-            .filter((record) => record.referenceObservedAt >= referenceObservedAtInclusive)
-            .sort((a, b) => a.referenceObservedAt - b.referenceObservedAt)
+            .filter((record) => record.sampledAt >= sampledAtInclusive)
+            .sort((a, b) => a.sampledAt - b.sampledAt)
             .map((record) => ({
                 ...record,
                 featureNames: [...record.featureNames],

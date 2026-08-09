@@ -31,8 +31,8 @@ function validatePositiveInteger(value: number, name: string): void {
     }
 }
 
-function deterministicSampleId(symbol: string, schemaVersion: string, referenceObservedAt: number): string {
-    return `${symbol}:${schemaVersion}:${referenceObservedAt}`;
+function deterministicSampleId(symbol: string, schemaVersion: string, sampleSlotAt: number): string {
+    return `${symbol}:${schemaVersion}:slot:${sampleSlotAt}`;
 }
 
 function cloneQuality<T extends { reasons: string[] }>(quality: T): T {
@@ -54,7 +54,8 @@ export class SpotMicrostructureDatasetRecorder {
     private readonly recordOnlyHealthy: boolean;
     private initialized = false;
     private lastSampledAt?: number;
-    private lastReferenceObservedAt?: number;
+    /** Fixed cadence anchor. Actual callback jitter must not shift future sample slots. */
+    private nextSampleDueAt?: number;
     private pending: PendingOutcome[] = [];
     private statsState: SpotResearchDatasetStats = {
         featureRecords: 0,
@@ -123,10 +124,23 @@ export class SpotMicrostructureDatasetRecorder {
         // First use the current mid-price observation to settle older labels.
         await this.settlePending(snapshot.generatedAt, snapshot.midPrice, snapshot.quality);
 
-        if (this.lastSampledAt !== undefined && now - this.lastSampledAt < this.sampleIntervalMs) {
+        // Keep feature sampling on a fixed cadence grid.
+        // Do NOT anchor the next sample to the actual callback time: timer jitter would
+        // otherwise accumulate (e.g. 1000ms target gradually becoming ~1100ms).
+        if (this.nextSampleDueAt === undefined) {
+            this.nextSampleDueAt = now;
+        }
+        if (now < this.nextSampleDueAt) {
             this.statsState.pendingOutcomes = this.pending.length;
             return undefined;
         }
+
+        // If the process was paused long enough to miss one or more complete slots, do not
+        // backfill synthetic historical features. Record one current snapshot and advance
+        // to the next future slot while preserving the original cadence phase.
+        const slotsLate = Math.floor((now - this.nextSampleDueAt) / this.sampleIntervalMs);
+        const sampleSlotAt = this.nextSampleDueAt + slotsLate * this.sampleIntervalMs;
+        this.nextSampleDueAt = sampleSlotAt + this.sampleIntervalMs;
         this.lastSampledAt = now;
         this.statsState.lastSampledAt = now;
 
@@ -148,18 +162,13 @@ export class SpotMicrostructureDatasetRecorder {
         // from the quality age rather than pretending wall-clock sample time is exchange event time.
         const depthAge = snapshot.quality.lastDepthAgeMs ?? 0;
         const referenceObservedAt = Math.max(0, snapshot.generatedAt - depthAge);
-        if (this.lastReferenceObservedAt === referenceObservedAt) {
-            this.statsState.skippedDuplicateSamples += 1;
-            this.statsState.pendingOutcomes = this.pending.length;
-            return undefined;
-        }
-
         const record: SpotResearchFeatureRecord = {
             recordType: 'FEATURE',
             datasetVersion: SPOT_RESEARCH_DATASET_VERSION,
             schemaVersion: vector.schemaVersion,
-            sampleId: deterministicSampleId(this.symbol, vector.schemaVersion, referenceObservedAt),
+            sampleId: deterministicSampleId(this.symbol, vector.schemaVersion, sampleSlotAt),
             symbol: this.symbol,
+            sampleSlotAt,
             sampledAt: snapshot.generatedAt,
             referenceObservedAt,
             referenceMidPrice: snapshot.midPrice,
@@ -175,10 +184,9 @@ export class SpotMicrostructureDatasetRecorder {
             return undefined;
         }
 
-        this.lastReferenceObservedAt = referenceObservedAt;
         this.statsState.featureRecords += 1;
         for (const horizonMs of this.horizonsMs) {
-            const targetTime = referenceObservedAt + horizonMs;
+            const targetTime = record.sampledAt + horizonMs;
             this.pending.push({
                 feature: record,
                 horizonMs,
@@ -209,7 +217,9 @@ export class SpotMicrostructureDatasetRecorder {
         for (const feature of recent) {
             for (const horizonMs of this.horizonsMs) {
                 if (await this.store.hasOutcome(feature.sampleId, horizonMs)) continue;
-                const targetTime = feature.referenceObservedAt + horizonMs;
+                const targetTime = feature.datasetVersion === 'spot-microstructure-dataset-v1'
+                    ? feature.referenceObservedAt + horizonMs
+                    : feature.sampledAt + horizonMs;
                 const expiresAt = targetTime + this.maxObservationLagMs;
                 if (expiresAt < now) {
                     this.statsState.expiredOutcomes += 1;

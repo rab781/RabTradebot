@@ -3,10 +3,11 @@ import {
     SpotMicrostructureQuality,
 } from '../marketData/spotMicrostructureTypes';
 
-export const SPOT_RESEARCH_DATASET_VERSION = 'spot-microstructure-dataset-v1' as const;
+export const SPOT_RESEARCH_DATASET_VERSION = 'spot-microstructure-dataset-v2' as const;
+export type SpotResearchDatasetVersion = 'spot-microstructure-dataset-v1' | typeof SPOT_RESEARCH_DATASET_VERSION;
 
 export interface SpotResearchDatasetManifest {
-    datasetVersion: typeof SPOT_RESEARCH_DATASET_VERSION;
+    datasetVersion: SpotResearchDatasetVersion;
     schemaVersion: typeof SPOT_MICROSTRUCTURE_SCHEMA_VERSION;
     symbol: string;
     featureNames: string[];
@@ -17,10 +18,13 @@ export interface SpotResearchDatasetManifest {
 
 export interface SpotResearchFeatureRecord {
     recordType: 'FEATURE';
-    datasetVersion: typeof SPOT_RESEARCH_DATASET_VERSION;
+    datasetVersion: SpotResearchDatasetVersion;
     schemaVersion: typeof SPOT_MICROSTRUCTURE_SCHEMA_VERSION;
     sampleId: string;
     symbol: string;
+    /** Fixed scheduler slot assigned to this observation. Dataset cadence is defined on this clock. */
+    sampleSlotAt?: number;
+    /** Actual time at which the feature snapshot was generated. This is the prediction origin for v2 outcomes. */
     sampledAt: number;
     /** Approximate local receive timestamp of the depth event that supplied the reference mid. */
     referenceObservedAt: number;
@@ -32,7 +36,7 @@ export interface SpotResearchFeatureRecord {
 
 export interface SpotResearchOutcomeRecord {
     recordType: 'OUTCOME';
-    datasetVersion: typeof SPOT_RESEARCH_DATASET_VERSION;
+    datasetVersion: SpotResearchDatasetVersion;
     schemaVersion: typeof SPOT_MICROSTRUCTURE_SCHEMA_VERSION;
     sampleId: string;
     symbol: string;
@@ -64,7 +68,7 @@ export interface SpotResearchDatasetStore {
     appendFeature(record: SpotResearchFeatureRecord): Promise<boolean>;
     appendOutcome(record: SpotResearchOutcomeRecord): Promise<boolean>;
     /** Optional restart-recovery support for append-only stores. */
-    loadFeaturesSince?(referenceObservedAtInclusive: number): Promise<SpotResearchFeatureRecord[]>;
+    loadFeaturesSince?(sampledAtInclusive: number): Promise<SpotResearchFeatureRecord[]>;
     hasOutcome?(sampleId: string, horizonMs: number): Promise<boolean>;
     close?(): Promise<void>;
 }

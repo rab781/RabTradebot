@@ -24,7 +24,7 @@ class MemoryStore implements SpotResearchDatasetStore {
         this.outcomeIds.add(key); this.outcomes.push(record); return true;
     }
     async loadFeaturesSince(since: number): Promise<SpotResearchFeatureRecord[]> {
-        return this.features.filter((x) => x.referenceObservedAt >= since);
+        return this.features.filter((x) => x.sampledAt >= since);
     }
     async hasOutcome(sampleId: string, horizonMs: number): Promise<boolean> {
         return this.outcomeIds.has(`${sampleId}:${horizonMs}`);
@@ -96,6 +96,78 @@ describe('MD4 SpotMicrostructureDatasetRecorder', () => {
         expect(store.outcomes[0].forwardReturnBps).toBeCloseTo(100, 8);
     });
 
+    test('high-frequency settlement ticks do not increase feature cadence and can settle labels with low lag', async () => {
+        const s = source(); s.setDepthAge(0); const store = new MemoryStore();
+        const recorder = new SpotMicrostructureDatasetRecorder(s, store, {
+            symbol: 'BTCUSDT', horizonsMs: [1000], sampleIntervalMs: 1000, maxObservationLagMs: 2000,
+        });
+        await recorder.initialize(1_000_000);
+        await recorder.sample(1_000_000);
+        s.setMid(101);
+        for (let now = 1_000_100; now <= 1_000_900; now += 100) {
+            await recorder.sample(now);
+        }
+        expect(store.features).toHaveLength(1);
+        expect(store.outcomes).toHaveLength(0);
+        await recorder.sample(1_001_000);
+        expect(store.features).toHaveLength(2);
+        expect(store.outcomes).toHaveLength(1);
+        expect(store.outcomes[0].observationLagMs).toBe(0);
+    });
+
+    test('keeps feature cadence anchored when settlement callbacks arrive late', async () => {
+        const s = source(); s.setDepthAge(0); const store = new MemoryStore();
+        const recorder = new SpotMicrostructureDatasetRecorder(s, store, {
+            symbol: 'BTCUSDT', horizonsMs: [60_000], sampleIntervalMs: 1000, maxObservationLagMs: 2000,
+        });
+        await recorder.initialize(1_000_000);
+
+        await recorder.sample(1_000_000); // due 1_000_000; next due 1_001_000
+        await recorder.sample(1_001_099); // 99ms late; next due must remain 1_002_000
+        await recorder.sample(1_002_098); // 98ms late; should still sample here
+        await recorder.sample(1_003_097); // 97ms late; should still sample here
+
+        expect(store.features).toHaveLength(4);
+        expect(store.features.map((x) => x.sampledAt)).toEqual([
+            1_000_000, 1_001_099, 1_002_098, 1_003_097,
+        ]);
+        expect(store.features.map((x) => x.sampleSlotAt)).toEqual([
+            1_000_000, 1_001_000, 1_002_000, 1_003_000,
+        ]);
+    });
+
+    test('does not backfill synthetic rows after a missed cadence slot', async () => {
+        const s = source(); s.setDepthAge(0); const store = new MemoryStore();
+        const recorder = new SpotMicrostructureDatasetRecorder(s, store, {
+            symbol: 'BTCUSDT', horizonsMs: [60_000], sampleIntervalMs: 1000, maxObservationLagMs: 2000,
+        });
+        await recorder.initialize(1_000_000);
+
+        await recorder.sample(1_000_000);
+        await recorder.sample(1_002_500); // missed the 1_001_000 slot; one current row only
+        await recorder.sample(1_002_999); // next fixed due is 1_003_000
+        expect(store.features).toHaveLength(2);
+        expect(store.features.map((x) => x.sampleSlotAt)).toEqual([1_000_000, 1_002_000]);
+        await recorder.sample(1_003_000);
+        expect(store.features).toHaveLength(3);
+    });
+
+    test('anchors forward horizon to feature sampledAt, not older depth referenceObservedAt', async () => {
+        const s = source(); s.setDepthAge(100); const store = new MemoryStore();
+        const recorder = new SpotMicrostructureDatasetRecorder(s, store, {
+            symbol: 'BTCUSDT', horizonsMs: [1000], sampleIntervalMs: 1000, maxObservationLagMs: 2000,
+        });
+        await recorder.initialize(1_000_000);
+        await recorder.sample(1_000_000);
+        expect(store.features[0].referenceObservedAt).toBe(999_900);
+        s.setMid(101);
+        s.setDepthAge(0);
+        await recorder.sample(1_001_000);
+        expect(store.outcomes).toHaveLength(1);
+        expect(store.outcomes[0].targetTime).toBe(1_001_000);
+        expect(store.outcomes[0].observationLagMs).toBe(0);
+    });
+
     test('records observation lag', async () => {
         const s = source(); s.setDepthAge(0); const store = new MemoryStore();
         const recorder = new SpotMicrostructureDatasetRecorder(s, store, { symbol: 'BTCUSDT', horizonsMs: [1000], maxObservationLagMs: 500 });
@@ -134,23 +206,25 @@ describe('MD4 SpotMicrostructureDatasetRecorder', () => {
         expect(store.features[0].quality.healthy).toBe(false);
     });
 
-    test('does not duplicate same depth observation', async () => {
+    test('keeps distinct fixed-grid rows even when the latest depth observation is unchanged', async () => {
         const s = source(); s.setDepthAge(0); const store = new MemoryStore();
         const recorder = new SpotMicrostructureDatasetRecorder(s, store, { symbol: 'BTCUSDT', sampleIntervalMs: 1 });
         await recorder.initialize(1_000_000);
         await recorder.sample(1_000_000);
-        s.setDepthAge(1); // next wall-clock ms maps to same depth observation
+        s.setDepthAge(1); // next wall-clock ms maps to the same latest depth observation
         await recorder.sample(1_000_001);
-        expect(store.features).toHaveLength(1);
-        expect(recorder.getStats().skippedDuplicateSamples).toBe(1);
+        expect(store.features).toHaveLength(2);
+        expect(store.features.map((x) => x.sampleSlotAt)).toEqual([1_000_000, 1_000_001]);
+        expect(store.features[0].referenceObservedAt).toBe(store.features[1].referenceObservedAt);
+        expect(recorder.getStats().skippedDuplicateSamples).toBe(0);
     });
 
-    test('creates deterministic sample IDs from symbol/schema/reference time', async () => {
+    test('creates deterministic sample IDs from symbol/schema/fixed slot time', async () => {
         const s = source(); s.setDepthAge(0); const store = new MemoryStore();
         const recorder = new SpotMicrostructureDatasetRecorder(s, store, { symbol: 'btcusdt' });
         await recorder.initialize(1_000_000);
         await recorder.sample(1_000_000);
-        expect(store.features[0].sampleId).toBe('BTCUSDT:spot-microstructure-v1:1000000');
+        expect(store.features[0].sampleId).toBe('BTCUSDT:spot-microstructure-v1:slot:1000000');
     });
 
     test('creates one pending outcome per configured horizon', async () => {

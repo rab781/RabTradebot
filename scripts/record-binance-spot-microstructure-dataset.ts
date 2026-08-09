@@ -19,8 +19,12 @@ async function main(): Promise<void> {
     const interval = arg('interval', '1m');
     const minutes = Number(arg('minutes', '30'));
     const sampleMs = Number(arg('sampleMs', '1000'));
+    const settleMs = Number(arg('settleMs', '100'));
     const output = path.resolve(arg('output', `data/research/${symbol.toLowerCase()}-microstructure-v1`));
     if (!Number.isFinite(minutes) || minutes <= 0) throw new Error('--minutes must be > 0');
+    if (!Number.isFinite(sampleMs) || sampleMs <= 0) throw new Error('--sampleMs must be > 0');
+    if (!Number.isFinite(settleMs) || settleMs <= 0) throw new Error('--settleMs must be > 0');
+    if (settleMs > sampleMs) throw new Error('--settleMs should be <= --sampleMs so outcome timing is not coarser than feature sampling.');
 
     const market = new SpotMarketDataEngine(
         new BinanceSpotRestMarketDataClient(), new BinanceSpotWebSocketClient(),
@@ -34,6 +38,7 @@ async function main(): Promise<void> {
     console.log(`Recording ${symbol} Spot microstructure research dataset for ${minutes} minutes`);
     console.log(`output=${output}`);
     console.log('Features and future outcomes are stored in separate append-only JSONL files.');
+    console.log(`feature cadence=${sampleMs}ms; outcome-settlement cadence=${settleMs}ms`);
 
     await Promise.all([market.start(), depth.start()]);
     const features = new SpotMicrostructureFeatureEngine(market, depth, { symbol });
@@ -46,18 +51,37 @@ async function main(): Promise<void> {
         recordOnlyHealthy: true,
     });
     const manifest = await recorder.initialize();
+    const captureStartedAt = Date.now();
     console.log(`schema=${manifest.schemaVersion}; features=${manifest.featureNames.length}; horizons=${manifest.horizonsMs.join(',')}`);
 
     let busy = false;
+    // Intentionally tick more frequently than the feature sample interval.
+    // SpotMicrostructureDatasetRecorder settles matured outcomes before applying its
+    // sampleIntervalMs gate, so this improves target-time accuracy without increasing
+    // feature-row frequency.
     const timer = setInterval(() => {
         if (busy) return;
         busy = true;
         recorder.sample().catch((error) => console.error('sample failed:', error)).finally(() => { busy = false; });
-    }, sampleMs);
+    }, settleMs);
 
     const progress = setInterval(() => {
         const s = recorder.getStats();
-        console.log({ features: s.featureRecords, outcomes: s.outcomeRecords, pending: s.pendingOutcomes, skippedUnhealthy: s.skippedUnhealthySamples, expired: s.expiredOutcomes });
+        const elapsedMs = Date.now() - captureStartedAt;
+        const expectedSlots = Math.max(1, Math.floor(elapsedMs / sampleMs));
+        const samplingDecisions = s.featureRecords + s.skippedUnhealthySamples + s.skippedDuplicateSamples;
+        const cadenceCoveragePct = (samplingDecisions / expectedSlots) * 100;
+        console.log({
+            features: s.featureRecords,
+            outcomes: s.outcomeRecords,
+            pending: s.pendingOutcomes,
+            skippedUnhealthy: s.skippedUnhealthySamples,
+            skippedDuplicate: s.skippedDuplicateSamples,
+            expired: s.expiredOutcomes,
+            expectedSlots,
+            samplingDecisions,
+            cadenceCoveragePct: Number(cadenceCoveragePct.toFixed(2)),
+        });
     }, 60_000);
 
     await new Promise((resolve) => setTimeout(resolve, minutes * 60_000));
