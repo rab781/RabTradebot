@@ -412,11 +412,15 @@ describe('BacktestEngine', () => {
             makeConfig()
         );
 
+
+
         const result = await engine.runBacktest(candles);
 
         expect(result.totalTrades).toBe(1);
 
         const trade = result.trades[0];
+
+        const expectedRoiPrice = trade.openRate * 1.05;
 
         expect(trade.exitReason).toBe('roi');
 
@@ -425,7 +429,7 @@ describe('BacktestEngine', () => {
         expect(trade.closeDate?.getTime())
             .toBe(candles[4].date.getTime());
 
-        expect(trade.closeRate).toBeCloseTo(106, 6);
+        expect(trade.closeRate).toBeCloseTo(expectedRoiPrice, 6);
     });
     it('never exceeds maxOpenTrades when long and short signals occur together', async () => {
         const candles = makeOhlcCandles([

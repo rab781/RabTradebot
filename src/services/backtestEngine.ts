@@ -3,8 +3,9 @@ import { IStrategy, Trade, BacktestConfig, BacktestResult, StrategyMetadata } fr
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
 
-interface BacktestAccountState {
-    balance: number;
+interface EquityPoint {
+    date: Date;
+    equity: number;
 }
 
 export class BacktestEngine {
@@ -15,831 +16,206 @@ export class BacktestEngine {
     constructor(strategy: IStrategy, config: BacktestConfig) {
         this.strategy = strategy;
         this.config = config;
-
-        // Cache sorted ROI to prevent Object.entries() overhead on every candle check
         this.sortedRoi = Object.entries(this.strategy.minimalRoi || {})
             .map(([timeStr, roiTarget]) => [parseInt(timeStr), roiTarget] as [number, number])
             .sort((a, b) => a[0] - b[0]);
     }
 
     async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
-
-        logger.info(
-            `Starting backtest for strategy: ${this.strategy.name}`
-        );
-
-        logger.info(
-            `Time range: ${this.config.timerange}`
-        );
-
-        logger.info(
-            `Timeframe: ${this.config.timeframe}`
-        );
-
-        logger.info(
-            `Starting balance: ${this.config.startingBalance}`
-        );
-
-
-        /*
-         * ============================================================
-         * VALIDATE DATA
-         * ============================================================
-         */
-
-        if (!data || data.length === 0) {
-            throw new Error(
-                'Backtest data cannot be empty'
-            );
+        if (data.length === 0) {
+            throw new Error('Backtest requires at least one candle');
         }
 
+        logger.info(`Starting backtest for strategy: ${this.strategy.name}`);
+        logger.info(`Time range: ${this.config.timerange}`);
+        logger.info(`Timeframe: ${this.config.timeframe}`);
+        logger.info(`Starting balance: ${this.config.startingBalance}`);
 
-        if (
-            data.length <=
-            this.strategy.startupCandleCount
-        ) {
-            throw new Error(
-                `Not enough candles for backtest. ` +
-                `Received ${data.length}, ` +
-                `startupCandleCount=${this.strategy.startupCandleCount}`
-            );
-        }
-
-
-        /*
-         * ============================================================
-         * BUILD DATAFRAME
-         * ============================================================
-         */
-
-        const dataframe =
-            DataFrameBuilder.fromCandles(data);
-
-
-        /*
-         * ============================================================
-         * STRATEGY METADATA
-         * ============================================================
-         *
-         * NOTE:
-         * BTCUSDT is still hardcoded for now.
-         *
-         * We will fix this later by adding symbol
-         * into BacktestConfig.
-         * ============================================================
-         */
-
+        const dataframe = DataFrameBuilder.fromCandles(data);
         const metadata: StrategyMetadata = {
-
             pair: 'BTCUSDT',
-
-            timeframe:
-                this.config.timeframe,
-
-            stake_currency:
-                'USDT'
+            timeframe: this.config.timeframe,
+            stake_currency: 'USDT'
         };
 
+        const indicatorData = this.strategy.populateIndicators(dataframe, metadata);
+        const entryData = this.strategy.populateEntryTrend(indicatorData, metadata);
+        const exitData = this.strategy.populateExitTrend(entryData, metadata);
 
-        /*
-         * ============================================================
-         * PRE-CALCULATE STRATEGY DATA
-         * ============================================================
-         */
-
-        const indicatorData =
-            this.strategy.populateIndicators(
-                dataframe,
-                metadata
-            );
-
-
-        const entryData =
-            this.strategy.populateEntryTrend(
-                indicatorData,
-                metadata
-            );
-
-
-        const exitData =
-            this.strategy.populateExitTrend(
-                entryData,
-                metadata
-            );
-
-
-        /*
-         * ============================================================
-         * ACCOUNT STATE
-         * ============================================================
-         *
-         * IMPORTANT:
-         *
-         * Previously:
-         *
-         * const balance = startingBalance
-         *
-         * which never changed.
-         *
-         * Now account.balance will be updated
-         * every time a trade is realized.
-         * ============================================================
-         */
-
-        const account: BacktestAccountState = {
-
-            balance:
-                this.config.startingBalance
-        };
-
-
-        /*
-         * ============================================================
-         * TRADE STATE
-         * ============================================================
-         */
-
+        // P0: this is realized account equity, not a constant starting balance.
+        let balance = this.config.startingBalance;
         const trades: Trade[] = [];
-
         const openTrades: Trade[] = [];
+        const equityCurve: EquityPoint[] = [];
 
-
-        /*
-         * ============================================================
-         * PERFORMANCE STATE
-         * ============================================================
-         */
-
-        let maxEquity =
-            account.balance;
-
+        let maxBalance = balance;
         let maxDrawdown = 0;
-
         let maxDrawdownPct = 0;
 
+        const recordEquity = (date: Date, equity: number): void => {
+            equityCurve.push({ date, equity });
+            if (equity > maxBalance) {
+                maxBalance = equity;
+                return;
+            }
 
-        /*
-         * ============================================================
-         * STRATEGY START CALLBACK
-         * ============================================================
-         */
+            const drawdown = maxBalance - equity;
+            const drawdownPct = maxBalance > 0 ? (drawdown / maxBalance) * 100 : 0;
+            if (drawdown > maxDrawdown) {
+                maxDrawdown = drawdown;
+                maxDrawdownPct = drawdownPct;
+            }
+        };
 
         if (this.strategy.botStart) {
-
             this.strategy.botStart();
         }
 
+        // Signals are computed from a completed candle and may only execute on
+        // the next candle. Record pre-execution candles at flat equity so daily
+        // return sampling also contains the warm-up period.
+        const firstExecutionIndex = Math.min(data.length, this.strategy.startupCandleCount + 1);
+        for (let i = 0; i < firstExecutionIndex; i++) {
+            recordEquity(data[i].date, balance);
+        }
 
-        /*
-         * ============================================================
-         * MAIN BACKTEST LOOP
-         * ============================================================
-         *
-         * IMPORTANT EXECUTION MODEL:
-         *
-         * Candle N closes
-         *      ↓
-         * indicators available
-         *      ↓
-         * signal generated
-         *      ↓
-         * Candle N+1 opens
-         *      ↓
-         * order executes
-         *
-         *
-         * Therefore:
-         *
-         * current candle     = execution candle
-         * signalIndex        = previous candle
-         *
-         * ============================================================
-         */
-
-        for (
-            let i = this.strategy.startupCandleCount;
-            i < data.length;
-            i++
-        ) {
-
-            /*
-             * Current candle represents
-             * the candle we can execute against.
-             */
-            const currentCandle =
-                data[i];
-
-
-            const currentTime =
-                currentCandle.date;
-
-
-            const currentPrice =
-                currentCandle.close;
-
-
-            /*
-             * Strategy signals must come from
-             * the previous CLOSED candle.
-             */
-            const signalIndex =
-                i - 1;
-
-
-            /*
-             * ========================================================
-             * BOT LOOP CALLBACK
-             * ========================================================
-             */
+        for (let i = this.strategy.startupCandleCount + 1; i < data.length; i++) {
+            const currentCandle = data[i];
+            const currentTime = currentCandle.date;
+            const signalIndex = i - 1;
 
             if (this.strategy.botLoopStart) {
-
-                this.strategy.botLoopStart(
-                    currentTime
-                );
+                this.strategy.botLoopStart(currentTime);
             }
 
-
-            /*
-             * ========================================================
-             * PROCESS EXISTING POSITIONS FIRST
-             * ========================================================
-             *
-             * Why exits first?
-             *
-             * If an existing trade exits on this candle,
-             * capital becomes available before evaluating
-             * new entries.
-             *
-             * processExits will:
-             *
-             * - evaluate previous candle exit signal
-             * - evaluate current candle ROI
-             * - evaluate intrabar stoploss
-             * - close trade
-             * - update account.balance
-             *
-             * ========================================================
-             */
-
-            await this.processExits(
+            // A signal generated at close(t) executes no earlier than open(t+1).
+            balance += await this.processSignalExits(
                 openTrades,
                 trades,
                 exitData,
                 signalIndex,
-                currentCandle,
-                account
+                currentCandle
             );
 
-
-            /*
-             * ========================================================
-             * PROCESS NEW ENTRIES
-             * ========================================================
-             *
-             * Only signals from a VALID closed candle
-             * are eligible.
-             *
-             * Example:
-             *
-             * startupCandleCount = 2
-             *
-             * i = 2
-             * signalIndex = 1
-             *
-             * No trade yet.
-             *
-             * i = 3
-             * signalIndex = 2
-             *
-             * Signal candle #2 can now execute
-             * at candle #3 open.
-             *
-             * ========================================================
-             */
-
-            if (
-                signalIndex >=
-                this.strategy.startupCandleCount
-            ) {
-
-                await this.processEntries(
-                    openTrades,
-                    entryData,
-                    signalIndex,
-                    currentCandle,
-                    account,
-                    metadata
-                );
-            }
-
-
-            /*
-             * ========================================================
-             * UPDATE UNREALIZED PNL
-             * ========================================================
-             */
-
-            this.updateTradesProfits(
+            balance -= await this.processEntries(
                 openTrades,
-                currentPrice
+                entryData,
+                signalIndex,
+                currentCandle,
+                balance,
+                metadata
             );
 
+            // Stops / ROI are evaluated against the full OHLC range after the
+            // opening-auction executions above. If both are hit inside the same
+            // candle and path ordering is unknown, stop-loss wins conservatively.
+            balance += await this.processIntrabarExits(openTrades, trades, currentCandle);
 
-            /*
-             * ========================================================
-             * CALCULATE CURRENT EQUITY
-             * ========================================================
-             *
-             * Account balance:
-             *
-             * realized money
-             *
-             * +
-             *
-             * unrealized PnL
-             *
-             * =
-             *
-             * current equity
-             *
-             * ========================================================
-             */
-
-            const totalUnrealizedPnl =
-                openTrades.reduce(
-                    (
-                        total,
-                        trade
-                    ) => {
-
-                        return (
-                            total +
-                            (trade.profit ?? 0)
-                        );
-
-                    },
-                    0
-                );
-
-
-            const currentEquity =
-                account.balance +
-                totalUnrealizedPnl;
-
-
-            /*
-             * ========================================================
-             * UPDATE EQUITY PEAK
-             * ========================================================
-             */
-
-            if (
-                currentEquity >
-                maxEquity
-            ) {
-
-                maxEquity =
-                    currentEquity;
-            }
-
-
-            /*
-             * ========================================================
-             * CALCULATE DRAWDOWN
-             * ========================================================
-             *
-             * Drawdown:
-             *
-             * peak equity
-             * -
-             * current equity
-             *
-             * ========================================================
-             */
-
-            const currentDrawdown =
-                maxEquity -
-                currentEquity;
-
-
-            const currentDrawdownPct =
-                maxEquity > 0
-                    ?
-                    (
-                        currentDrawdown /
-                        maxEquity
-                    ) * 100
-                    :
-                    0;
-
-
-            /*
-             * Save worst drawdown
-             */
-            if (
-                currentDrawdown >
-                maxDrawdown
-            ) {
-
-                maxDrawdown =
-                    currentDrawdown;
-
-                maxDrawdownPct =
-                    currentDrawdownPct;
-            }
+            this.updateTradesProfits(openTrades, currentCandle.close);
+            const totalUnrealizedPnl = openTrades.reduce(
+                (sum, trade) => sum + this.calculateTradeProfit(trade, currentCandle.close),
+                0
+            );
+            recordEquity(currentTime, balance + totalUnrealizedPnl);
         }
 
-
-        /*
-         * ============================================================
-         * CLOSE REMAINING OPEN TRADES
-         * ============================================================
-         *
-         * Any position still open when historical
-         * data ends must be closed.
-         * ============================================================
-         */
-
-        if (openTrades.length > 0) {
-
-            const finalCandle =
-                data[data.length - 1];
-
-
-            /*
-             * Iterate backwards because we remove
-             * items from openTrades.
-             */
-            for (
-                let i =
-                    openTrades.length - 1;
-
-                i >= 0;
-
-                i--
-            ) {
-
-                const trade =
-                    openTrades[i];
-
-
-                /*
-                 * closeTrade now returns
-                 * REALIZED NET PNL.
-                 */
-                const realizedPnl =
-                    this.closeTrade(
-                        trade,
-                        finalCandle,
-                        'backtest_end'
-                    );
-
-
-                /*
-                 * Update actual account balance.
-                 */
-                account.balance +=
-                    realizedPnl;
-
-
-                /*
-                 * Save completed trade.
-                 */
-                trades.push(
-                    trade
-                );
-
-
-                /*
-                 * Remove from open positions.
-                 */
-                openTrades.splice(
-                    i,
-                    1
-                );
-            }
+        // Close remaining positions and realize their PnL, including both sides' fees.
+        for (const trade of openTrades) {
+            balance += this.closeTrade(trade, data[data.length - 1].close, data[data.length - 1].date, 'backtest_end');
+            trades.push(trade);
         }
 
-
-        /*
-         * ============================================================
-         * FINAL RESULT
-         * ============================================================
-         */
-
-        logger.info(
-            `Backtest completed. ` +
-            `Trades: ${trades.length}, ` +
-            `Final balance: ${account.balance.toFixed(2)}`
-        );
-
+        // The exit fee on a forced final close can make final equity lower than the
+        // last mark-to-market point, so record it explicitly for drawdown/returns.
+        recordEquity(data[data.length - 1].date, balance);
 
         return this.calculateResults(
             trades,
-
-            /*
-             * REAL actual final account balance.
-             */
-            account.balance,
-
+            balance,
             this.config.startingBalance,
-
             maxDrawdown,
-
             maxDrawdownPct,
-
-            data
+            data,
+            equityCurve
         );
     }
-    private async processExits(
+
+    private async processSignalExits(
         openTrades: Trade[],
         allTrades: Trade[],
         exitData: DataFrame,
         signalIndex: number,
-        candle: OHLCVCandle,
-        account: BacktestAccountState
-    ): Promise<void> {
+        executionCandle: OHLCVCandle
+    ): Promise<number> {
+        const exitLong = ((exitData.exit_long as number[]) || [])[signalIndex];
+        const exitShort = ((exitData.exit_short as number[]) || [])[signalIndex];
+        const exitTag = ((exitData.exit_tag as string[]) || [])[signalIndex];
+        const executionPrice = executionCandle.open;
+        let realizedPnl = 0;
 
-        const currentPrice = candle.close;
-
-        const exitLong =
-            ((exitData.exit_long as number[]) ?? [])[signalIndex] ?? 0;
-
-        const exitShort =
-            ((exitData.exit_short as number[]) ?? [])[signalIndex] ?? 0;
-
-        const exitTag =
-            ((exitData.exit_tag as string[]) ?? [])[signalIndex];
-
-        for (
-            let j = openTrades.length - 1;
-            j >= 0;
-            j--
-        ) {
-
+        for (let j = openTrades.length - 1; j >= 0; j--) {
             const trade = openTrades[j];
+            const shouldExit =
+                (trade.side === 'long' && exitLong === 1) ||
+                (trade.side === 'short' && exitShort === 1);
 
-            const currentProfit =
-                this.calculateTradeProfit(
-                    trade,
-                    currentPrice
-                );
-
-            const entryNotional =
-                trade.amount * trade.openRate;
-
-            const currentProfitPct =
-                entryNotional > 0
-                    ? (
-                        currentProfit /
-                        entryNotional
-                    ) * 100
-                    : 0;
-
-            let shouldExit = false;
-            let exitReason = '';
-
-            /*
-             * Default exit price is current close.
-             */
-            let exitPrice = currentPrice;
-
-
-            /*
-             * =====================================================
-             * EXIT SIGNAL
-             * =====================================================
-             *
-             * Signal comes from previous candle,
-             * therefore we can execute at current candle OPEN.
-             */
-
-            const hasExitSignal =
-                (
-                    trade.side === 'long' &&
-                    exitLong === 1
-                ) ||
-                (
-                    trade.side === 'short' &&
-                    exitShort === 1
-                );
-
-            if (
-                this.strategy.useExitSignal &&
-                hasExitSignal
-            ) {
-
-                shouldExit = true;
-
-                exitReason = 'exit_signal';
-
-                exitPrice = candle.open;
-
-                trade.exitTag = exitTag;
-            }
-
-
-            /*
-             * =====================================================
-             * STOP LOSS
-             * =====================================================
-             */
-
-            if (!shouldExit) {
-
-                const stopExitPrice =
-                    this.resolveStoplossExitPrice(
-                        trade,
-                        candle,
-                        currentProfitPct
-                    );
-
-                if (stopExitPrice !== null) {
-
-                    shouldExit = true;
-
-                    exitReason = 'stoploss';
-
-                    exitPrice = stopExitPrice;
-                }
-            }
-
-
-            /*
-             * =====================================================
-             * ROI
-             * =====================================================
-             */
-
-            if (
-                !shouldExit &&
-                this.checkRoi(
-                    trade,
-                    candle.date,
-                    currentPrice
-                )
-            ) {
-
-                shouldExit = true;
-
-                exitReason = 'roi';
-
-                exitPrice = currentPrice;
-            }
-
-
-            /*
-             * =====================================================
-             * NOTHING TO DO
-             * =====================================================
-             */
-
-            if (!shouldExit) {
-                continue;
-            }
-
-
-            /*
-             * =====================================================
-             * CONFIRM EXIT
-             * =====================================================
-             */
+            if (!shouldExit) continue;
 
             let confirmExit = true;
-
             if (this.strategy.confirmTradeExit) {
-
-                confirmExit =
-                    this.strategy.confirmTradeExit(
-                        trade.pair,
-                        trade,
-                        'market',
-                        trade.amount,
-                        exitPrice,
-                        candle.date
-                    );
-            }
-
-
-            if (!confirmExit) {
-                continue;
-            }
-
-
-            /*
-             * =====================================================
-             * CLOSE POSITION
-             * =====================================================
-             */
-
-            const realizedPnl =
-                this.closeTrade(
+                confirmExit = this.strategy.confirmTradeExit(
+                    trade.pair,
                     trade,
-                    candle,
-                    exitReason,
-                    exitPrice
+                    'market',
+                    trade.amount,
+                    executionPrice,
+                    executionCandle.date
                 );
+            }
 
+            if (!confirmExit) continue;
 
-            /*
-             * CRITICAL:
-             * realized PnL changes actual account balance.
-             */
-            account.balance += realizedPnl;
-
-
+            trade.exitTag = exitTag;
+            realizedPnl += this.closeTrade(
+                trade,
+                executionPrice,
+                executionCandle.date,
+                'exit_signal'
+            );
             allTrades.push(trade);
-
             openTrades.splice(j, 1);
-        };
+        }
+
+        return realizedPnl;
     }
 
     private async processEntries(
         openTrades: Trade[],
         entryData: DataFrame,
         signalIndex: number,
-        candle: OHLCVCandle,
-        account: BacktestAccountState,
+        executionCandle: OHLCVCandle,
+        balance: number,
         metadata: StrategyMetadata
-    ): Promise<void> {
-
-        /*
-         * No available slot.
-         */
-        if (
-            openTrades.length >=
-            this.config.maxOpenTrades
-        ) {
-            return;
+    ): Promise<number> {
+        if (openTrades.length >= this.config.maxOpenTrades) {
+            return 0;
         }
 
+        const enterLong = (entryData.enter_long as number[])[signalIndex];
+        const enterShort = (entryData.enter_short as number[])[signalIndex];
+        const enterTag = (entryData.enter_tag as string[])[signalIndex];
 
-        const enterLong =
-            ((entryData.enter_long as number[]) ?? [])
-            [signalIndex] ?? 0;
+        let entryFees = 0;
 
-
-        const enterShort =
-            ((entryData.enter_short as number[]) ?? [])
-            [signalIndex] ?? 0;
-
-
-        const enterTag =
-            ((entryData.enter_tag as string[]) ?? [])
-            [signalIndex] ?? 'entry';
-
-
-        /*
-         * =====================================================
-         * LONG
-         * =====================================================
-         */
-
-        if (
-            enterLong === 1 &&
-            openTrades.length <
-            this.config.maxOpenTrades
-        ) {
-
-            await this.createTrade(
-                'long',
-                candle,
-                enterTag,
-                account.balance,
-                openTrades,
-                metadata
-            );
+        if (enterLong === 1 && openTrades.length < this.config.maxOpenTrades) {
+            entryFees += await this.createTrade('long', executionCandle, enterTag, balance - entryFees, openTrades, metadata);
         }
 
-
-        /*
-         * =====================================================
-         * SHORT
-         * =====================================================
-         *
-         * IMPORTANT:
-         *
-         * Check maxOpenTrades AGAIN because
-         * LONG may have just occupied the final slot.
-         */
-
-        if (
-            this.strategy.canShort &&
-            enterShort === 1 &&
-            openTrades.length <
-            this.config.maxOpenTrades
-        ) {
-
-            await this.createTrade(
-                'short',
-                candle,
-                enterTag,
-                account.balance,
-                openTrades,
-                metadata
-            );
+        if (this.strategy.canShort && enterShort === 1 && openTrades.length < this.config.maxOpenTrades) {
+            entryFees += await this.createTrade('short', executionCandle, enterTag, balance - entryFees, openTrades, metadata);
         }
+
+        return entryFees;
     }
 
     private async createTrade(
@@ -849,498 +225,214 @@ export class BacktestEngine {
         balance: number,
         openTrades: Trade[],
         metadata: StrategyMetadata
-    ): Promise<void> {
+    ): Promise<number> {
+        const stakeAmount = typeof this.strategy.stakeAmount === 'number'
+            ? this.strategy.stakeAmount
+            : balance / this.config.maxOpenTrades;
 
-        /*
-         * =====================================================
-         * POSITION SIZE
-         * =====================================================
-         */
-
-        const stakeAmount =
-            typeof this.strategy.stakeAmount === 'number'
-                ? this.strategy.stakeAmount
-                : balance /
-                this.config.maxOpenTrades;
-
-
-        /*
-         * Temporary safety check.
-         *
-         * Capital reservation will be improved
-         * in Backtest V2.1.
-         */
-        if (
-            stakeAmount >
-            balance * 0.95
-        ) {
-
-            logger.warn(
-                `Skipping entry: stake ${stakeAmount} exceeds available balance buffer`
-            );
-
-            return;
+        if (stakeAmount > balance * 0.95) {
+            return 0;
         }
 
-
-        /*
-         * =====================================================
-         * EXECUTION PRICE
-         * =====================================================
-         *
-         * Signal from candle N is executed
-         * at OPEN candle N+1.
-         */
-
-        const entryPrice =
-            candle.open;
-
-
-        const amount =
-            stakeAmount /
-            entryPrice;
-
-
-        const fee =
-            stakeAmount *
-            this.config.feeOpen;
-
-
-        /*
-         * =====================================================
-         * CONFIRM ENTRY
-         * =====================================================
-         */
+        const entryPrice = candle.open;
+        const amount = stakeAmount / entryPrice;
+        const fee = stakeAmount * this.config.feeOpen;
 
         let confirmEntry = true;
-
-
-        if (
-            this.strategy.confirmTradeEntry
-        ) {
-
-            confirmEntry =
-                this.strategy.confirmTradeEntry(
-                    metadata.pair,
-                    'market',
-                    amount,
-                    entryPrice,
-                    candle.date
-                );
+        if (this.strategy.confirmTradeEntry) {
+            confirmEntry = this.strategy.confirmTradeEntry(
+                metadata.pair,
+                'market',
+                amount,
+                entryPrice,
+                candle.date
+            );
         }
 
-
-        if (!confirmEntry) {
-            return;
-        }
-
-
-        /*
-         * =====================================================
-         * CREATE TRADE
-         * =====================================================
-         */
+        if (!confirmEntry) return 0;
 
         const trade: Trade = {
-
             id: uuidv4(),
-
             pair: metadata.pair,
-
             isOpen: true,
-
             side,
-
             amount,
-
             openRate: entryPrice,
-
             openDate: candle.date,
-
             fee,
-
             entryTag: enterTag,
-
-            stoplossRate:
-                entryPrice *
-                (
-                    1 +
-                    this.strategy.stoploss *
-                    (
-                        side === 'long'
-                            ? 1
-                            : -1
-                    )
-                )
+            stoplossRate: entryPrice * (1 + this.strategy.stoploss * (side === 'long' ? 1 : -1))
         };
 
-
         openTrades.push(trade);
-
-
-        logger.info(
-            `Opened ${side} trade ` +
-            `${metadata.pair} ` +
-            `@ ${entryPrice} ` +
-            `stake=${stakeAmount.toFixed(2)}`
-        );
+        logger.info(`Opened ${side} trade for ${metadata.pair} at ${entryPrice} with tag: ${enterTag}`);
+        return fee;
     }
 
     private closeTrade(
         trade: Trade,
-        candle: OHLCVCandle,
-        exitReason: string,
-        exitPrice: number = candle.close
+        exitPrice: number,
+        exitDate: Date,
+        exitReason: string
     ): number {
+        const exitFee = trade.amount * exitPrice * this.config.feeClose;
+        const grossPnl = this.calculateTradeProfit(trade, exitPrice);
 
-        /*
-         * =====================================================
-         * EXIT FEE
-         * =====================================================
-         */
+        trade.closeRate = exitPrice;
+        trade.closeDate = exitDate;
+        trade.isOpen = false;
+        trade.exitReason = exitReason;
 
-        const exitNotional =
-            trade.amount *
-            exitPrice;
-
-
-        const exitFee =
-            exitNotional *
-            this.config.feeClose;
-
-
-        /*
-         * Entry fee was calculated when
-         * position was created.
-         */
-        const entryFee =
-            trade.fee ?? 0;
-
-
-        /*
-         * =====================================================
-         * GROSS PNL
-         * =====================================================
-         */
-
-        const grossProfit =
-            this.calculateTradeProfit(
-                trade,
-                exitPrice
-            );
-
-
-        /*
-         * =====================================================
-         * NET PNL
-         * =====================================================
-         *
-         * net =
-         *
-         * gross PnL
-         * - entry fee
-         * - exit fee
-         */
-
-        const netProfit =
-            grossProfit -
-            entryFee -
-            exitFee;
-
-
-        /*
-         * =====================================================
-         * UPDATE TRADE
-         * =====================================================
-         */
-
-        trade.closeRate =
-            exitPrice;
-
-
-        trade.closeDate =
-            candle.date;
-
-
-        trade.isOpen =
-            false;
-
-
-        trade.exitReason =
-            exitReason;
-
-
-        trade.profit =
-            netProfit;
-
-
-        const entryNotional =
-            trade.amount *
-            trade.openRate;
-
-
-        trade.profitPct =
-            entryNotional > 0
-                ? (
-                    netProfit /
-                    entryNotional
-                ) * 100
-                : 0;
-
+        // P0 invariant: net PnL always includes entry fee AND exit fee.
+        trade.profit = grossPnl - trade.fee - exitFee;
+        trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
 
         logger.info(
-            `Closed ${trade.side} trade ` +
-            `${trade.pair} @ ${exitPrice}, ` +
-            `gross=${grossProfit.toFixed(2)}, ` +
-            `entryFee=${entryFee.toFixed(2)}, ` +
-            `exitFee=${exitFee.toFixed(2)}, ` +
-            `net=${netProfit.toFixed(2)} ` +
-            `(${trade.profitPct.toFixed(2)}%)`
+            `Closed ${trade.side} trade for ${trade.pair} at ${exitPrice}, ` +
+            `profit: ${trade.profit.toFixed(2)} (${trade.profitPct.toFixed(2)}%)`
         );
 
-
-        /*
-         * THIS fixes:
-         *
-         * account.balance += realizedPnl
-         */
-
-        return netProfit;
+        // Entry fee has already reduced realized balance. Only gross PnL minus
+        // the exit fee is newly realized at close.
+        return grossPnl - exitFee;
     }
 
     private calculateTradeProfit(trade: Trade, currentPrice: number): number {
         if (trade.side === 'long') {
             return trade.amount * (currentPrice - trade.openRate);
-        } else {
-            return trade.amount * (trade.openRate - currentPrice);
+        }
+        return trade.amount * (trade.openRate - currentPrice);
+    }
+
+    private updateTradesProfits(openTrades: Trade[], currentPrice: number): void {
+        for (const trade of openTrades) {
+            // Entry fee is already paid and must be visible in mark-to-market equity.
+            trade.profit = this.calculateTradeProfit(trade, currentPrice) - trade.fee;
+            trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
         }
     }
 
-    private updateTradesProfits(
+    private async processIntrabarExits(
         openTrades: Trade[],
-        currentPrice: number
-    ): void {
+        allTrades: Trade[],
+        candle: OHLCVCandle
+    ): Promise<number> {
+        let realizedPnl = 0;
 
-        for (
-            const trade of openTrades
-        ) {
+        for (let j = openTrades.length - 1; j >= 0; j--) {
+            const trade = openTrades[j];
+            const openNetPnl = this.calculateTradeProfit(trade, candle.open) - trade.fee;
+            const openProfitPct = (openNetPnl / (trade.amount * trade.openRate)) * 100;
 
-            const grossProfit =
-                this.calculateTradeProfit(
+            const stopPrice = this.resolveStoplossPrice(
+                trade,
+                candle.date,
+                candle.open,
+                openProfitPct
+            );
+            const roiTarget = this.getActiveRoiTarget(trade, candle.date);
+            const roiPrice = roiTarget === null
+                ? null
+                : this.calculateRoiExitPrice(trade, roiTarget);
+
+            const stopHit = stopPrice !== null && (
+                trade.side === 'long'
+                    ? candle.low <= stopPrice
+                    : candle.high >= stopPrice
+            );
+            const roiHit = roiPrice !== null && (
+                trade.side === 'long'
+                    ? candle.high >= roiPrice
+                    : candle.low <= roiPrice
+            );
+
+            let exitReason: 'stoploss' | 'roi' | null = null;
+            let exitPrice = 0;
+
+            // Conservative bar-path rule: when OHLC cannot tell us whether TP or
+            // SL occurred first, assume the adverse stop occurred first.
+            if (stopHit && stopPrice !== null) {
+                exitReason = 'stoploss';
+                exitPrice = trade.side === 'long'
+                    ? (candle.open <= stopPrice ? candle.open : stopPrice)
+                    : (candle.open >= stopPrice ? candle.open : stopPrice);
+            } else if (roiHit && roiPrice !== null) {
+                exitReason = 'roi';
+                exitPrice = trade.side === 'long'
+                    ? (candle.open >= roiPrice ? candle.open : roiPrice)
+                    : (candle.open <= roiPrice ? candle.open : roiPrice);
+            }
+
+            if (!exitReason) continue;
+
+            let confirmExit = true;
+            if (this.strategy.confirmTradeExit) {
+                confirmExit = this.strategy.confirmTradeExit(
+                    trade.pair,
                     trade,
-                    currentPrice
+                    'market',
+                    trade.amount,
+                    exitPrice,
+                    candle.date
                 );
+            }
+            if (!confirmExit) continue;
 
-
-            /*
-             * Entry fee has already been paid.
-             *
-             * We do not estimate exit fee
-             * until trade is actually closed.
-             */
-            const unrealizedProfit =
-                grossProfit -
-                (trade.fee ?? 0);
-
-
-            trade.profit =
-                unrealizedProfit;
-
-
-            const entryNotional =
-                trade.amount *
-                trade.openRate;
-
-
-            trade.profitPct =
-                entryNotional > 0
-                    ? (
-                        unrealizedProfit /
-                        entryNotional
-                    ) * 100
-                    : 0;
+            realizedPnl += this.closeTrade(trade, exitPrice, candle.date, exitReason);
+            allTrades.push(trade);
+            openTrades.splice(j, 1);
         }
+
+        return realizedPnl;
     }
 
-    private checkRoi(
+    private resolveStoplossPrice(
         trade: Trade,
         currentTime: Date,
-        currentPrice: number
-    ): boolean {
-
-        const tradeDuration =
-            (
-                currentTime.getTime() -
-                trade.openDate.getTime()
-            ) /
-            (1000 * 60);
-
-
-        /*
-         * Calculate CURRENT PnL directly.
-         *
-         * Do not use cached trade.profitPct.
-         */
-        const currentProfit =
-            this.calculateTradeProfit(
-                trade,
-                currentPrice
-            );
-
-
-        const entryNotional =
-            trade.amount *
-            trade.openRate;
-
-
-        const currentProfitPct =
-            entryNotional > 0
-                ? (
-                    currentProfit /
-                    entryNotional
-                ) * 100
-                : 0;
-
-
-        for (
-            let i = 0;
-            i < this.sortedRoi.length;
-            i++
-        ) {
-
-            const [
-                timeThreshold,
-                roiTarget
-            ] = this.sortedRoi[i];
-
-
-            if (
-                tradeDuration >= timeThreshold &&
-                currentProfitPct >=
-                roiTarget * 100
-            ) {
-
-                return true;
-            }
-        }
-
-
-        return false;
-    }
-    private resolveStoplossExitPrice(
-        trade: Trade,
-        candle: OHLCVCandle,
+        currentRate: number,
         currentProfitPct: number
     ): number | null {
-
-        /*
-         * Start with default stoploss.
-         */
-        let stopPrice =
-            trade.stoplossRate;
-
-
-        /*
-         * =====================================================
-         * CUSTOM STOPLOSS
-         * =====================================================
-         */
-
-        if (
-            this.strategy.customStoploss
-        ) {
-
-            const customStop =
-                this.strategy.customStoploss(
-                    trade,
-                    candle.date,
-                    candle.close,
-                    currentProfitPct
-                );
-
-
-            if (customStop !== null) {
-
-                stopPrice =
-                    trade.openRate *
-                    (
-                        1 + customStop *
-                        (
-                            trade.side === 'long'
-                                ? 1
-                                : -1
-                        )
-                    );
-            }
-        }
-        if (
-            stopPrice === undefined
-        ) {
-
-            return null;
-        }
-
-
-        /*
-         * =====================================================
-         * LONG STOP
-         * =====================================================
-         */
-
-        if (
-            trade.side === 'long'
-        ) {
-
-            /*
-             * Stop not touched.
-             */
-            if (
-                candle.low >
-                stopPrice
-            ) {
-
-                return null;
-            }
-
-
-            /*
-             * Gap down handling.
-             *
-             * Example:
-             *
-             * stop = 95
-             * open = 92
-             *
-             * Cannot pretend fill = 95.
-             */
-            return Math.min(
-                candle.open,
-                stopPrice
+        if (this.strategy.customStoploss) {
+            const customStoploss = this.strategy.customStoploss(
+                trade,
+                currentTime,
+                currentRate,
+                currentProfitPct
             );
+            if (customStoploss !== null) {
+                return trade.openRate * (
+                    1 + customStoploss * (trade.side === 'long' ? 1 : -1)
+                );
+            }
         }
 
+        return trade.stoplossRate ?? null;
+    }
 
-        /*
-         * =====================================================
-         * SHORT STOP
-         * =====================================================
-         */
+    private getActiveRoiTarget(trade: Trade, currentTime: Date): number | null {
+        const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / 60_000;
+        let activeTarget: number | null = null;
 
-        if (
-            candle.high <
-            stopPrice
-        ) {
-
-            return null;
+        for (const [timeThreshold, roiTarget] of this.sortedRoi) {
+            if (tradeDuration < timeThreshold) break;
+            activeTarget = roiTarget;
         }
 
-        /*
-         * Gap up handling for short.
-         */
-        return Math.max(
-            candle.open,
-            stopPrice
-        );
+        return activeTarget;
+    }
+
+    private calculateRoiExitPrice(trade: Trade, roiTarget: number): number {
+        const stake = trade.amount * trade.openRate;
+        const closeFee = this.config.feeClose;
+
+        if (trade.side === 'long') {
+            // Solve netPnL = stake * roiTarget, including entry and exit fees.
+            return (stake * (1 + roiTarget) + trade.fee) /
+                (trade.amount * (1 - closeFee));
+        }
+
+        const numerator = stake * (1 - roiTarget) - trade.fee;
+        return Math.max(0, numerator / (trade.amount * (1 + closeFee)));
     }
 
     private calculateResults(
@@ -1349,38 +441,33 @@ export class BacktestEngine {
         startingBalance: number,
         maxDrawdown: number,
         maxDrawdownPct: number,
-        data: OHLCVCandle[]
+        data: OHLCVCandle[],
+        equityCurve: EquityPoint[]
     ): BacktestResult {
         const totalTrades = trades.length;
-
         let profitableTrades = 0;
+        let losingTrades = 0;
         let totalProfit = 0;
+        let totalProfitPctAcrossTrades = 0;
         let totalDuration = 0;
         let durationCount = 0;
-
         let bestTrade: Trade | null = null;
         let worstTrade: Trade | null = null;
+        let grossProfit = 0;
+        let grossLoss = 0;
 
-        let sumPositiveReturns = 0;
-        let countPositiveReturns = 0;
-        let sumNegativeReturns = 0;
-        let countNegativeReturns = 0;
-
-        // ⚡ Bolt Optimization: Replace multiple array traversals (.reduce, .filter, .map)
-        // with a single O(N) pass for calculating core aggregate metrics.
         for (let i = 0; i < totalTrades; i++) {
             const current = trades[i];
             const pnl = current.profit || 0;
-
             totalProfit += pnl;
+            totalProfitPctAcrossTrades += current.profitPct || 0;
 
             if (pnl > 0) {
                 profitableTrades++;
-                sumPositiveReturns += pnl;
-                countPositiveReturns++;
+                grossProfit += pnl;
             } else if (pnl < 0) {
-                sumNegativeReturns += pnl;
-                countNegativeReturns++;
+                losingTrades++;
+                grossLoss += Math.abs(pnl);
             }
 
             if (current.closeDate) {
@@ -1388,68 +475,82 @@ export class BacktestEngine {
                 durationCount++;
             }
 
-            if (!bestTrade || pnl > (bestTrade.profit || -Infinity)) bestTrade = current;
-            if (!worstTrade || pnl < (worstTrade.profit || Infinity)) worstTrade = current;
+            if (!bestTrade || pnl > (bestTrade.profit ?? -Infinity)) bestTrade = current;
+            if (!worstTrade || pnl < (worstTrade.profit ?? Infinity)) worstTrade = current;
         }
 
-        const lossTrades = totalTrades - profitableTrades;
-        const totalProfitPct = (totalProfit / startingBalance) * 100;
+        // Economic invariant: the ledger and the trade book must reconcile.
+        const expectedFinalBalance = startingBalance + totalProfit;
+        const reconciliationTolerance = Math.max(1e-8, Math.abs(expectedFinalBalance) * 1e-10);
+        if (Math.abs(finalBalance - expectedFinalBalance) > reconciliationTolerance) {
+            throw new Error(
+                `Backtest ledger invariant violated: finalBalance=${finalBalance}, ` +
+                `startingBalance+tradePnL=${expectedFinalBalance}`
+            );
+        }
+
+        const lossTrades = losingTrades;
+        const totalProfitPct = startingBalance !== 0 ? (totalProfit / startingBalance) * 100 : 0;
         const avgProfit = totalTrades > 0 ? totalProfit / totalTrades : 0;
-        const avgProfitPct = totalTrades > 0 ? totalProfitPct / totalTrades : 0;
+        const avgProfitPct = totalTrades > 0 ? totalProfitPctAcrossTrades / totalTrades : 0;
         const winRate = totalTrades > 0 ? (profitableTrades / totalTrades) * 100 : 0;
+        const avgTradeDuration = durationCount > 0
+            ? (totalDuration / durationCount) / (1000 * 60)
+            : 0;
 
-        const avgTradeDuration = durationCount > 0 ? (totalDuration / durationCount) / (1000 * 60) : 0;
-        const avgPositiveReturn = countPositiveReturns > 0 ? sumPositiveReturns / countPositiveReturns : 0;
-        const avgNegativeReturn = countNegativeReturns > 0 ? sumNegativeReturns / countNegativeReturns : 0;
-        const profitFactor = avgNegativeReturn !== 0 ? Math.abs(avgPositiveReturn / avgNegativeReturn) : 0;
+        // Profit Factor = gross winning PnL / absolute gross losing PnL.
+        const profitFactor = grossLoss > 0
+            ? grossProfit / grossLoss
+            : (grossProfit > 0 ? Number.POSITIVE_INFINITY : 0);
 
-        // Simple Sharpe ratio calculation (using daily returns)
-        const dailyReturns = this.calculateDailyReturns(trades, data);
+        const dailyReturns = this.calculateDailyReturns(equityCurve, startingBalance);
         const dailyReturnsLen = dailyReturns.length;
-
-        let avgDailyReturn = 0;
-        let stdDailyReturn = 0;
-        let downsideStd = 0;
         let sharpeRatio = 0;
         let sortinoRatio = 0;
 
         if (dailyReturnsLen > 0) {
-            // Calculate sum for average
-            let sumDailyReturns = 0;
-            let downsideSumSq = 0;
-            let downsideCount = 0;
+            const avgDailyReturn = dailyReturns.reduce((sum, r) => sum + r, 0) / dailyReturnsLen;
 
-            for (let i = 0; i < dailyReturnsLen; i++) {
-                const r = dailyReturns[i];
-                sumDailyReturns += r;
-                if (r < 0) {
-                    downsideSumSq += r * r;
-                    downsideCount++;
+            if (dailyReturnsLen > 1) {
+                const sumSqDiff = dailyReturns.reduce((sum, r) => {
+                    const diff = r - avgDailyReturn;
+                    return sum + diff * diff;
+                }, 0);
+                const sampleStd = Math.sqrt(sumSqDiff / (dailyReturnsLen - 1));
+                if (sampleStd > 0) {
+                    sharpeRatio = (avgDailyReturn / sampleStd) * Math.sqrt(365);
                 }
             }
 
-            avgDailyReturn = sumDailyReturns / dailyReturnsLen;
-
-            // Calculate standard deviation and sortino
-            let sumSqDiff = 0;
-            for (let i = 0; i < dailyReturnsLen; i++) {
-                const diff = dailyReturns[i] - avgDailyReturn;
-                sumSqDiff += diff * diff;
+            // Downside deviation uses all periods, with positive returns contributing 0.
+            const downsideVariance = dailyReturns.reduce((sum, r) => {
+                const downside = Math.min(r, 0);
+                return sum + downside * downside;
+            }, 0) / dailyReturnsLen;
+            const downsideDeviation = Math.sqrt(downsideVariance);
+            if (downsideDeviation > 0) {
+                sortinoRatio = (avgDailyReturn / downsideDeviation) * Math.sqrt(365);
             }
-
-            stdDailyReturn = Math.sqrt(sumSqDiff / dailyReturnsLen);
-            sharpeRatio = stdDailyReturn !== 0 ? avgDailyReturn / stdDailyReturn : 0;
-
-            downsideStd = downsideCount > 0 ? Math.sqrt(downsideSumSq / downsideCount) : 0;
-            sortinoRatio = downsideStd !== 0 ? avgDailyReturn / downsideStd : 0;
         }
 
-        // Calmar ratio (return / max drawdown)
-        const calmarRatio = maxDrawdownPct !== 0 ? totalProfitPct / maxDrawdownPct : 0;
+        const elapsedDays = Math.max(
+            (data[data.length - 1].date.getTime() - data[0].date.getTime()) / 86_400_000,
+            0
+        );
+        let annualizedReturn = 0;
+        if (startingBalance > 0 && finalBalance > 0) {
+            const totalReturn = finalBalance / startingBalance;
+            annualizedReturn = elapsedDays > 0
+                ? Math.pow(totalReturn, 365 / elapsedDays) - 1
+                : totalReturn - 1;
+        }
+        const calmarRatio = maxDrawdownPct > 0
+            ? annualizedReturn / (maxDrawdownPct / 100)
+            : 0;
 
         return {
             trades,
-            finalBalance: startingBalance + totalProfit,
+            finalBalance,
             totalTrades,
             profitableTrades,
             lossTrades,
@@ -1472,34 +573,27 @@ export class BacktestEngine {
         };
     }
 
-    private calculateDailyReturns(trades: Trade[], data: OHLCVCandle[]): number[] {
-        // Simple daily returns calculation based on cumulative profits
-        const dailyReturns: number[] = [];
-        let cumulativeProfit = 0;
-        let previousCumulativeProfit = 0;
+    private calculateDailyReturns(equityCurve: EquityPoint[], startingBalance: number): number[] {
+        if (equityCurve.length === 0 || startingBalance === 0) return [];
 
-        // ⚡ Bolt Optimization: Group profits per day directly to avoid creating
-        // intermediate arrays, array.reduce, and expensive string parsing.
-        // Math.floor(timestamp / 86400000) is a fast way to get a unique integer for UTC day.
-        const dayProfits = new Map<number, number>();
-
-        for (let i = 0; i < trades.length; i++) {
-            const trade = trades[i];
-            if (!trade.closeDate) continue;
-
-            // Unique integer per UTC day (86400000 ms = 1 day)
-            const dayKey = Math.floor(trade.closeDate.getTime() / 86400000);
-
-            const currentProfit = dayProfits.get(dayKey) || 0;
-            dayProfits.set(dayKey, currentProfit + (trade.profit || 0));
+        // Keep the last mark-to-market equity point for each UTC day.
+        const endOfDayEquity = new Map<number, number>();
+        for (const point of equityCurve) {
+            const dayKey = Math.floor(point.date.getTime() / 86_400_000);
+            endOfDayEquity.set(dayKey, point.equity);
         }
 
-        // The Map preserves insertion order, so we can iterate its values
-        for (const dayProfit of dayProfits.values()) {
-            cumulativeProfit += dayProfit;
-            const dailyReturn = cumulativeProfit - previousCumulativeProfit;
+        const sortedDays = Array.from(endOfDayEquity.keys()).sort((a, b) => a - b);
+        const dailyReturns: number[] = [];
+        let previousEquity = startingBalance;
+
+        for (const dayKey of sortedDays) {
+            const equity = endOfDayEquity.get(dayKey)!;
+            const dailyReturn = previousEquity !== 0
+                ? (equity - previousEquity) / previousEquity
+                : 0;
             dailyReturns.push(dailyReturn);
-            previousCumulativeProfit = cumulativeProfit;
+            previousEquity = equity;
         }
 
         return dailyReturns;
