@@ -1,7 +1,12 @@
 import axios, { AxiosError, AxiosProxyConfig, AxiosRequestConfig, AxiosResponse } from 'axios';
 import crypto from 'crypto';
 import { rateLimiter, RateLimiterSnapshot } from './rateLimiter';
-
+import {
+    LegacySpotMarketTradeRules,
+    floorToStepSize,
+    parseBinanceSpotSymbolRules,
+    toLegacySpotMarketTradeRules,
+} from './exchangeRules/binanceSpotRules';
 export type BinanceOrderSide = 'BUY' | 'SELL';
 
 export interface BinanceOrderResponse {
@@ -36,13 +41,7 @@ export interface BinanceBalance {
     locked: string;
 }
 
-export interface SymbolTradeRules {
-    minQty: number;
-    maxQty: number;
-    stepSize: number;
-    minNotional: number;
-    tickSize: number;
-}
+export type SymbolTradeRules = LegacySpotMarketTradeRules;
 
 type RateLimitBucket = 'rest' | 'order';
 
@@ -84,14 +83,7 @@ export class BinanceOrderService {
     }
 
     roundToStepSize(quantity: number, stepSize: number): number {
-        if (stepSize <= 0) {
-            throw new Error('stepSize must be greater than 0');
-        }
-
-        const factor = Math.floor(quantity / stepSize);
-        const rounded = factor * stepSize;
-        const precision = this.decimalPlaces(stepSize);
-        return Number(rounded.toFixed(precision));
+        return floorToStepSize(quantity, stepSize);
     }
 
     async placeMarketOrder(symbol: string, side: BinanceOrderSide, quantity: number): Promise<BinanceOrderResponse> {
@@ -232,32 +224,30 @@ export class BinanceOrderService {
     }
 
     async getSymbolInfo(symbol: string): Promise<SymbolTradeRules> {
-        const res = await this.publicRequest<{ symbols: Array<{ symbol: string; filters: Array<Record<string, string>> }> }>(
+        const upperSymbol = symbol.toUpperCase();
+        const res = await this.publicRequest<{
+            symbols: Array<{
+                symbol: string;
+                status: string;
+                baseAsset: string;
+                quoteAsset: string;
+                filters: Array<Record<string, unknown>>;
+                orderTypes?: string[];
+                isSpotTradingAllowed?: boolean;
+            }>;
+        }>(
             '/api/v3/exchangeInfo',
-            { symbol: symbol.toUpperCase() },
-            10,
+            { symbol: upperSymbol },
+            20,
         );
 
-        const info = res.symbols?.find((s) => s.symbol === symbol.toUpperCase());
+        const info = res.symbols?.find((item) => item.symbol === upperSymbol);
         if (!info) {
-            throw new Error(`Symbol not found in exchangeInfo: ${symbol.toUpperCase()}`);
+            throw new Error(`Symbol not found in exchangeInfo: ${upperSymbol}`);
         }
 
-        const lotSize = info.filters.find((f) => f.filterType === 'LOT_SIZE');
-        const minNotional = info.filters.find((f) => f.filterType === 'MIN_NOTIONAL');
-        const priceFilter = info.filters.find((f) => f.filterType === 'PRICE_FILTER');
-
-        if (!lotSize || !priceFilter) {
-            throw new Error(`Missing LOT_SIZE or PRICE_FILTER for ${symbol.toUpperCase()}`);
-        }
-
-        return {
-            minQty: parseFloat(lotSize.minQty),
-            maxQty: parseFloat(lotSize.maxQty),
-            stepSize: parseFloat(lotSize.stepSize),
-            minNotional: minNotional ? parseFloat(minNotional.minNotional) : 0,
-            tickSize: parseFloat(priceFilter.tickSize),
-        };
+        const parsed = parseBinanceSpotSymbolRules(info);
+        return toLegacySpotMarketTradeRules(parsed);
     }
 
     private async publicRequest<T>(path: string, params?: Record<string, unknown>, weight?: number): Promise<T> {
@@ -437,5 +427,6 @@ export class BinanceOrderService {
         return new Promise((resolve) => setTimeout(resolve, ms));
     }
 }
+
 
 export const binanceOrderService = new BinanceOrderService();

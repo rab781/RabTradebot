@@ -12,8 +12,8 @@ RUN npm ci
 COPY tsconfig.json ./
 COPY prisma ./prisma
 COPY src ./src
-COPY config ./config 2>/dev/null || true
-COPY public ./public 2>/dev/null || true
+COPY config/ ./config/
+COPY public/ ./public/
 
 RUN npx prisma generate
 RUN npm run build
@@ -34,8 +34,8 @@ RUN npm ci --omit=dev
 
 # Copy compiled output, prisma client, and static assets
 COPY prisma ./prisma
-COPY config ./config 2>/dev/null || true
-COPY public ./public 2>/dev/null || true
+COPY config/ ./config/
+COPY public/ ./public/
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules/.prisma ./node_modules/.prisma
 

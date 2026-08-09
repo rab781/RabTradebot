@@ -194,10 +194,29 @@ describe('F6: BinanceOrderService', () => {
                     symbols: [
                         {
                             symbol: 'BTCUSDT',
+                            status: 'TRADING',
+                            baseAsset: 'BTC',
+                            quoteAsset: 'USDT',
+
                             filters: [
-                                { filterType: 'LOT_SIZE', minQty: '0.00001', maxQty: '9000', stepSize: '0.00001' },
-                                { filterType: 'PRICE_FILTER', tickSize: '0.01', minPrice: '0.01', maxPrice: '100000' },
-                                { filterType: 'MIN_NOTIONAL', minNotional: '10' },
+                                {
+                                    filterType: 'LOT_SIZE',
+                                    minQty: '0.00001000',
+                                    maxQty: '9000.00000000',
+                                    stepSize: '0.00001000',
+                                },
+                                {
+                                    filterType: 'MIN_NOTIONAL',
+                                    minNotional: '10.00000000',
+                                    applyToMarket: true,
+                                    avgPriceMins: 5,
+                                },
+                                {
+                                    filterType: 'PRICE_FILTER',
+                                    minPrice: '0.01000000',
+                                    maxPrice: '1000000.00000000',
+                                    tickSize: '0.01000000',
+                                },
                             ],
                         },
                     ],

@@ -39,21 +39,41 @@ describe('F1: BinanceOrderService', () => {
                 symbols: [
                     {
                         symbol: 'BTCUSDT',
+                        status: 'TRADING',
+                        baseAsset: 'BTC',
+                        quoteAsset: 'USDT',
+
                         filters: [
-                            { filterType: 'LOT_SIZE', minQty: '0.00001000', maxQty: '9000.00000000', stepSize: '0.00001000' },
-                            { filterType: 'MIN_NOTIONAL', minNotional: '5.00000000' },
-                            { filterType: 'PRICE_FILTER', tickSize: '0.01000000' },
+                            {
+                                filterType: 'LOT_SIZE',
+                                minQty: '0.00001000',
+                                maxQty: '9000.00000000',
+                                stepSize: '0.00001000',
+                            },
+                            {
+                                filterType: 'MIN_NOTIONAL',
+                                minNotional: '10.00000000',
+                                applyToMarket: true,
+                                avgPriceMins: 5,
+                            },
+                            {
+                                filterType: 'PRICE_FILTER',
+                                minPrice: '0.01000000',
+                                maxPrice: '1000000.00000000',
+                                tickSize: '0.01000000',
+                            },
                         ],
                     },
                 ],
             },
+
         });
 
         const info = await svc.getSymbolInfo('BTCUSDT');
         expect(info.minQty).toBe(0.00001);
         expect(info.maxQty).toBe(9000);
         expect(info.stepSize).toBe(0.00001);
-        expect(info.minNotional).toBe(5);
+        expect(info.minNotional).toBe(10);
         expect(info.tickSize).toBe(0.01);
     });
 
