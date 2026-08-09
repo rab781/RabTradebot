@@ -3,6 +3,10 @@ import { IStrategy, Trade, BacktestConfig, BacktestResult, StrategyMetadata } fr
 import { v4 as uuidv4 } from 'uuid';
 import { logger } from '../utils/logger';
 
+interface BacktestAccountState {
+    balance: number;
+}
+
 export class BacktestEngine {
     private strategy: IStrategy;
     private config: BacktestConfig;
@@ -19,183 +23,822 @@ export class BacktestEngine {
     }
 
     async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
-        logger.info(`Starting backtest for strategy: ${this.strategy.name}`);
-        logger.info(`Time range: ${this.config.timerange}`);
-        logger.info(`Timeframe: ${this.config.timeframe}`);
-        logger.info(`Starting balance: ${this.config.startingBalance}`);
 
-        // Convert candles to DataFrame
-        const dataframe = DataFrameBuilder.fromCandles(data);
+        logger.info(
+            `Starting backtest for strategy: ${this.strategy.name}`
+        );
 
-        // Populate indicators
+        logger.info(
+            `Time range: ${this.config.timerange}`
+        );
+
+        logger.info(
+            `Timeframe: ${this.config.timeframe}`
+        );
+
+        logger.info(
+            `Starting balance: ${this.config.startingBalance}`
+        );
+
+
+        /*
+         * ============================================================
+         * VALIDATE DATA
+         * ============================================================
+         */
+
+        if (!data || data.length === 0) {
+            throw new Error(
+                'Backtest data cannot be empty'
+            );
+        }
+
+
+        if (
+            data.length <=
+            this.strategy.startupCandleCount
+        ) {
+            throw new Error(
+                `Not enough candles for backtest. ` +
+                `Received ${data.length}, ` +
+                `startupCandleCount=${this.strategy.startupCandleCount}`
+            );
+        }
+
+
+        /*
+         * ============================================================
+         * BUILD DATAFRAME
+         * ============================================================
+         */
+
+        const dataframe =
+            DataFrameBuilder.fromCandles(data);
+
+
+        /*
+         * ============================================================
+         * STRATEGY METADATA
+         * ============================================================
+         *
+         * NOTE:
+         * BTCUSDT is still hardcoded for now.
+         *
+         * We will fix this later by adding symbol
+         * into BacktestConfig.
+         * ============================================================
+         */
+
         const metadata: StrategyMetadata = {
-            pair: 'BTCUSDT', // TODO: Make this configurable
-            timeframe: this.config.timeframe,
-            stake_currency: 'USDT'
+
+            pair: 'BTCUSDT',
+
+            timeframe:
+                this.config.timeframe,
+
+            stake_currency:
+                'USDT'
         };
 
-        const indicatorData = this.strategy.populateIndicators(dataframe, metadata);
-        const entryData = this.strategy.populateEntryTrend(indicatorData, metadata);
-        const exitData = this.strategy.populateExitTrend(entryData, metadata);
 
-        // Initialize backtest state
-        const balance = this.config.startingBalance;
+        /*
+         * ============================================================
+         * PRE-CALCULATE STRATEGY DATA
+         * ============================================================
+         */
+
+        const indicatorData =
+            this.strategy.populateIndicators(
+                dataframe,
+                metadata
+            );
+
+
+        const entryData =
+            this.strategy.populateEntryTrend(
+                indicatorData,
+                metadata
+            );
+
+
+        const exitData =
+            this.strategy.populateExitTrend(
+                entryData,
+                metadata
+            );
+
+
+        /*
+         * ============================================================
+         * ACCOUNT STATE
+         * ============================================================
+         *
+         * IMPORTANT:
+         *
+         * Previously:
+         *
+         * const balance = startingBalance
+         *
+         * which never changed.
+         *
+         * Now account.balance will be updated
+         * every time a trade is realized.
+         * ============================================================
+         */
+
+        const account: BacktestAccountState = {
+
+            balance:
+                this.config.startingBalance
+        };
+
+
+        /*
+         * ============================================================
+         * TRADE STATE
+         * ============================================================
+         */
+
         const trades: Trade[] = [];
-        const openTrades: Trade[] = [];
-        const tradeIdCounter = 1;
 
-        // Track performance metrics
-        let maxBalance = balance;
-        let minBalance = balance;
+        const openTrades: Trade[] = [];
+
+
+        /*
+         * ============================================================
+         * PERFORMANCE STATE
+         * ============================================================
+         */
+
+        let maxEquity =
+            account.balance;
+
         let maxDrawdown = 0;
+
         let maxDrawdownPct = 0;
 
-        // Strategy callbacks
+
+        /*
+         * ============================================================
+         * STRATEGY START CALLBACK
+         * ============================================================
+         */
+
         if (this.strategy.botStart) {
+
             this.strategy.botStart();
         }
 
-        // Main backtest loop
-        for (let i = this.strategy.startupCandleCount; i < data.length; i++) {
-            const currentCandle = data[i];
-            const currentTime = currentCandle.date;
-            const currentPrice = currentCandle.close;
 
-            // Bot loop start callback
+        /*
+         * ============================================================
+         * MAIN BACKTEST LOOP
+         * ============================================================
+         *
+         * IMPORTANT EXECUTION MODEL:
+         *
+         * Candle N closes
+         *      ↓
+         * indicators available
+         *      ↓
+         * signal generated
+         *      ↓
+         * Candle N+1 opens
+         *      ↓
+         * order executes
+         *
+         *
+         * Therefore:
+         *
+         * current candle     = execution candle
+         * signalIndex        = previous candle
+         *
+         * ============================================================
+         */
+
+        for (
+            let i = this.strategy.startupCandleCount;
+            i < data.length;
+            i++
+        ) {
+
+            /*
+             * Current candle represents
+             * the candle we can execute against.
+             */
+            const currentCandle =
+                data[i];
+
+
+            const currentTime =
+                currentCandle.date;
+
+
+            const currentPrice =
+                currentCandle.close;
+
+
+            /*
+             * Strategy signals must come from
+             * the previous CLOSED candle.
+             */
+            const signalIndex =
+                i - 1;
+
+
+            /*
+             * ========================================================
+             * BOT LOOP CALLBACK
+             * ========================================================
+             */
+
             if (this.strategy.botLoopStart) {
-                this.strategy.botLoopStart(currentTime);
+
+                this.strategy.botLoopStart(
+                    currentTime
+                );
             }
 
-            // Process exits first
-            await this.processExits(openTrades, trades, exitData, i, currentCandle, balance);
 
-            // Process entries
-            await this.processEntries(openTrades, entryData, i, currentCandle, balance, tradeIdCounter, metadata);
+            /*
+             * ========================================================
+             * PROCESS EXISTING POSITIONS FIRST
+             * ========================================================
+             *
+             * Why exits first?
+             *
+             * If an existing trade exits on this candle,
+             * capital becomes available before evaluating
+             * new entries.
+             *
+             * processExits will:
+             *
+             * - evaluate previous candle exit signal
+             * - evaluate current candle ROI
+             * - evaluate intrabar stoploss
+             * - close trade
+             * - update account.balance
+             *
+             * ========================================================
+             */
 
-            // Update trade profits
-            this.updateTradesProfits(openTrades, currentPrice);
+            await this.processExits(
+                openTrades,
+                trades,
+                exitData,
+                signalIndex,
+                currentCandle,
+                account
+            );
 
-            // Update balance for open trades
-            const totalUnrealizedPnl = openTrades.reduce((sum, trade) => sum + (trade.profit || 0), 0);
-            const currentBalance = balance + totalUnrealizedPnl;
 
-            // Track drawdown
-            if (currentBalance > maxBalance) {
-                maxBalance = currentBalance;
-            } else {
-                const drawdown = maxBalance - currentBalance;
-                const drawdownPct = (drawdown / maxBalance) * 100;
-                if (drawdown > maxDrawdown) {
-                    maxDrawdown = drawdown;
-                    maxDrawdownPct = drawdownPct;
-                }
+            /*
+             * ========================================================
+             * PROCESS NEW ENTRIES
+             * ========================================================
+             *
+             * Only signals from a VALID closed candle
+             * are eligible.
+             *
+             * Example:
+             *
+             * startupCandleCount = 2
+             *
+             * i = 2
+             * signalIndex = 1
+             *
+             * No trade yet.
+             *
+             * i = 3
+             * signalIndex = 2
+             *
+             * Signal candle #2 can now execute
+             * at candle #3 open.
+             *
+             * ========================================================
+             */
+
+            if (
+                signalIndex >=
+                this.strategy.startupCandleCount
+            ) {
+
+                await this.processEntries(
+                    openTrades,
+                    entryData,
+                    signalIndex,
+                    currentCandle,
+                    account,
+                    metadata
+                );
             }
 
-            if (currentBalance < minBalance) {
-                minBalance = currentBalance;
+
+            /*
+             * ========================================================
+             * UPDATE UNREALIZED PNL
+             * ========================================================
+             */
+
+            this.updateTradesProfits(
+                openTrades,
+                currentPrice
+            );
+
+
+            /*
+             * ========================================================
+             * CALCULATE CURRENT EQUITY
+             * ========================================================
+             *
+             * Account balance:
+             *
+             * realized money
+             *
+             * +
+             *
+             * unrealized PnL
+             *
+             * =
+             *
+             * current equity
+             *
+             * ========================================================
+             */
+
+            const totalUnrealizedPnl =
+                openTrades.reduce(
+                    (
+                        total,
+                        trade
+                    ) => {
+
+                        return (
+                            total +
+                            (trade.profit ?? 0)
+                        );
+
+                    },
+                    0
+                );
+
+
+            const currentEquity =
+                account.balance +
+                totalUnrealizedPnl;
+
+
+            /*
+             * ========================================================
+             * UPDATE EQUITY PEAK
+             * ========================================================
+             */
+
+            if (
+                currentEquity >
+                maxEquity
+            ) {
+
+                maxEquity =
+                    currentEquity;
+            }
+
+
+            /*
+             * ========================================================
+             * CALCULATE DRAWDOWN
+             * ========================================================
+             *
+             * Drawdown:
+             *
+             * peak equity
+             * -
+             * current equity
+             *
+             * ========================================================
+             */
+
+            const currentDrawdown =
+                maxEquity -
+                currentEquity;
+
+
+            const currentDrawdownPct =
+                maxEquity > 0
+                    ?
+                    (
+                        currentDrawdown /
+                        maxEquity
+                    ) * 100
+                    :
+                    0;
+
+
+            /*
+             * Save worst drawdown
+             */
+            if (
+                currentDrawdown >
+                maxDrawdown
+            ) {
+
+                maxDrawdown =
+                    currentDrawdown;
+
+                maxDrawdownPct =
+                    currentDrawdownPct;
             }
         }
 
-        // Close any remaining open trades
-        for (const trade of openTrades) {
-            this.closeTrade(trade, data[data.length - 1], 'backtest_end');
-            trades.push(trade);
+
+        /*
+         * ============================================================
+         * CLOSE REMAINING OPEN TRADES
+         * ============================================================
+         *
+         * Any position still open when historical
+         * data ends must be closed.
+         * ============================================================
+         */
+
+        if (openTrades.length > 0) {
+
+            const finalCandle =
+                data[data.length - 1];
+
+
+            /*
+             * Iterate backwards because we remove
+             * items from openTrades.
+             */
+            for (
+                let i =
+                    openTrades.length - 1;
+
+                i >= 0;
+
+                i--
+            ) {
+
+                const trade =
+                    openTrades[i];
+
+
+                /*
+                 * closeTrade now returns
+                 * REALIZED NET PNL.
+                 */
+                const realizedPnl =
+                    this.closeTrade(
+                        trade,
+                        finalCandle,
+                        'backtest_end'
+                    );
+
+
+                /*
+                 * Update actual account balance.
+                 */
+                account.balance +=
+                    realizedPnl;
+
+
+                /*
+                 * Save completed trade.
+                 */
+                trades.push(
+                    trade
+                );
+
+
+                /*
+                 * Remove from open positions.
+                 */
+                openTrades.splice(
+                    i,
+                    1
+                );
+            }
         }
 
-        // Calculate final results
-        return this.calculateResults(trades, balance, this.config.startingBalance, maxDrawdown, maxDrawdownPct, data);
+
+        /*
+         * ============================================================
+         * FINAL RESULT
+         * ============================================================
+         */
+
+        logger.info(
+            `Backtest completed. ` +
+            `Trades: ${trades.length}, ` +
+            `Final balance: ${account.balance.toFixed(2)}`
+        );
+
+
+        return this.calculateResults(
+            trades,
+
+            /*
+             * REAL actual final account balance.
+             */
+            account.balance,
+
+            this.config.startingBalance,
+
+            maxDrawdown,
+
+            maxDrawdownPct,
+
+            data
+        );
     }
-
     private async processExits(
         openTrades: Trade[],
         allTrades: Trade[],
         exitData: DataFrame,
-        index: number,
+        signalIndex: number,
         candle: OHLCVCandle,
-        balance: number
+        account: BacktestAccountState
     ): Promise<void> {
-        const currentPrice = candle.close;
-        const exitLong = (exitData.exit_long as number[] || [])[index];
-        const exitShort = (exitData.exit_short as number[] || [])[index];
-        const exitTag = (exitData.exit_tag as string[] || [])[index];
 
-        for (let j = openTrades.length - 1; j >= 0; j--) {
+        const currentPrice = candle.close;
+
+        const exitLong =
+            ((exitData.exit_long as number[]) ?? [])[signalIndex] ?? 0;
+
+        const exitShort =
+            ((exitData.exit_short as number[]) ?? [])[signalIndex] ?? 0;
+
+        const exitTag =
+            ((exitData.exit_tag as string[]) ?? [])[signalIndex];
+
+        for (
+            let j = openTrades.length - 1;
+            j >= 0;
+            j--
+        ) {
+
             const trade = openTrades[j];
-            const currentProfit = this.calculateTradeProfit(trade, currentPrice);
-            const currentProfitPct = (currentProfit / (trade.amount * trade.openRate)) * 100;
+
+            const currentProfit =
+                this.calculateTradeProfit(
+                    trade,
+                    currentPrice
+                );
+
+            const entryNotional =
+                trade.amount * trade.openRate;
+
+            const currentProfitPct =
+                entryNotional > 0
+                    ? (
+                        currentProfit /
+                        entryNotional
+                    ) * 100
+                    : 0;
 
             let shouldExit = false;
             let exitReason = '';
 
-            // Check exit signals
-            if ((trade.side === 'long' && exitLong === 1) || (trade.side === 'short' && exitShort === 1)) {
+            /*
+             * Default exit price is current close.
+             */
+            let exitPrice = currentPrice;
+
+
+            /*
+             * =====================================================
+             * EXIT SIGNAL
+             * =====================================================
+             *
+             * Signal comes from previous candle,
+             * therefore we can execute at current candle OPEN.
+             */
+
+            const hasExitSignal =
+                (
+                    trade.side === 'long' &&
+                    exitLong === 1
+                ) ||
+                (
+                    trade.side === 'short' &&
+                    exitShort === 1
+                );
+
+            if (
+                this.strategy.useExitSignal &&
+                hasExitSignal
+            ) {
+
                 shouldExit = true;
+
                 exitReason = 'exit_signal';
+
+                exitPrice = candle.open;
+
                 trade.exitTag = exitTag;
             }
 
-            // Check ROI
-            if (!shouldExit && this.checkRoi(trade, candle.date)) {
+
+            /*
+             * =====================================================
+             * STOP LOSS
+             * =====================================================
+             */
+
+            if (!shouldExit) {
+
+                const stopExitPrice =
+                    this.resolveStoplossExitPrice(
+                        trade,
+                        candle,
+                        currentProfitPct
+                    );
+
+                if (stopExitPrice !== null) {
+
+                    shouldExit = true;
+
+                    exitReason = 'stoploss';
+
+                    exitPrice = stopExitPrice;
+                }
+            }
+
+
+            /*
+             * =====================================================
+             * ROI
+             * =====================================================
+             */
+
+            if (
+                !shouldExit &&
+                this.checkRoi(
+                    trade,
+                    candle.date,
+                    currentPrice
+                )
+            ) {
+
                 shouldExit = true;
+
                 exitReason = 'roi';
+
+                exitPrice = currentPrice;
             }
 
-            // Check stop loss
-            if (!shouldExit && this.checkStoploss(trade, currentPrice, candle.date, currentProfitPct)) {
-                shouldExit = true;
-                exitReason = 'stoploss';
+
+            /*
+             * =====================================================
+             * NOTHING TO DO
+             * =====================================================
+             */
+
+            if (!shouldExit) {
+                continue;
             }
 
-            // Execute exit
-            if (shouldExit) {
-                // Confirm exit if callback exists
-                let confirmExit = true;
-                if (this.strategy.confirmTradeExit) {
-                    confirmExit = this.strategy.confirmTradeExit(
+
+            /*
+             * =====================================================
+             * CONFIRM EXIT
+             * =====================================================
+             */
+
+            let confirmExit = true;
+
+            if (this.strategy.confirmTradeExit) {
+
+                confirmExit =
+                    this.strategy.confirmTradeExit(
                         trade.pair,
                         trade,
                         'market',
                         trade.amount,
-                        currentPrice,
+                        exitPrice,
                         candle.date
                     );
-                }
-
-                if (confirmExit) {
-                    this.closeTrade(trade, candle, exitReason);
-                    allTrades.push(trade);
-                    openTrades.splice(j, 1);
-                }
             }
-        }
+
+
+            if (!confirmExit) {
+                continue;
+            }
+
+
+            /*
+             * =====================================================
+             * CLOSE POSITION
+             * =====================================================
+             */
+
+            const realizedPnl =
+                this.closeTrade(
+                    trade,
+                    candle,
+                    exitReason,
+                    exitPrice
+                );
+
+
+            /*
+             * CRITICAL:
+             * realized PnL changes actual account balance.
+             */
+            account.balance += realizedPnl;
+
+
+            allTrades.push(trade);
+
+            openTrades.splice(j, 1);
+        };
     }
 
     private async processEntries(
         openTrades: Trade[],
         entryData: DataFrame,
-        index: number,
+        signalIndex: number,
         candle: OHLCVCandle,
-        balance: number,
-        tradeIdCounter: number,
+        account: BacktestAccountState,
         metadata: StrategyMetadata
     ): Promise<void> {
-        // Check if we can open new trades
-        if (openTrades.length >= this.config.maxOpenTrades) {
+
+        /*
+         * No available slot.
+         */
+        if (
+            openTrades.length >=
+            this.config.maxOpenTrades
+        ) {
             return;
         }
 
-        const enterLong = (entryData.enter_long as number[])[index];
-        const enterShort = (entryData.enter_short as number[])[index];
-        const enterTag = (entryData.enter_tag as string[])[index];
 
-        // Process long entry
-        if (enterLong === 1) {
-            await this.createTrade('long', candle, enterTag, balance, tradeIdCounter, openTrades, metadata);
+        const enterLong =
+            ((entryData.enter_long as number[]) ?? [])
+            [signalIndex] ?? 0;
+
+
+        const enterShort =
+            ((entryData.enter_short as number[]) ?? [])
+            [signalIndex] ?? 0;
+
+
+        const enterTag =
+            ((entryData.enter_tag as string[]) ?? [])
+            [signalIndex] ?? 'entry';
+
+
+        /*
+         * =====================================================
+         * LONG
+         * =====================================================
+         */
+
+        if (
+            enterLong === 1 &&
+            openTrades.length <
+            this.config.maxOpenTrades
+        ) {
+
+            await this.createTrade(
+                'long',
+                candle,
+                enterTag,
+                account.balance,
+                openTrades,
+                metadata
+            );
         }
 
-        // Process short entry (if enabled)
-        if (this.strategy.canShort && enterShort === 1) {
-            await this.createTrade('short', candle, enterTag, balance, tradeIdCounter, openTrades, metadata);
+
+        /*
+         * =====================================================
+         * SHORT
+         * =====================================================
+         *
+         * IMPORTANT:
+         *
+         * Check maxOpenTrades AGAIN because
+         * LONG may have just occupied the final slot.
+         */
+
+        if (
+            this.strategy.canShort &&
+            enterShort === 1 &&
+            openTrades.length <
+            this.config.maxOpenTrades
+        ) {
+
+            await this.createTrade(
+                'short',
+                candle,
+                enterTag,
+                account.balance,
+                openTrades,
+                metadata
+            );
         }
     }
 
@@ -204,68 +847,265 @@ export class BacktestEngine {
         candle: OHLCVCandle,
         enterTag: string,
         balance: number,
-        tradeIdCounter: number,
         openTrades: Trade[],
         metadata: StrategyMetadata
     ): Promise<void> {
-        const stakeAmount = typeof this.strategy.stakeAmount === 'number'
-            ? this.strategy.stakeAmount
-            : balance / this.config.maxOpenTrades;
 
-        // Check if we have enough balance
-        if (stakeAmount > balance * 0.95) { // Leave 5% buffer
+        /*
+         * =====================================================
+         * POSITION SIZE
+         * =====================================================
+         */
+
+        const stakeAmount =
+            typeof this.strategy.stakeAmount === 'number'
+                ? this.strategy.stakeAmount
+                : balance /
+                this.config.maxOpenTrades;
+
+
+        /*
+         * Temporary safety check.
+         *
+         * Capital reservation will be improved
+         * in Backtest V2.1.
+         */
+        if (
+            stakeAmount >
+            balance * 0.95
+        ) {
+
+            logger.warn(
+                `Skipping entry: stake ${stakeAmount} exceeds available balance buffer`
+            );
+
             return;
         }
 
-        const entryPrice = candle.close;
-        const amount = stakeAmount / entryPrice;
-        const fee = stakeAmount * this.config.feeOpen;
 
-        // Confirm entry if callback exists
+        /*
+         * =====================================================
+         * EXECUTION PRICE
+         * =====================================================
+         *
+         * Signal from candle N is executed
+         * at OPEN candle N+1.
+         */
+
+        const entryPrice =
+            candle.open;
+
+
+        const amount =
+            stakeAmount /
+            entryPrice;
+
+
+        const fee =
+            stakeAmount *
+            this.config.feeOpen;
+
+
+        /*
+         * =====================================================
+         * CONFIRM ENTRY
+         * =====================================================
+         */
+
         let confirmEntry = true;
-        if (this.strategy.confirmTradeEntry) {
-            confirmEntry = this.strategy.confirmTradeEntry(
-                metadata.pair,
-                'market',
-                amount,
-                entryPrice,
-                candle.date
-            );
+
+
+        if (
+            this.strategy.confirmTradeEntry
+        ) {
+
+            confirmEntry =
+                this.strategy.confirmTradeEntry(
+                    metadata.pair,
+                    'market',
+                    amount,
+                    entryPrice,
+                    candle.date
+                );
         }
+
 
         if (!confirmEntry) {
             return;
         }
 
+
+        /*
+         * =====================================================
+         * CREATE TRADE
+         * =====================================================
+         */
+
         const trade: Trade = {
+
             id: uuidv4(),
+
             pair: metadata.pair,
+
             isOpen: true,
-            side: side,
-            amount: amount,
+
+            side,
+
+            amount,
+
             openRate: entryPrice,
+
             openDate: candle.date,
-            fee: fee,
+
+            fee,
+
             entryTag: enterTag,
-            stoplossRate: entryPrice * (1 + this.strategy.stoploss * (side === 'long' ? 1 : -1))
+
+            stoplossRate:
+                entryPrice *
+                (
+                    1 +
+                    this.strategy.stoploss *
+                    (
+                        side === 'long'
+                            ? 1
+                            : -1
+                    )
+                )
         };
 
+
         openTrades.push(trade);
-        logger.info(`Opened ${side} trade for ${metadata.pair} at ${entryPrice} with tag: ${enterTag}`);
+
+
+        logger.info(
+            `Opened ${side} trade ` +
+            `${metadata.pair} ` +
+            `@ ${entryPrice} ` +
+            `stake=${stakeAmount.toFixed(2)}`
+        );
     }
 
-    private closeTrade(trade: Trade, candle: OHLCVCandle, exitReason: string): void {
-        const exitPrice = candle.close;
-        const exitFee = (trade.amount * exitPrice) * this.config.feeClose;
+    private closeTrade(
+        trade: Trade,
+        candle: OHLCVCandle,
+        exitReason: string,
+        exitPrice: number = candle.close
+    ): number {
 
-        trade.closeRate = exitPrice;
-        trade.closeDate = candle.date;
-        trade.isOpen = false;
-        trade.exitReason = exitReason;
-        trade.profit = this.calculateTradeProfit(trade, exitPrice) - exitFee;
-        trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
+        /*
+         * =====================================================
+         * EXIT FEE
+         * =====================================================
+         */
 
-        logger.info(`Closed ${trade.side} trade for ${trade.pair} at ${exitPrice}, profit: ${trade.profit?.toFixed(2)} (${trade.profitPct?.toFixed(2)}%)`);
+        const exitNotional =
+            trade.amount *
+            exitPrice;
+
+
+        const exitFee =
+            exitNotional *
+            this.config.feeClose;
+
+
+        /*
+         * Entry fee was calculated when
+         * position was created.
+         */
+        const entryFee =
+            trade.fee ?? 0;
+
+
+        /*
+         * =====================================================
+         * GROSS PNL
+         * =====================================================
+         */
+
+        const grossProfit =
+            this.calculateTradeProfit(
+                trade,
+                exitPrice
+            );
+
+
+        /*
+         * =====================================================
+         * NET PNL
+         * =====================================================
+         *
+         * net =
+         *
+         * gross PnL
+         * - entry fee
+         * - exit fee
+         */
+
+        const netProfit =
+            grossProfit -
+            entryFee -
+            exitFee;
+
+
+        /*
+         * =====================================================
+         * UPDATE TRADE
+         * =====================================================
+         */
+
+        trade.closeRate =
+            exitPrice;
+
+
+        trade.closeDate =
+            candle.date;
+
+
+        trade.isOpen =
+            false;
+
+
+        trade.exitReason =
+            exitReason;
+
+
+        trade.profit =
+            netProfit;
+
+
+        const entryNotional =
+            trade.amount *
+            trade.openRate;
+
+
+        trade.profitPct =
+            entryNotional > 0
+                ? (
+                    netProfit /
+                    entryNotional
+                ) * 100
+                : 0;
+
+
+        logger.info(
+            `Closed ${trade.side} trade ` +
+            `${trade.pair} @ ${exitPrice}, ` +
+            `gross=${grossProfit.toFixed(2)}, ` +
+            `entryFee=${entryFee.toFixed(2)}, ` +
+            `exitFee=${exitFee.toFixed(2)}, ` +
+            `net=${netProfit.toFixed(2)} ` +
+            `(${trade.profitPct.toFixed(2)}%)`
+        );
+
+
+        /*
+         * THIS fixes:
+         *
+         * account.balance += realizedPnl
+         */
+
+        return netProfit;
     }
 
     private calculateTradeProfit(trade: Trade, currentPrice: number): number {
@@ -276,54 +1116,231 @@ export class BacktestEngine {
         }
     }
 
-    private updateTradesProfits(openTrades: Trade[], currentPrice: number): void {
-        for (const trade of openTrades) {
-            trade.profit = this.calculateTradeProfit(trade, currentPrice);
-            trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
+    private updateTradesProfits(
+        openTrades: Trade[],
+        currentPrice: number
+    ): void {
+
+        for (
+            const trade of openTrades
+        ) {
+
+            const grossProfit =
+                this.calculateTradeProfit(
+                    trade,
+                    currentPrice
+                );
+
+
+            /*
+             * Entry fee has already been paid.
+             *
+             * We do not estimate exit fee
+             * until trade is actually closed.
+             */
+            const unrealizedProfit =
+                grossProfit -
+                (trade.fee ?? 0);
+
+
+            trade.profit =
+                unrealizedProfit;
+
+
+            const entryNotional =
+                trade.amount *
+                trade.openRate;
+
+
+            trade.profitPct =
+                entryNotional > 0
+                    ? (
+                        unrealizedProfit /
+                        entryNotional
+                    ) * 100
+                    : 0;
         }
     }
 
-    private checkRoi(trade: Trade, currentTime: Date): boolean {
-        const tradeDuration = (currentTime.getTime() - trade.openDate.getTime()) / (1000 * 60); // minutes
-        const currentProfitPct = trade.profitPct || 0;
+    private checkRoi(
+        trade: Trade,
+        currentTime: Date,
+        currentPrice: number
+    ): boolean {
 
-        // Use pre-computed sortedRoi for performance improvement during hot-path evaluation
-        for (let i = 0; i < this.sortedRoi.length; i++) {
-            const [timeThreshold, roiTarget] = this.sortedRoi[i];
-            if (tradeDuration >= timeThreshold) {
-                if (currentProfitPct >= roiTarget * 100) {
-                    return true;
-                }
+        const tradeDuration =
+            (
+                currentTime.getTime() -
+                trade.openDate.getTime()
+            ) /
+            (1000 * 60);
+
+
+        /*
+         * Calculate CURRENT PnL directly.
+         *
+         * Do not use cached trade.profitPct.
+         */
+        const currentProfit =
+            this.calculateTradeProfit(
+                trade,
+                currentPrice
+            );
+
+
+        const entryNotional =
+            trade.amount *
+            trade.openRate;
+
+
+        const currentProfitPct =
+            entryNotional > 0
+                ? (
+                    currentProfit /
+                    entryNotional
+                ) * 100
+                : 0;
+
+
+        for (
+            let i = 0;
+            i < this.sortedRoi.length;
+            i++
+        ) {
+
+            const [
+                timeThreshold,
+                roiTarget
+            ] = this.sortedRoi[i];
+
+
+            if (
+                tradeDuration >= timeThreshold &&
+                currentProfitPct >=
+                roiTarget * 100
+            ) {
+
+                return true;
             }
         }
+
 
         return false;
     }
+    private resolveStoplossExitPrice(
+        trade: Trade,
+        candle: OHLCVCandle,
+        currentProfitPct: number
+    ): number | null {
 
-    private checkStoploss(trade: Trade, currentPrice: number, currentTime: Date, currentProfitPct: number): boolean {
-        // Check custom stoploss first
-        if (this.strategy.customStoploss) {
-            const customStoploss = this.strategy.customStoploss(trade, currentTime, currentPrice, currentProfitPct);
-            if (customStoploss !== null) {
-                const stoplossPrice = trade.openRate * (1 + customStoploss * (trade.side === 'long' ? 1 : -1));
-                if (trade.side === 'long') {
-                    return currentPrice <= stoplossPrice;
-                } else {
-                    return currentPrice >= stoplossPrice;
-                }
+        /*
+         * Start with default stoploss.
+         */
+        let stopPrice =
+            trade.stoplossRate;
+
+
+        /*
+         * =====================================================
+         * CUSTOM STOPLOSS
+         * =====================================================
+         */
+
+        if (
+            this.strategy.customStoploss
+        ) {
+
+            const customStop =
+                this.strategy.customStoploss(
+                    trade,
+                    candle.date,
+                    candle.close,
+                    currentProfitPct
+                );
+
+
+            if (customStop !== null) {
+
+                stopPrice =
+                    trade.openRate *
+                    (
+                        1 + customStop *
+                        (
+                            trade.side === 'long'
+                                ? 1
+                                : -1
+                        )
+                    );
             }
         }
+        if (
+            stopPrice === undefined
+        ) {
 
-        // Default stoploss
-        if (trade.stoplossRate) {
-            if (trade.side === 'long') {
-                return currentPrice <= trade.stoplossRate;
-            } else {
-                return currentPrice >= trade.stoplossRate;
-            }
+            return null;
         }
 
-        return false;
+
+        /*
+         * =====================================================
+         * LONG STOP
+         * =====================================================
+         */
+
+        if (
+            trade.side === 'long'
+        ) {
+
+            /*
+             * Stop not touched.
+             */
+            if (
+                candle.low >
+                stopPrice
+            ) {
+
+                return null;
+            }
+
+
+            /*
+             * Gap down handling.
+             *
+             * Example:
+             *
+             * stop = 95
+             * open = 92
+             *
+             * Cannot pretend fill = 95.
+             */
+            return Math.min(
+                candle.open,
+                stopPrice
+            );
+        }
+
+
+        /*
+         * =====================================================
+         * SHORT STOP
+         * =====================================================
+         */
+
+        if (
+            candle.high <
+            stopPrice
+        ) {
+
+            return null;
+        }
+
+        /*
+         * Gap up handling for short.
+         */
+        return Math.max(
+            candle.open,
+            stopPrice
+        );
     }
 
     private calculateResults(
