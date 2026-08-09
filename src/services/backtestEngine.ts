@@ -1,6 +1,11 @@
 import { DataFrame, DataFrameBuilder, OHLCVCandle } from '../types/dataframe';
-import { IStrategy, Trade, BacktestConfig, BacktestResult, StrategyMetadata } from '../types/strategy';
-import { v4 as uuidv4 } from 'uuid';
+import { IStrategy, Trade, StrategyMetadata } from '../types/strategy';
+import {
+    BacktestExecutionConfig,
+    BacktestExecutionModelConfig,
+    BacktestExecutionResult,
+    BacktestExecutionTrade
+} from '../types/backtestExecution';
 import { logger } from '../utils/logger';
 
 interface EquityPoint {
@@ -8,20 +13,44 @@ interface EquityPoint {
     equity: number;
 }
 
+interface ExecutionFill {
+    referencePrice: number;
+    fillPrice: number;
+    spreadCost: number;
+    slippageCost: number;
+    adverseMovePct: number;
+}
+
+interface EntryResult {
+    entryFee: number;
+    reservedCapital: number;
+}
+
 export class BacktestEngine {
     private strategy: IStrategy;
-    private config: BacktestConfig;
+    private config: BacktestExecutionConfig;
+    private executionModel: Required<BacktestExecutionModelConfig>;
     private sortedRoi: [number, number][];
+    private randomState: number;
+    private tradeSequence = 0;
 
-    constructor(strategy: IStrategy, config: BacktestConfig) {
+    constructor(strategy: IStrategy, config: BacktestExecutionConfig) {
         this.strategy = strategy;
         this.config = config;
+        this.executionModel = {
+            spreadBps: config.executionModel?.spreadBps ?? 0,
+            slippageBps: config.executionModel?.slippageBps ?? 0,
+            randomSlippageBps: config.executionModel?.randomSlippageBps ?? 0,
+            seed: config.executionModel?.seed ?? 0x6d2b79f5
+        };
+        this.validateExecutionModel(this.executionModel);
+        this.randomState = this.normalizeSeed(this.executionModel.seed);
         this.sortedRoi = Object.entries(this.strategy.minimalRoi || {})
             .map(([timeStr, roiTarget]) => [parseInt(timeStr), roiTarget] as [number, number])
             .sort((a, b) => a[0] - b[0]);
     }
 
-    async runBacktest(data: OHLCVCandle[]): Promise<BacktestResult> {
+    async runBacktest(data: OHLCVCandle[]): Promise<BacktestExecutionResult> {
         if (data.length === 0) {
             throw new Error('Backtest requires at least one candle');
         }
@@ -30,6 +59,10 @@ export class BacktestEngine {
         logger.info(`Time range: ${this.config.timerange}`);
         logger.info(`Timeframe: ${this.config.timeframe}`);
         logger.info(`Starting balance: ${this.config.startingBalance}`);
+
+        // P0.3 reproducibility invariant: reset all per-run deterministic state.
+        this.randomState = this.normalizeSeed(this.executionModel.seed);
+        this.tradeSequence = 0;
 
         const dataframe = DataFrameBuilder.fromCandles(data);
         const metadata: StrategyMetadata = {
@@ -44,8 +77,8 @@ export class BacktestEngine {
 
         // P0: this is realized account equity, not a constant starting balance.
         let balance = this.config.startingBalance;
-        const trades: Trade[] = [];
-        const openTrades: Trade[] = [];
+        const trades: BacktestExecutionTrade[] = [];
+        const openTrades: BacktestExecutionTrade[] = [];
         const equityCurve: EquityPoint[] = [];
 
         let maxBalance = balance;
@@ -121,7 +154,17 @@ export class BacktestEngine {
 
         // Close remaining positions and realize their PnL, including both sides' fees.
         for (const trade of openTrades) {
-            balance += this.closeTrade(trade, data[data.length - 1].close, data[data.length - 1].date, 'backtest_end');
+            const exitFill = this.createExecutionFill(
+                data[data.length - 1].close,
+                trade.amount,
+                trade.side === 'long' ? 'SELL' : 'BUY'
+            );
+            balance += this.closeTrade(
+                trade,
+                exitFill,
+                data[data.length - 1].date,
+                'backtest_end'
+            );
             trades.push(trade);
         }
 
@@ -141,8 +184,8 @@ export class BacktestEngine {
     }
 
     private async processSignalExits(
-        openTrades: Trade[],
-        allTrades: Trade[],
+        openTrades: BacktestExecutionTrade[],
+        allTrades: BacktestExecutionTrade[],
         exitData: DataFrame,
         signalIndex: number,
         executionCandle: OHLCVCandle
@@ -150,7 +193,7 @@ export class BacktestEngine {
         const exitLong = ((exitData.exit_long as number[]) || [])[signalIndex];
         const exitShort = ((exitData.exit_short as number[]) || [])[signalIndex];
         const exitTag = ((exitData.exit_tag as string[]) || [])[signalIndex];
-        const executionPrice = executionCandle.open;
+        const referencePrice = executionCandle.open;
         let realizedPnl = 0;
 
         for (let j = openTrades.length - 1; j >= 0; j--) {
@@ -161,6 +204,12 @@ export class BacktestEngine {
 
             if (!shouldExit) continue;
 
+            const exitFill = this.createExecutionFill(
+                referencePrice,
+                trade.amount,
+                trade.side === 'long' ? 'SELL' : 'BUY'
+            );
+
             let confirmExit = true;
             if (this.strategy.confirmTradeExit) {
                 confirmExit = this.strategy.confirmTradeExit(
@@ -168,7 +217,7 @@ export class BacktestEngine {
                     trade,
                     'market',
                     trade.amount,
-                    executionPrice,
+                    exitFill.fillPrice,
                     executionCandle.date
                 );
             }
@@ -178,7 +227,7 @@ export class BacktestEngine {
             trade.exitTag = exitTag;
             realizedPnl += this.closeTrade(
                 trade,
-                executionPrice,
+                exitFill,
                 executionCandle.date,
                 'exit_signal'
             );
@@ -190,7 +239,7 @@ export class BacktestEngine {
     }
 
     private async processEntries(
-        openTrades: Trade[],
+        openTrades: BacktestExecutionTrade[],
         entryData: DataFrame,
         signalIndex: number,
         executionCandle: OHLCVCandle,
@@ -206,13 +255,33 @@ export class BacktestEngine {
         const enterTag = (entryData.enter_tag as string[])[signalIndex];
 
         let entryFees = 0;
+        let availableBalance = this.calculateAvailableBalance(balance, openTrades);
 
-        if (enterLong === 1 && openTrades.length < this.config.maxOpenTrades) {
-            entryFees += await this.createTrade('long', executionCandle, enterTag, balance - entryFees, openTrades, metadata);
+        const tryCreateTrade = async (side: 'long' | 'short'): Promise<void> => {
+            if (openTrades.length >= this.config.maxOpenTrades) return;
+
+            const result = await this.createTrade(
+                side,
+                executionCandle,
+                enterTag,
+                availableBalance,
+                openTrades,
+                metadata
+            );
+            if (!result) return;
+
+            entryFees += result.entryFee;
+            availableBalance -= result.reservedCapital + result.entryFee;
+            // Floating point dust must never create phantom buying power.
+            if (Math.abs(availableBalance) < 1e-10) availableBalance = 0;
+        };
+
+        if (enterLong === 1) {
+            await tryCreateTrade('long');
         }
 
-        if (this.strategy.canShort && enterShort === 1 && openTrades.length < this.config.maxOpenTrades) {
-            entryFees += await this.createTrade('short', executionCandle, enterTag, balance - entryFees, openTrades, metadata);
+        if (this.strategy.canShort && enterShort === 1) {
+            await tryCreateTrade('short');
         }
 
         return entryFees;
@@ -222,21 +291,29 @@ export class BacktestEngine {
         side: 'long' | 'short',
         candle: OHLCVCandle,
         enterTag: string,
-        balance: number,
-        openTrades: Trade[],
+        availableBalance: number,
+        openTrades: BacktestExecutionTrade[],
         metadata: StrategyMetadata
-    ): Promise<number> {
-        const stakeAmount = typeof this.strategy.stakeAmount === 'number'
-            ? this.strategy.stakeAmount
-            : balance / this.config.maxOpenTrades;
-
-        if (stakeAmount > balance * 0.95) {
-            return 0;
+    ): Promise<EntryResult | null> {
+        const remainingSlots = Math.max(1, this.config.maxOpenTrades - openTrades.length);
+        const stakeAmount = this.resolveStakeAmount(availableBalance, remainingSlots);
+        if (!Number.isFinite(stakeAmount) || stakeAmount <= 0) {
+            return null;
         }
 
-        const entryPrice = candle.open;
-        const amount = stakeAmount / entryPrice;
-        const fee = stakeAmount * this.config.feeOpen;
+        const entryFee = stakeAmount * this.config.feeOpen;
+        const requiredCapital = stakeAmount + entryFee;
+        const tolerance = Math.max(1e-10, availableBalance * 1e-12);
+        if (requiredCapital - availableBalance > tolerance) {
+            return null;
+        }
+
+        const orderSide: 'BUY' | 'SELL' = side === 'long' ? 'BUY' : 'SELL';
+        // Fill price is quantity-independent in this P0 model. Generate the
+        // stochastic component exactly once, then scale per-unit costs by amount.
+        const unitFill = this.createExecutionFill(candle.open, 1, orderSide);
+        const amount = stakeAmount / unitFill.fillPrice;
+        const entryFill = this.scaleExecutionFill(unitFill, amount);
 
         let confirmEntry = true;
         if (this.strategy.confirmTradeEntry) {
@@ -244,52 +321,183 @@ export class BacktestEngine {
                 metadata.pair,
                 'market',
                 amount,
-                entryPrice,
+                entryFill.fillPrice,
                 candle.date
             );
         }
 
-        if (!confirmEntry) return 0;
+        if (!confirmEntry) return null;
 
-        const trade: Trade = {
-            id: uuidv4(),
+        const trade: BacktestExecutionTrade = {
+            id: this.nextTradeId(candle, side),
             pair: metadata.pair,
             isOpen: true,
             side,
             amount,
-            openRate: entryPrice,
+            openRate: entryFill.fillPrice,
             openDate: candle.date,
-            fee,
+            fee: entryFee,
             entryTag: enterTag,
-            stoplossRate: entryPrice * (1 + this.strategy.stoploss * (side === 'long' ? 1 : -1))
+            stoplossRate: entryFill.fillPrice * (
+                1 + this.strategy.stoploss * (side === 'long' ? 1 : -1)
+            ),
+            stakeAmount,
+            entryReferencePrice: entryFill.referencePrice,
+            actualEntryPrice: entryFill.fillPrice,
+            entrySlippage: entryFill.adverseMovePct,
+            entrySpreadCost: entryFill.spreadCost,
+            entrySlippageCost: entryFill.slippageCost,
+            executionCost: entryFill.spreadCost + entryFill.slippageCost
         };
 
         openTrades.push(trade);
-        logger.info(`Opened ${side} trade for ${metadata.pair} at ${entryPrice} with tag: ${enterTag}`);
-        return fee;
+        logger.info(
+            `Opened ${side} trade for ${metadata.pair}: reference=${entryFill.referencePrice}, ` +
+            `fill=${entryFill.fillPrice}, reserved=${stakeAmount}, executionCost=${trade.executionCost}`
+        );
+
+        return { entryFee, reservedCapital: stakeAmount };
+    }
+
+    private calculateAvailableBalance(
+        realizedBalance: number,
+        openTrades: BacktestExecutionTrade[]
+    ): number {
+        const reservedCapital = openTrades.reduce(
+            (sum, trade) => sum + trade.stakeAmount,
+            0
+        );
+        return Math.max(0, realizedBalance - reservedCapital);
+    }
+
+    private resolveStakeAmount(availableBalance: number, remainingSlots: number): number {
+        if (typeof this.strategy.stakeAmount === 'number') {
+            return this.strategy.stakeAmount;
+        }
+
+        // "unlimited" means evenly allocate remaining buying power while
+        // reserving enough cash for entry fees.
+        const feeMultiplier = 1 + Math.max(0, this.config.feeOpen);
+        return availableBalance / Math.max(1, remainingSlots) / feeMultiplier;
+    }
+
+    private validateExecutionModel(model: Required<BacktestExecutionModelConfig>): void {
+        const nonNegativeFields: Array<keyof BacktestExecutionModelConfig> = [
+            'spreadBps',
+            'slippageBps',
+            'randomSlippageBps'
+        ];
+
+        for (const field of nonNegativeFields) {
+            const value = model[field] as number;
+            if (!Number.isFinite(value) || value < 0) {
+                throw new Error(`Invalid executionModel.${field}: expected a finite non-negative number`);
+            }
+        }
+
+        if (!Number.isFinite(model.seed)) {
+            throw new Error('Invalid executionModel.seed: expected a finite number');
+        }
+
+        const maxAdverseBps = (model.spreadBps / 2) + model.slippageBps + model.randomSlippageBps;
+        if (maxAdverseBps >= 10_000) {
+            throw new Error(
+                'Invalid execution model: worst-case adverse move must remain below 10000 bps'
+            );
+        }
+    }
+
+    private normalizeSeed(seed: number): number {
+        return Math.trunc(seed) >>> 0;
+    }
+
+    /** Mulberry32: compact deterministic PRNG suitable for simulation reproducibility. */
+    private nextRandom(): number {
+        this.randomState = (this.randomState + 0x6d2b79f5) >>> 0;
+        let t = this.randomState;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+    }
+
+    private createExecutionFill(
+        referencePrice: number,
+        amount: number,
+        orderSide: 'BUY' | 'SELL'
+    ): ExecutionFill {
+        if (!Number.isFinite(referencePrice) || referencePrice <= 0) {
+            throw new Error(`Invalid execution reference price: ${referencePrice}`);
+        }
+        if (!Number.isFinite(amount) || amount <= 0) {
+            throw new Error(`Invalid execution amount: ${amount}`);
+        }
+
+        const direction = orderSide === 'BUY' ? 1 : -1;
+        const halfSpreadFraction = (this.executionModel.spreadBps / 2) / 10_000;
+        const randomAdverseBps = this.executionModel.randomSlippageBps > 0
+            ? this.nextRandom() * this.executionModel.randomSlippageBps
+            : 0;
+        const slippageFraction = (
+            this.executionModel.slippageBps + randomAdverseBps
+        ) / 10_000;
+
+        const spreadPrice = referencePrice * (1 + direction * halfSpreadFraction);
+        const fillPrice = spreadPrice + (referencePrice * direction * slippageFraction);
+        const spreadCost = Math.abs(spreadPrice - referencePrice) * amount;
+        const slippageCost = Math.abs(fillPrice - spreadPrice) * amount;
+
+        return {
+            referencePrice,
+            fillPrice,
+            spreadCost,
+            slippageCost,
+            adverseMovePct: Math.abs(fillPrice - referencePrice) / referencePrice
+        };
+    }
+
+    private scaleExecutionFill(unitFill: ExecutionFill, amount: number): ExecutionFill {
+        return {
+            ...unitFill,
+            spreadCost: unitFill.spreadCost * amount,
+            slippageCost: unitFill.slippageCost * amount
+        };
+    }
+
+    private nextTradeId(candle: OHLCVCandle, side: 'long' | 'short'): string {
+        this.tradeSequence += 1;
+        return `bt-${candle.timestamp}-${this.tradeSequence}-${side}`;
     }
 
     private closeTrade(
-        trade: Trade,
-        exitPrice: number,
+        trade: BacktestExecutionTrade,
+        exitFill: ExecutionFill,
         exitDate: Date,
         exitReason: string
     ): number {
-        const exitFee = trade.amount * exitPrice * this.config.feeClose;
-        const grossPnl = this.calculateTradeProfit(trade, exitPrice);
+        const exitFee = trade.amount * exitFill.fillPrice * this.config.feeClose;
+        const grossPnl = this.calculateTradeProfit(trade, exitFill.fillPrice);
 
-        trade.closeRate = exitPrice;
+        trade.closeRate = exitFill.fillPrice;
+        trade.actualExitPrice = exitFill.fillPrice;
+        trade.exitReferencePrice = exitFill.referencePrice;
+        trade.exitSpreadCost = exitFill.spreadCost;
+        trade.exitSlippageCost = exitFill.slippageCost;
+        trade.exitSlippage = exitFill.adverseMovePct;
+        trade.executionCost += exitFill.spreadCost + exitFill.slippageCost;
         trade.closeDate = exitDate;
         trade.isOpen = false;
         trade.exitReason = exitReason;
 
         // P0 invariant: net PnL always includes entry fee AND exit fee.
+        // Spread/slippage are already embedded in the actual fill prices, so they
+        // must NOT be subtracted again here.
         trade.profit = grossPnl - trade.fee - exitFee;
-        trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
+        trade.profitPct = (trade.profit / trade.stakeAmount) * 100;
 
         logger.info(
-            `Closed ${trade.side} trade for ${trade.pair} at ${exitPrice}, ` +
-            `profit: ${trade.profit.toFixed(2)} (${trade.profitPct.toFixed(2)}%)`
+            `Closed ${trade.side} trade for ${trade.pair}: reference=${exitFill.referencePrice}, ` +
+            `fill=${exitFill.fillPrice}, executionCost=${trade.executionCost}, ` +
+            `profit=${trade.profit.toFixed(2)} (${trade.profitPct.toFixed(2)}%)`
         );
 
         // Entry fee has already reduced realized balance. Only gross PnL minus
@@ -304,17 +512,17 @@ export class BacktestEngine {
         return trade.amount * (trade.openRate - currentPrice);
     }
 
-    private updateTradesProfits(openTrades: Trade[], currentPrice: number): void {
+    private updateTradesProfits(openTrades: BacktestExecutionTrade[], currentPrice: number): void {
         for (const trade of openTrades) {
             // Entry fee is already paid and must be visible in mark-to-market equity.
             trade.profit = this.calculateTradeProfit(trade, currentPrice) - trade.fee;
-            trade.profitPct = (trade.profit / (trade.amount * trade.openRate)) * 100;
+            trade.profitPct = (trade.profit / trade.stakeAmount) * 100;
         }
     }
 
     private async processIntrabarExits(
-        openTrades: Trade[],
-        allTrades: Trade[],
+        openTrades: BacktestExecutionTrade[],
+        allTrades: BacktestExecutionTrade[],
         candle: OHLCVCandle
     ): Promise<number> {
         let realizedPnl = 0;
@@ -322,7 +530,7 @@ export class BacktestEngine {
         for (let j = openTrades.length - 1; j >= 0; j--) {
             const trade = openTrades[j];
             const openNetPnl = this.calculateTradeProfit(trade, candle.open) - trade.fee;
-            const openProfitPct = (openNetPnl / (trade.amount * trade.openRate)) * 100;
+            const openProfitPct = (openNetPnl / trade.stakeAmount) * 100;
 
             const stopPrice = this.resolveStoplossPrice(
                 trade,
@@ -347,23 +555,29 @@ export class BacktestEngine {
             );
 
             let exitReason: 'stoploss' | 'roi' | null = null;
-            let exitPrice = 0;
+            let exitReferencePrice = 0;
 
             // Conservative bar-path rule: when OHLC cannot tell us whether TP or
             // SL occurred first, assume the adverse stop occurred first.
             if (stopHit && stopPrice !== null) {
                 exitReason = 'stoploss';
-                exitPrice = trade.side === 'long'
+                exitReferencePrice = trade.side === 'long'
                     ? (candle.open <= stopPrice ? candle.open : stopPrice)
                     : (candle.open >= stopPrice ? candle.open : stopPrice);
             } else if (roiHit && roiPrice !== null) {
                 exitReason = 'roi';
-                exitPrice = trade.side === 'long'
+                exitReferencePrice = trade.side === 'long'
                     ? (candle.open >= roiPrice ? candle.open : roiPrice)
                     : (candle.open <= roiPrice ? candle.open : roiPrice);
             }
 
             if (!exitReason) continue;
+
+            const exitFill = this.createExecutionFill(
+                exitReferencePrice,
+                trade.amount,
+                trade.side === 'long' ? 'SELL' : 'BUY'
+            );
 
             let confirmExit = true;
             if (this.strategy.confirmTradeExit) {
@@ -372,13 +586,13 @@ export class BacktestEngine {
                     trade,
                     'market',
                     trade.amount,
-                    exitPrice,
+                    exitFill.fillPrice,
                     candle.date
                 );
             }
             if (!confirmExit) continue;
 
-            realizedPnl += this.closeTrade(trade, exitPrice, candle.date, exitReason);
+            realizedPnl += this.closeTrade(trade, exitFill, candle.date, exitReason);
             allTrades.push(trade);
             openTrades.splice(j, 1);
         }
@@ -436,14 +650,14 @@ export class BacktestEngine {
     }
 
     private calculateResults(
-        trades: Trade[],
+        trades: BacktestExecutionTrade[],
         finalBalance: number,
         startingBalance: number,
         maxDrawdown: number,
         maxDrawdownPct: number,
         data: OHLCVCandle[],
         equityCurve: EquityPoint[]
-    ): BacktestResult {
+    ): BacktestExecutionResult {
         const totalTrades = trades.length;
         let profitableTrades = 0;
         let losingTrades = 0;
@@ -455,12 +669,16 @@ export class BacktestEngine {
         let worstTrade: Trade | null = null;
         let grossProfit = 0;
         let grossLoss = 0;
+        let totalSpreadCost = 0;
+        let totalSlippageCost = 0;
 
         for (let i = 0; i < totalTrades; i++) {
             const current = trades[i];
             const pnl = current.profit || 0;
             totalProfit += pnl;
             totalProfitPctAcrossTrades += current.profitPct || 0;
+            totalSpreadCost += current.entrySpreadCost + (current.exitSpreadCost || 0);
+            totalSlippageCost += current.entrySlippageCost + (current.exitSlippageCost || 0);
 
             if (pnl > 0) {
                 profitableTrades++;
@@ -569,7 +787,10 @@ export class BacktestEngine {
             sortinoRatio,
             profitFactor,
             startDate: data[0].date,
-            endDate: data[data.length - 1].date
+            endDate: data[data.length - 1].date,
+            totalSpreadCost,
+            totalSlippageCost,
+            totalExecutionCost: totalSpreadCost + totalSlippageCost
         };
     }
 

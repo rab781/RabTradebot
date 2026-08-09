@@ -13,7 +13,7 @@
  * - [F4-12] PlattScaler untuk confidence calibration
  */
 
-import * as tf from '@tensorflow/tfjs-node';
+import * as tf from '@tensorflow/tfjs';
 import { FeatureSet } from '../services/featureEngineering';
 import { logger } from '../utils/logger';
 
@@ -268,7 +268,8 @@ export class SimpleGRUModel {
                 bestEpoch = epoch + 1;
                 noImprovCount = 0;
                 // Save best weights
-                this.bestModelWeights = this.model!.getWeights().map(w => w.clone());
+                this.bestModelWeights =
+                    this.model!.getWeights().map((w: tf.Tensor) => w.clone());
             } else {
                 noImprovCount++;
                 if (noImprovCount >= patience) {
