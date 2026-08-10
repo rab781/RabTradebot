@@ -44,6 +44,9 @@ async function main(): Promise<void> {
         intervalP50Ms: Number(report.timingQa.intervalMs.p50.toFixed(2)),
         intervalP95Ms: Number(report.timingQa.intervalMs.p95.toFixed(2)),
         gridErrorP95Ms: Number(report.timingQa.absoluteGridErrorMs.p95.toFixed(2)),
+        gridPhasesMs: report.timingQa.gridPhasesMs,
+        gridPhaseChanges: report.timingQa.gridPhaseChanges,
+        continuityBreaks: report.timingQa.continuityBreaks,
     });
 
     for (const horizon of report.horizons) {

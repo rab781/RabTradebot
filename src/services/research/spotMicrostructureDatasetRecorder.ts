@@ -109,6 +109,7 @@ export class SpotMicrostructureDatasetRecorder {
         };
         await this.store.initialize(manifest);
         this.initialized = true;
+        await this.restoreCadenceAnchor(now);
         await this.restorePending(now);
         return manifest;
     }
@@ -207,6 +208,25 @@ export class SpotMicrostructureDatasetRecorder {
 
     getStats(): SpotResearchDatasetStats {
         return { ...this.statsState, pendingOutcomes: this.pending.length };
+    }
+
+    private async restoreCadenceAnchor(now: number): Promise<void> {
+        if (!this.store.loadLatestFeature) return;
+        const latest = await this.store.loadLatestFeature();
+        if (!latest || latest.sampleSlotAt === undefined) return;
+        if (!Number.isFinite(latest.sampleSlotAt)) {
+            throw new Error('Latest persisted sampleSlotAt is non-finite; refusing to restore scheduler cadence.');
+        }
+        if (latest.sampleSlotAt > now) {
+            throw new Error('Latest persisted sampleSlotAt is in the future; refusing to move the research clock backwards.');
+        }
+
+        // Resume from the next slot on the exact persisted cadence phase. sample() will
+        // skip any complete downtime slots without synthetic backfill while preserving
+        // this anchor across process restarts.
+        this.nextSampleDueAt = latest.sampleSlotAt + this.sampleIntervalMs;
+        this.lastSampledAt = latest.sampledAt;
+        this.statsState.lastSampledAt = latest.sampledAt;
     }
 
     private async restorePending(now: number): Promise<void> {

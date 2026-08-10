@@ -69,6 +69,8 @@ export interface SpotResearchDatasetStore {
     appendOutcome(record: SpotResearchOutcomeRecord): Promise<boolean>;
     /** Optional restart-recovery support for append-only stores. */
     loadFeaturesSince?(sampledAtInclusive: number): Promise<SpotResearchFeatureRecord[]>;
+    /** Latest persisted feature, used to restore the fixed scheduler phase after process restart. */
+    loadLatestFeature?(): Promise<SpotResearchFeatureRecord | undefined>;
     hasOutcome?(sampleId: string, horizonMs: number): Promise<boolean>;
     close?(): Promise<void>;
 }

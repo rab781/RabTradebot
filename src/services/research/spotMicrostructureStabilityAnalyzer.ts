@@ -27,7 +27,14 @@ export interface FeatureTimingQa {
     duplicateSlots: number;
     cadenceCoveragePct: number;
     intervalMs: NumericSummary;
+    /** |sampledAt - sampleSlotAt| for v2 rows; callback timing error, not restart downtime. */
     absoluteGridErrorMs: NumericSummary;
+    /** Distinct fixed-grid phases modulo sampleIntervalMs. A restart-safe recorder should keep this at one phase. */
+    gridPhasesMs: number[];
+    /** Number of transitions between fixed-grid phases in chronological order. */
+    gridPhaseChanges: number;
+    /** Number of observed slot gaps that imply at least one missing scheduled sample. */
+    continuityBreaks: number;
 }
 
 export interface StabilityFeatureMetric {
@@ -141,39 +148,76 @@ export function analyzeFeatureTiming(
             cadenceCoveragePct: 0,
             intervalMs: summarize([]),
             absoluteGridErrorMs: summarize([]),
+            gridPhasesMs: [],
+            gridPhaseChanges: 0,
+            continuityBreaks: 0,
         };
     }
+
+    const interval = manifest.sampleIntervalMs;
+    const modulo = (value: number): number => ((value % interval) + interval) % interval;
     const sorted = [...features].sort((a, b) => featureSlotTime(a) - featureSlotTime(b));
     const first = featureSlotTime(sorted[0]);
     const last = featureSlotTime(sorted[sorted.length - 1]);
-    const slots = new Map<number, number>();
-    const gridErrors: number[] = [];
-    for (const feature of sorted) {
-        const rawSlot = (featureSlotTime(feature) - first) / manifest.sampleIntervalMs;
+
+    // sampleSlotAt is already the canonical scheduler grid for v2. Do not rebuild a
+    // synthetic global grid from the first row: doing so turns a process restart phase
+    // change into fake callback jitter. Legacy rows without sampleSlotAt retain the old
+    // nearest-grid fallback for diagnostics only.
+    const gridErrors = sorted.map((feature) => {
+        if (feature.sampleSlotAt !== undefined && Number.isFinite(feature.sampleSlotAt)) {
+            return Math.abs(feature.sampledAt - feature.sampleSlotAt);
+        }
+        const rawSlot = (featureSlotTime(feature) - first) / interval;
         const slot = Math.round(rawSlot);
-        slots.set(slot, (slots.get(slot) ?? 0) + 1);
-        const ideal = first + slot * manifest.sampleIntervalMs;
-        gridErrors.push(Math.abs(feature.sampledAt - ideal));
+        const ideal = first + slot * interval;
+        return Math.abs(feature.sampledAt - ideal);
+    });
+
+    const slotCounts = new Map<number, number>();
+    for (const feature of sorted) {
+        const slotTime = featureSlotTime(feature);
+        slotCounts.set(slotTime, (slotCounts.get(slotTime) ?? 0) + 1);
     }
-    const maxSlot = Math.max(...slots.keys());
-    const expectedSlots = maxSlot + 1;
-    const duplicateSlots = [...slots.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
-    const observedSlots = slots.size;
+    const uniqueSlots = [...slotCounts.keys()].sort((a, b) => a - b);
+    const duplicateSlots = [...slotCounts.values()].reduce((sum, count) => sum + Math.max(0, count - 1), 0);
+
     const intervals: number[] = [];
-    for (let i = 1; i < sorted.length; i += 1) {
-        intervals.push(featureSlotTime(sorted[i]) - featureSlotTime(sorted[i - 1]));
+    let missingSlots = 0;
+    let continuityBreaks = 0;
+    for (let i = 1; i < uniqueSlots.length; i += 1) {
+        const delta = uniqueSlots[i] - uniqueSlots[i - 1];
+        intervals.push(delta);
+        const inferredMissing = Math.max(0, Math.floor(delta / interval) - 1);
+        if (inferredMissing > 0) {
+            missingSlots += inferredMissing;
+            continuityBreaks += 1;
+        }
     }
+
+    const phases = sorted.map((feature) => modulo(featureSlotTime(feature)));
+    const gridPhaseChanges = phases.reduce((changes, phase, index) => {
+        if (index === 0) return 0;
+        return changes + (phase === phases[index - 1] ? 0 : 1);
+    }, 0);
+    const gridPhasesMs = [...new Set(phases)].sort((a, b) => a - b);
+
+    const observedSlots = uniqueSlots.length;
+    const expectedSlots = observedSlots + missingSlots;
     return {
         featureRecords: features.length,
         firstObservedAt: first,
         lastObservedAt: last,
         expectedSlots,
         observedSlots,
-        missingSlots: Math.max(0, expectedSlots - observedSlots),
+        missingSlots,
         duplicateSlots,
         cadenceCoveragePct: expectedSlots === 0 ? 0 : (observedSlots / expectedSlots) * 100,
         intervalMs: summarize(intervals),
         absoluteGridErrorMs: summarize(gridErrors),
+        gridPhasesMs,
+        gridPhaseChanges,
+        continuityBreaks,
     };
 }
 

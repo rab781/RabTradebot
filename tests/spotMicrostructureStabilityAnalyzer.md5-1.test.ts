@@ -82,6 +82,9 @@ describe('MD5.1 feature timing QA', () => {
         expect(qa.duplicateSlots).toBe(0);
         expect(qa.cadenceCoveragePct).toBe(100);
         expect(qa.intervalMs.p50).toBe(1000);
+        expect(qa.gridPhasesMs).toEqual([0]);
+        expect(qa.gridPhaseChanges).toBe(0);
+        expect(qa.continuityBreaks).toBe(0);
     });
 
     test('uses sampleSlotAt for cadence while reporting callback jitter as grid error', () => {
@@ -96,6 +99,20 @@ describe('MD5.1 feature timing QA', () => {
         expect(qa.duplicateSlots).toBe(0);
         expect(qa.intervalMs.p50).toBe(1000);
         expect(qa.absoluteGridErrorMs.max).toBe(99);
+    });
+
+    test('reports callback jitter against each persisted sampleSlotAt instead of a synthetic first-row grid', () => {
+        const features = [
+            { ...makeFeature(0), sampleSlotAt: 342, sampledAt: 352, referenceObservedAt: 350 },
+            { ...makeFeature(1), sampleSlotAt: 1342, sampledAt: 1352, referenceObservedAt: 1350 },
+            { ...makeFeature(2), sampleSlotAt: 4768, sampledAt: 4778, referenceObservedAt: 4770 },
+            { ...makeFeature(3), sampleSlotAt: 5768, sampledAt: 5778, referenceObservedAt: 5770 },
+        ];
+        const qa = analyzeFeatureTiming(manifest, features);
+        expect(qa.absoluteGridErrorMs.max).toBe(10);
+        expect(qa.gridPhasesMs).toEqual([342, 768]);
+        expect(qa.gridPhaseChanges).toBe(1);
+        expect(qa.continuityBreaks).toBe(1);
     });
 
     test('detects missing and duplicate grid slots', () => {

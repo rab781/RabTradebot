@@ -31,6 +31,15 @@ async function readJsonLines<T>(file: string): Promise<T[]> {
     }
 }
 
+function cloneFeatureRecord(record: SpotResearchFeatureRecord): SpotResearchFeatureRecord {
+    return {
+        ...record,
+        featureNames: [...record.featureNames],
+        featureValues: [...record.featureValues],
+        quality: { ...record.quality, reasons: [...record.quality.reasons] },
+    };
+}
+
 /**
  * Append-only research store. Features and future outcomes are deliberately
  * separated so training code cannot accidentally read labels as input columns.
@@ -106,12 +115,20 @@ export class JsonlResearchDatasetStore implements SpotResearchDatasetStore {
         return [...this.featuresById.values()]
             .filter((record) => record.sampledAt >= sampledAtInclusive)
             .sort((a, b) => a.sampledAt - b.sampledAt)
-            .map((record) => ({
-                ...record,
-                featureNames: [...record.featureNames],
-                featureValues: [...record.featureValues],
-                quality: { ...record.quality, reasons: [...record.quality.reasons] },
-            }));
+            .map(cloneFeatureRecord);
+    }
+
+    async loadLatestFeature(): Promise<SpotResearchFeatureRecord | undefined> {
+        this.ensureInitialized();
+        let latest: SpotResearchFeatureRecord | undefined;
+        for (const record of this.featuresById.values()) {
+            const recordClock = record.sampleSlotAt ?? record.sampledAt;
+            const latestClock = latest ? (latest.sampleSlotAt ?? latest.sampledAt) : Number.NEGATIVE_INFINITY;
+            if (!latest || recordClock > latestClock || (recordClock === latestClock && record.sampledAt > latest.sampledAt)) {
+                latest = record;
+            }
+        }
+        return latest ? cloneFeatureRecord(latest) : undefined;
     }
 
     async hasOutcome(sampleId: string, horizonMs: number): Promise<boolean> {

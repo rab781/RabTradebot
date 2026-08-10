@@ -15,7 +15,7 @@ function manifest(): SpotResearchDatasetManifest {
 function feature(): SpotResearchFeatureRecord {
     return {
         recordType: 'FEATURE', datasetVersion: SPOT_RESEARCH_DATASET_VERSION, schemaVersion: SPOT_MICROSTRUCTURE_SCHEMA_VERSION,
-        sampleId: 'id-1', symbol: 'BTCUSDT', sampledAt: 1000, referenceObservedAt: 999, referenceMidPrice: 100,
+        sampleId: 'id-1', symbol: 'BTCUSDT', sampleSlotAt: 1000, sampledAt: 1000, referenceObservedAt: 999, referenceMidPrice: 100,
         featureNames: ['f1'], featureValues: [1],
         quality: { healthy: true, marketStatus: 'LIVE', depthStatus: 'LIVE', tradeSamples60s: 1, ofiSamples60s: 1, reasons: [] },
     };
@@ -73,6 +73,18 @@ describe('MD4 JsonlResearchDatasetStore', () => {
         expect(recent.map((x) => x.sampleId)).toEqual(['id-1']);
         expect(await reopened.hasOutcome('id-1', 1000)).toBe(true);
         expect(await reopened.hasOutcome('id-1', 5000)).toBe(false);
+    });
+
+    test('loads the latest persisted feature for fixed-grid restart recovery', async () => {
+        const store = new JsonlResearchDatasetStore(dir); await store.initialize(manifest());
+        await store.appendFeature(feature());
+        const newer = { ...feature(), sampleId: 'id-2', sampleSlotAt: 3000, sampledAt: 3010 };
+        await store.appendFeature(newer);
+
+        const reopened = new JsonlResearchDatasetStore(dir); await reopened.initialize(manifest());
+        const latest = await reopened.loadLatestFeature();
+        expect(latest?.sampleId).toBe('id-2');
+        expect(latest?.sampleSlotAt).toBe(3000);
     });
 
     test('refuses manifest/schema/config mismatch in an existing directory', async () => {

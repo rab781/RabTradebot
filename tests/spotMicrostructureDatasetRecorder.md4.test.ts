@@ -26,6 +26,9 @@ class MemoryStore implements SpotResearchDatasetStore {
     async loadFeaturesSince(since: number): Promise<SpotResearchFeatureRecord[]> {
         return this.features.filter((x) => x.sampledAt >= since);
     }
+    async loadLatestFeature(): Promise<SpotResearchFeatureRecord | undefined> {
+        return this.features.length > 0 ? this.features[this.features.length - 1] : undefined;
+    }
     async hasOutcome(sampleId: string, horizonMs: number): Promise<boolean> {
         return this.outcomeIds.has(`${sampleId}:${horizonMs}`);
     }
@@ -260,6 +263,37 @@ describe('MD4 SpotMicrostructureDatasetRecorder', () => {
         await second.sample(1_005_000);
         expect(store.outcomes).toHaveLength(1);
         expect(store.outcomes[0].forwardReturn).toBeCloseTo(0.02, 12);
+    });
+
+    test('restores the fixed-grid phase after recorder restart without synthetic backfill', async () => {
+        const s = source(); s.setDepthAge(0); const store = new MemoryStore();
+        const first = new SpotMicrostructureDatasetRecorder(s, store, {
+            symbol: 'BTCUSDT', sampleIntervalMs: 1000, horizonsMs: [5000],
+        });
+        await first.initialize(1_000_342);
+        await first.sample(1_000_342);
+
+        const second = new SpotMicrostructureDatasetRecorder(s, store, {
+            symbol: 'BTCUSDT', sampleIntervalMs: 1000, horizonsMs: [5000],
+        });
+        await second.initialize(1_003_768);
+        const resumed = await second.sample(1_003_768);
+
+        expect(store.features).toHaveLength(2);
+        expect(store.features.map((x) => x.sampleSlotAt)).toEqual([1_000_342, 1_003_342]);
+        expect(resumed?.sampledAt).toBe(1_003_768);
+        expect(resumed?.sampleSlotAt).toBe(1_003_342);
+        expect(store.features.some((x) => x.sampleSlotAt === 1_001_342 || x.sampleSlotAt === 1_002_342)).toBe(false);
+    });
+
+    test('fails closed if persisted scheduler slot is ahead of the restart clock', async () => {
+        const s = source(); s.setDepthAge(0); const store = new MemoryStore();
+        const first = new SpotMicrostructureDatasetRecorder(s, store, { symbol: 'BTCUSDT' });
+        await first.initialize(1_000_000);
+        await first.sample(1_000_000);
+
+        const second = new SpotMicrostructureDatasetRecorder(s, store, { symbol: 'BTCUSDT' });
+        await expect(second.initialize(999_999)).rejects.toThrow(/research clock backwards/i);
     });
 
     test('does not restore horizons that already have persisted outcomes', async () => {
