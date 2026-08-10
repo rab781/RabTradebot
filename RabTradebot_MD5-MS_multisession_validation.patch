@@ -1,0 +1,587 @@
+diff --git a/scripts/analyze-binance-spot-microstructure-multisession.ts b/scripts/analyze-binance-spot-microstructure-multisession.ts
+new file mode 100644
+index 0000000..42f0f36
+--- /dev/null
++++ b/scripts/analyze-binance-spot-microstructure-multisession.ts
+@@ -0,0 +1,121 @@
++import { promises as fs } from 'fs';
++import path from 'path';
++import {
++    MultiSessionAnalysisInput,
++    SpotMicrostructureMultiSessionAnalyzer,
++} from '../src/services/research/spotMicrostructureMultiSessionAnalyzer';
++import { SpotMicrostructureResearchReport } from '../src/services/research/spotMicrostructureResearchAnalyzer';
++import { StabilityResearchReport } from '../src/services/research/spotMicrostructureStabilityAnalyzer';
++
++function arg(name: string, fallback?: string): string | undefined {
++    const prefix = `--${name}=`;
++    const found = process.argv.find((value: string) => value.startsWith(prefix));
++    return found ? found.slice(prefix.length) : fallback;
++}
++
++function numberArg(name: string, fallback: number): number {
++    const raw = arg(name);
++    if (raw === undefined) return fallback;
++    const value = Number(raw);
++    if (!Number.isFinite(value) || value < 1) throw new Error(`Invalid --${name}: ${raw}`);
++    return Math.floor(value);
++}
++
++async function readJson<T>(file: string): Promise<T> {
++    return JSON.parse(await fs.readFile(file, 'utf8')) as T;
++}
++
++async function discover(root: string): Promise<MultiSessionAnalysisInput[]> {
++    const entries = await fs.readdir(root, { withFileTypes: true });
++    const sessions: MultiSessionAnalysisInput[] = [];
++    for (const entry of entries.filter((item) => item.isDirectory()).sort((a, b) => a.name.localeCompare(b.name))) {
++        const dir = path.join(root, entry.name);
++        const researchFile = path.join(dir, 'md5-report.json');
++        const stabilityFile = path.join(dir, 'md5-stability-report.json');
++        try {
++            await Promise.all([fs.access(researchFile), fs.access(stabilityFile)]);
++        } catch {
++            continue;
++        }
++        const [research, stability] = await Promise.all([
++            readJson<SpotMicrostructureResearchReport>(researchFile),
++            readJson<StabilityResearchReport>(stabilityFile),
++        ]);
++        sessions.push({ sessionId: entry.name, research, stability });
++    }
++    return sessions;
++}
++
++async function main(): Promise<void> {
++    const root = path.resolve(arg('root', 'data/research/multisession')!);
++    const output = path.resolve(arg('output', path.join(root, 'multisession-report.json'))!);
++    const top = numberArg('top', 15);
++    const inputs = await discover(root);
++    if (inputs.length < 2) {
++        throw new Error(`Need at least two analyzed session directories under ${root}. Found ${inputs.length}.`);
++    }
++
++    const report = new SpotMicrostructureMultiSessionAnalyzer().analyze(inputs);
++    await fs.writeFile(output, `${JSON.stringify(report, null, 2)}\n`, 'utf8');
++
++    console.log(`Multi-session microstructure validation — ${report.symbol}`);
++    console.log(`root=${root}`);
++    console.log(`report=${output}`);
++    console.log(`dataset=${report.datasetVersion}; schema=${report.schemaVersion}; features=${report.featureCount}`);
++    console.table(report.sessions.map((session) => ({
++        session: session.sessionId,
++        features: session.featureRecords,
++        outcomes: session.outcomeRecords,
++        qa: session.structuralQaPass ? 'PASS' : 'FAIL',
++        timing: session.timingQaPass ? 'PASS' : 'FAIL',
++        coverage: Number(session.cadenceCoveragePct.toFixed(2)),
++        gridP95: Number(session.gridErrorP95Ms.toFixed(2)),
++        phases: session.gridPhasesMs.join(','),
++        phaseChanges: session.gridPhaseChanges,
++        usable: session.usableForCrossSessionEvidence,
++    })));
++
++    for (const horizon of report.horizons) {
++        console.log(`\nHorizon ${horizon.horizonMs}ms`);
++        console.log({
++            sessionsTotal: horizon.sessionsTotal,
++            sessionsUsable: horizon.sessionsUsable,
++            sessionsRankingEnabled: horizon.sessionsRankingEnabled,
++            sessionsResearchReady: horizon.sessionsResearchReady,
++            sessionsStabilityGate: horizon.sessionsStabilityGate,
++            medianEligibleOutcomes: horizon.medianEligibleOutcomes,
++            medianIndependentWindows: horizon.medianIndependentWindows,
++        });
++        const comparable = horizon.features
++            .filter((feature) => feature.sessionsWithResearchMetric > 0)
++            .sort((left, right) => {
++                if (right.sessionsWithResearchMetric !== left.sessionsWithResearchMetric) {
++                    return right.sessionsWithResearchMetric - left.sessionsWithResearchMetric;
++                }
++                if (right.spearmanSignConsistency !== left.spearmanSignConsistency) {
++                    return right.spearmanSignConsistency - left.spearmanSignConsistency;
++                }
++                return right.medianAbsSpearman - left.medianAbsSpearman;
++            })
++            .slice(0, top);
++        console.table(comparable.map((feature) => ({
++            feature: feature.featureName,
++            sessions: feature.sessionsWithResearchMetric,
++            ready: feature.researchReadySessions,
++            stable: feature.stabilityGateSessions,
++            sign: Number(feature.spearmanSignConsistency.toFixed(3)),
++            medianRho: Number(feature.medianSpearman.toFixed(4)),
++            medianAbsRho: Number(feature.medianAbsSpearman.toFixed(4)),
++            qSign: Number(feature.qSpreadSignConsistency.toFixed(3)),
++            medianQSpread: Number(feature.medianQSpreadBps.toFixed(4)),
++            medianStability: Number(feature.medianStabilityScore.toFixed(4)),
++        })));
++    }
++
++    console.log('\nNote: this is cross-session research evidence only; it does not prune features or claim production edge.');
++}
++
++main().catch((error) => {
++    console.error(error);
++    process.exitCode = 1;
++});
+diff --git a/src/services/research/spotMicrostructureMultiSessionAnalyzer.ts b/src/services/research/spotMicrostructureMultiSessionAnalyzer.ts
+new file mode 100644
+index 0000000..81011f8
+--- /dev/null
++++ b/src/services/research/spotMicrostructureMultiSessionAnalyzer.ts
+@@ -0,0 +1,291 @@
++import { SpotMicrostructureResearchReport, FeatureHorizonMetric } from './spotMicrostructureResearchAnalyzer';
++import { StabilityResearchReport, StabilityFeatureMetric } from './spotMicrostructureStabilityAnalyzer';
++
++export interface MultiSessionAnalysisInput {
++    sessionId: string;
++    research: SpotMicrostructureResearchReport;
++    stability: StabilityResearchReport;
++}
++
++export interface MultiSessionSessionSummary {
++    sessionId: string;
++    featureRecords: number;
++    outcomeRecords: number;
++    healthyFeaturePct: number;
++    duplicateSlots: number;
++    missingSlots: number;
++    cadenceCoveragePct: number;
++    gridErrorP95Ms: number;
++    gridPhasesMs: number[];
++    gridPhaseChanges: number;
++    continuityBreaks: number;
++    structuralQaPass: boolean;
++    timingQaPass: boolean;
++    usableForCrossSessionEvidence: boolean;
++}
++
++export interface MultiSessionFeatureMetric {
++    featureName: string;
++    sessionsWithResearchMetric: number;
++    sessionsWithStabilityMetric: number;
++    researchReadySessions: number;
++    stabilityGateSessions: number;
++    spearmanPositiveSessions: number;
++    spearmanNegativeSessions: number;
++    spearmanZeroSessions: number;
++    spearmanSignConsistency: number;
++    medianSpearman: number;
++    medianAbsSpearman: number;
++    minSpearman: number;
++    maxSpearman: number;
++    qSpreadPositiveSessions: number;
++    qSpreadNegativeSessions: number;
++    qSpreadZeroSessions: number;
++    qSpreadSignConsistency: number;
++    medianQSpreadBps: number;
++    medianDirectionConsistency: number;
++    medianStabilityScore: number;
++    minStabilityScore: number;
++    medianPhaseSignConsistency: number;
++    medianBlockSignConsistency: number;
++}
++
++export interface MultiSessionHorizonReport {
++    horizonMs: number;
++    sessionsTotal: number;
++    sessionsUsable: number;
++    sessionsRankingEnabled: number;
++    sessionsResearchReady: number;
++    sessionsStabilityGate: number;
++    medianEligibleOutcomes: number;
++    medianIndependentWindows: number;
++    features: MultiSessionFeatureMetric[];
++}
++
++export interface SpotMicrostructureMultiSessionReport {
++    generatedAt: number;
++    datasetVersion: string;
++    schemaVersion: string;
++    symbol: string;
++    sampleIntervalMs: number;
++    horizonsMs: number[];
++    featureCount: number;
++    sessions: MultiSessionSessionSummary[];
++    horizons: MultiSessionHorizonReport[];
++    note: string;
++}
++
++function median(values: number[]): number {
++    if (values.length === 0) return 0;
++    const sorted = [...values].sort((a, b) => a - b);
++    const mid = Math.floor(sorted.length / 2);
++    return sorted.length % 2 === 0 ? (sorted[mid - 1] + sorted[mid]) / 2 : sorted[mid];
++}
++
++function sign(value: number): -1 | 0 | 1 {
++    if (value > 0) return 1;
++    if (value < 0) return -1;
++    return 0;
++}
++
++function signCounts(values: number[]): { positive: number; negative: number; zero: number; consistency: number } {
++    let positive = 0;
++    let negative = 0;
++    let zero = 0;
++    for (const value of values) {
++        const s = sign(value);
++        if (s > 0) positive += 1;
++        else if (s < 0) negative += 1;
++        else zero += 1;
++    }
++    const nonZero = positive + negative;
++    return {
++        positive,
++        negative,
++        zero,
++        consistency: nonZero === 0 ? 0 : Math.max(positive, negative) / nonZero,
++    };
++}
++
++function arraysEqual<T>(left: T[], right: T[]): boolean {
++    return left.length === right.length && left.every((value, index) => value === right[index]);
++}
++
++function structuralQaPass(report: SpotMicrostructureResearchReport): boolean {
++    const qa = report.qa;
++    return qa.duplicateFeatureIds === 0
++        && qa.duplicateOutcomeKeys === 0
++        && qa.orphanOutcomes === 0
++        && qa.featureDimensionMismatches === 0
++        && qa.nonFiniteFeatureRows === 0
++        && qa.featureNameMismatches === 0;
++}
++
++function timingQaPass(report: StabilityResearchReport): boolean {
++    const timing = report.timingQa;
++    return timing.duplicateSlots === 0
++        && timing.gridPhaseChanges === 0
++        && timing.gridPhasesMs.length <= 1;
++}
++
++function researchFeature(
++    report: SpotMicrostructureResearchReport,
++    horizonMs: number,
++    featureName: string,
++): FeatureHorizonMetric | undefined {
++    return report.horizons.find((horizon) => horizon.horizonMs === horizonMs)
++        ?.features.find((feature) => feature.featureName === featureName);
++}
++
++function stabilityFeature(
++    report: StabilityResearchReport,
++    horizonMs: number,
++    featureName: string,
++): StabilityFeatureMetric | undefined {
++    return report.horizons.find((horizon) => horizon.horizonMs === horizonMs)
++        ?.features.find((feature) => feature.featureName === featureName);
++}
++
++export class SpotMicrostructureMultiSessionAnalyzer {
++    analyze(inputs: MultiSessionAnalysisInput[]): SpotMicrostructureMultiSessionReport {
++        if (inputs.length < 2) throw new Error('Multi-session analysis requires at least two sessions.');
++
++        const first = inputs[0];
++        const canonical = first.research.manifest;
++        if (first.stability.manifest.datasetVersion !== canonical.datasetVersion
++            || first.stability.manifest.schemaVersion !== canonical.schemaVersion) {
++            throw new Error(`Session ${first.sessionId} has research/stability manifest version mismatch.`);
++        }
++
++        for (const input of inputs) {
++            const researchManifest = input.research.manifest;
++            const stabilityManifest = input.stability.manifest;
++            if (researchManifest.datasetVersion !== canonical.datasetVersion) {
++                throw new Error(`Session ${input.sessionId} datasetVersion mismatch.`);
++            }
++            if (researchManifest.schemaVersion !== canonical.schemaVersion) {
++                throw new Error(`Session ${input.sessionId} schemaVersion mismatch.`);
++            }
++            if (researchManifest.symbol !== canonical.symbol) {
++                throw new Error(`Session ${input.sessionId} symbol mismatch.`);
++            }
++            if (researchManifest.sampleIntervalMs !== canonical.sampleIntervalMs) {
++                throw new Error(`Session ${input.sessionId} sampleIntervalMs mismatch.`);
++            }
++            if (!arraysEqual(researchManifest.horizonsMs, canonical.horizonsMs)) {
++                throw new Error(`Session ${input.sessionId} horizonsMs mismatch.`);
++            }
++            if (!arraysEqual(researchManifest.featureNames, canonical.featureNames)) {
++                throw new Error(`Session ${input.sessionId} featureNames mismatch.`);
++            }
++            if (stabilityManifest.datasetVersion !== researchManifest.datasetVersion
++                || stabilityManifest.schemaVersion !== researchManifest.schemaVersion
++                || stabilityManifest.symbol !== researchManifest.symbol
++                || stabilityManifest.sampleIntervalMs !== researchManifest.sampleIntervalMs
++                || !arraysEqual(stabilityManifest.horizonsMs, researchManifest.horizonsMs)
++                || !arraysEqual(stabilityManifest.featureNames, researchManifest.featureNames)) {
++                throw new Error(`Session ${input.sessionId} research/stability manifests are incompatible.`);
++            }
++        }
++
++        const sessions = inputs.map((input): MultiSessionSessionSummary => {
++            const structural = structuralQaPass(input.research);
++            const timing = timingQaPass(input.stability);
++            return {
++                sessionId: input.sessionId,
++                featureRecords: input.research.qa.featureRecords,
++                outcomeRecords: input.research.qa.outcomeRecords,
++                healthyFeaturePct: input.research.qa.healthyFeaturePct,
++                duplicateSlots: input.stability.timingQa.duplicateSlots,
++                missingSlots: input.stability.timingQa.missingSlots,
++                cadenceCoveragePct: input.stability.timingQa.cadenceCoveragePct,
++                gridErrorP95Ms: input.stability.timingQa.absoluteGridErrorMs.p95,
++                gridPhasesMs: [...input.stability.timingQa.gridPhasesMs],
++                gridPhaseChanges: input.stability.timingQa.gridPhaseChanges,
++                continuityBreaks: input.stability.timingQa.continuityBreaks,
++                structuralQaPass: structural,
++                timingQaPass: timing,
++                usableForCrossSessionEvidence: structural && timing,
++            };
++        });
++
++        const usableIds = new Set(sessions.filter((session) => session.usableForCrossSessionEvidence).map((session) => session.sessionId));
++        const usableInputs = inputs.filter((input) => usableIds.has(input.sessionId));
++
++        const horizons = canonical.horizonsMs.map((horizonMs): MultiSessionHorizonReport => {
++            const researchHorizons = usableInputs.map((input) => input.research.horizons.find((h) => h.horizonMs === horizonMs));
++            const stabilityHorizons = usableInputs.map((input) => input.stability.horizons.find((h) => h.horizonMs === horizonMs));
++
++            const features = canonical.featureNames.map((featureName): MultiSessionFeatureMetric => {
++                const researchRows = usableInputs.flatMap((input) => {
++                    const horizon = input.research.horizons.find((h) => h.horizonMs === horizonMs);
++                    if (!horizon?.rankingEnabled) return [];
++                    const feature = researchFeature(input.research, horizonMs, featureName);
++                    return feature ? [{ input, horizon, feature }] : [];
++                });
++                const stabilityRows = usableInputs.flatMap((input) => {
++                    const horizon = input.stability.horizons.find((h) => h.horizonMs === horizonMs);
++                    const feature = stabilityFeature(input.stability, horizonMs, featureName);
++                    return horizon && feature ? [{ input, horizon, feature }] : [];
++                });
++
++                const spearman = researchRows.map((row) => row.feature.spearmanIc);
++                const qSpread = researchRows.map((row) => row.feature.topMinusBottomBps);
++                const spearmanSigns = signCounts(spearman);
++                const qSpreadSigns = signCounts(qSpread);
++                const stabilityScores = stabilityRows.map((row) => row.feature.stabilityScore);
++
++                return {
++                    featureName,
++                    sessionsWithResearchMetric: researchRows.length,
++                    sessionsWithStabilityMetric: stabilityRows.length,
++                    researchReadySessions: researchRows.filter((row) => row.horizon.researchReady).length,
++                    stabilityGateSessions: stabilityRows.filter((row) => row.horizon.stabilityGate).length,
++                    spearmanPositiveSessions: spearmanSigns.positive,
++                    spearmanNegativeSessions: spearmanSigns.negative,
++                    spearmanZeroSessions: spearmanSigns.zero,
++                    spearmanSignConsistency: spearmanSigns.consistency,
++                    medianSpearman: median(spearman),
++                    medianAbsSpearman: median(spearman.map(Math.abs)),
++                    minSpearman: spearman.length === 0 ? 0 : Math.min(...spearman),
++                    maxSpearman: spearman.length === 0 ? 0 : Math.max(...spearman),
++                    qSpreadPositiveSessions: qSpreadSigns.positive,
++                    qSpreadNegativeSessions: qSpreadSigns.negative,
++                    qSpreadZeroSessions: qSpreadSigns.zero,
++                    qSpreadSignConsistency: qSpreadSigns.consistency,
++                    medianQSpreadBps: median(qSpread),
++                    medianDirectionConsistency: median(researchRows.map((row) => row.feature.directionConsistency)),
++                    medianStabilityScore: median(stabilityScores),
++                    minStabilityScore: stabilityScores.length === 0 ? 0 : Math.min(...stabilityScores),
++                    medianPhaseSignConsistency: median(stabilityRows.map((row) => row.feature.phaseSignConsistency)),
++                    medianBlockSignConsistency: median(stabilityRows.map((row) => row.feature.blockSignConsistency)),
++                };
++            });
++
++            return {
++                horizonMs,
++                sessionsTotal: inputs.length,
++                sessionsUsable: usableInputs.length,
++                sessionsRankingEnabled: researchHorizons.filter((horizon) => horizon?.rankingEnabled).length,
++                sessionsResearchReady: researchHorizons.filter((horizon) => horizon?.researchReady).length,
++                sessionsStabilityGate: stabilityHorizons.filter((horizon) => horizon?.stabilityGate).length,
++                medianEligibleOutcomes: median(researchHorizons.flatMap((horizon) => horizon ? [horizon.eligibleOutcomes] : [])),
++                medianIndependentWindows: median(stabilityHorizons.flatMap((horizon) => horizon ? [horizon.approximateIndependentWindows] : [])),
++                features,
++            };
++        });
++
++        return {
++            generatedAt: Date.now(),
++            datasetVersion: canonical.datasetVersion,
++            schemaVersion: canonical.schemaVersion,
++            symbol: canonical.symbol,
++            sampleIntervalMs: canonical.sampleIntervalMs,
++            horizonsMs: [...canonical.horizonsMs],
++            featureCount: canonical.featureNames.length,
++            sessions,
++            horizons,
++            note: 'Cross-session evidence only. Do not treat feature ranking or sign consistency as a production trading edge or automatic pruning decision.',
++        };
++    }
++}
+diff --git a/tests/spotMicrostructureMultiSessionAnalyzer.md5-2-prep.test.ts b/tests/spotMicrostructureMultiSessionAnalyzer.md5-2-prep.test.ts
+new file mode 100644
+index 0000000..02d7398
+--- /dev/null
++++ b/tests/spotMicrostructureMultiSessionAnalyzer.md5-2-prep.test.ts
+@@ -0,0 +1,157 @@
++import {
++    SpotMicrostructureMultiSessionAnalyzer,
++    MultiSessionAnalysisInput,
++} from '../src/services/research/spotMicrostructureMultiSessionAnalyzer';
++import { SpotMicrostructureResearchReport } from '../src/services/research/spotMicrostructureResearchAnalyzer';
++import { StabilityResearchReport } from '../src/services/research/spotMicrostructureStabilityAnalyzer';
++import { SPOT_MICROSTRUCTURE_SCHEMA_VERSION } from '../src/services/marketData/spotMicrostructureTypes';
++import { SPOT_RESEARCH_DATASET_VERSION } from '../src/services/research/spotMicrostructureDatasetTypes';
++
++function manifest() {
++    return {
++        datasetVersion: SPOT_RESEARCH_DATASET_VERSION,
++        schemaVersion: SPOT_MICROSTRUCTURE_SCHEMA_VERSION,
++        symbol: 'BTCUSDT',
++        featureNames: ['f1', 'f2'],
++        sampleIntervalMs: 1000,
++        horizonsMs: [1000],
++        createdAt: 1,
++    };
++}
++
++function research(overrides: Partial<SpotMicrostructureResearchReport> = {}, rho = 0.2, qSpread = 1): SpotMicrostructureResearchReport {
++    return {
++        generatedAt: 1,
++        manifest: manifest(),
++        qa: {
++            featureRecords: 7200, outcomeRecords: 35000, duplicateFeatureIds: 0, duplicateOutcomeKeys: 0,
++            orphanOutcomes: 0, featureDimensionMismatches: 0, nonFiniteFeatureRows: 0,
++            featureNameMismatches: 0, healthyFeaturePct: 100,
++        },
++        options: {
++            requireHealthyTarget: true, maxObservationLagMs: 500, quantiles: 5,
++            minSamplesForRanking: 1000, minSamplesResearchReady: 5000,
++            redundancyThreshold: 0.97, topFeatureCount: 15,
++        },
++        horizons: [{
++            horizonMs: 1000, totalOutcomes: 7100, eligibleOutcomes: 7000, unhealthyDropped: 0,
++            lagDropped: 100, coveragePct: 98, observationLagMs: { count: 7000, mean: 50, stdDev: 10, min: 1, p50: 50, p95: 90, max: 200 },
++            forwardReturnBps: { count: 7000, mean: 0, stdDev: 1, min: -3, p50: 0, p95: 2, max: 3 },
++            rankingEnabled: true, researchReady: true,
++            features: [
++                { featureName: 'f1', samples: 7000, pearsonIc: rho, spearmanIc: rho, quantiles: [], topMinusBottomBps: qSpread, directionConsistency: 1 },
++                { featureName: 'f2', samples: 7000, pearsonIc: -rho, spearmanIc: -rho, quantiles: [], topMinusBottomBps: -qSpread, directionConsistency: 0.75 },
++            ],
++            topByAbsSpearman: [],
++        }],
++        redundantPairs: [],
++        ...overrides,
++    };
++}
++
++function stability(overrides: Partial<StabilityResearchReport> = {}, rho = 0.2, score = 0.1): StabilityResearchReport {
++    const feature = (featureName: string, value: number) => ({
++        featureName, samples: 7000, fullSpearman: value, nonOverlapStride: 1, nonOverlapPhasesUsed: 1,
++        medianPhaseSpearman: value, phaseSignConsistency: 1, blocksUsed: 20,
++        medianBlockSpearman: value, blockSignConsistency: 1, stabilityScore: score,
++    });
++    return {
++        generatedAt: 1,
++        manifest: manifest(),
++        options: { requireHealthyTarget: true, maxObservationLagMs: 500, blockMs: 300000, minBlockSamples: 60, minPhaseSamples: 20, minIndependentWindows: 100, topFeatureCount: 15 },
++        timingQa: {
++            featureRecords: 7200, firstObservedAt: 1, lastObservedAt: 7200000,
++            expectedSlots: 7200, observedSlots: 7200, missingSlots: 0, duplicateSlots: 0,
++            cadenceCoveragePct: 100,
++            intervalMs: { count: 7199, mean: 1000, stdDev: 0, min: 1000, p50: 1000, p95: 1000, max: 1000 },
++            absoluteGridErrorMs: { count: 7200, mean: 50, stdDev: 10, min: 0, p50: 50, p95: 90, max: 100 },
++            gridPhasesMs: [382], gridPhaseChanges: 0, continuityBreaks: 0,
++        },
++        horizons: [{
++            horizonMs: 1000, eligibleOutcomes: 7000, approximateIndependentWindows: 7000,
++            overlapFactor: 1, blocksAvailable: 24, independentWindowGate: true, stabilityGate: true,
++            features: [feature('f1', rho), feature('f2', -rho)], topStable: [],
++        }],
++        ...overrides,
++    };
++}
++
++function input(id: string, rho = 0.2, qSpread = 1): MultiSessionAnalysisInput {
++    return { sessionId: id, research: research({}, rho, qSpread), stability: stability({}, rho, Math.abs(rho) / 2) };
++}
++
++describe('MD5 multi-session evidence analyzer', () => {
++    test('aggregates sign consistency and medians across compatible sessions', () => {
++        const report = new SpotMicrostructureMultiSessionAnalyzer().analyze([
++            input('asia', 0.2, 1), input('europe', 0.4, 2), input('us', 0.3, 1.5),
++        ]);
++        const f1 = report.horizons[0].features.find((feature) => feature.featureName === 'f1')!;
++        expect(report.sessions).toHaveLength(3);
++        expect(f1.sessionsWithResearchMetric).toBe(3);
++        expect(f1.spearmanSignConsistency).toBe(1);
++        expect(f1.medianSpearman).toBeCloseTo(0.3, 12);
++        expect(f1.medianAbsSpearman).toBeCloseTo(0.3, 12);
++        expect(f1.qSpreadSignConsistency).toBe(1);
++        expect(f1.medianQSpreadBps).toBeCloseTo(1.5, 12);
++    });
++
++    test('exposes sign instability instead of silently selecting a direction', () => {
++        const report = new SpotMicrostructureMultiSessionAnalyzer().analyze([
++            input('a', 0.2, 1), input('b', -0.4, -2), input('c', 0.3, 1.5),
++        ]);
++        const f1 = report.horizons[0].features.find((feature) => feature.featureName === 'f1')!;
++        expect(f1.spearmanPositiveSessions).toBe(2);
++        expect(f1.spearmanNegativeSessions).toBe(1);
++        expect(f1.spearmanSignConsistency).toBeCloseTo(2 / 3, 12);
++        expect(f1.qSpreadSignConsistency).toBeCloseTo(2 / 3, 12);
++    });
++
++    test('marks a session with structural QA errors unusable for evidence', () => {
++        const bad = input('bad');
++        bad.research.qa.duplicateFeatureIds = 1;
++        const report = new SpotMicrostructureMultiSessionAnalyzer().analyze([input('good'), bad]);
++        expect(report.sessions.find((session) => session.sessionId === 'bad')?.structuralQaPass).toBe(false);
++        expect(report.horizons[0].sessionsUsable).toBe(1);
++        expect(report.horizons[0].features[0].sessionsWithResearchMetric).toBe(1);
++    });
++
++    test('marks restart phase changes unusable for cross-session evidence', () => {
++        const bad = input('bad-timing');
++        bad.stability.timingQa.gridPhasesMs = [100, 400];
++        bad.stability.timingQa.gridPhaseChanges = 1;
++        const report = new SpotMicrostructureMultiSessionAnalyzer().analyze([input('good'), bad]);
++        expect(report.sessions.find((session) => session.sessionId === 'bad-timing')?.timingQaPass).toBe(false);
++        expect(report.horizons[0].sessionsUsable).toBe(1);
++    });
++
++    test('does not count research metrics when a horizon has ranking disabled', () => {
++        const short = input('short');
++        short.research.horizons[0].rankingEnabled = false;
++        short.research.horizons[0].researchReady = false;
++        short.research.horizons[0].features = [];
++        const report = new SpotMicrostructureMultiSessionAnalyzer().analyze([input('long'), short]);
++        expect(report.horizons[0].sessionsRankingEnabled).toBe(1);
++        expect(report.horizons[0].features[0].sessionsWithResearchMetric).toBe(1);
++    });
++
++    test('fails closed on dataset-version mismatch', () => {
++        const bad = input('bad');
++        bad.research.manifest.datasetVersion = 'wrong-version' as any;
++        bad.stability.manifest.datasetVersion = 'wrong-version' as any;
++        expect(() => new SpotMicrostructureMultiSessionAnalyzer().analyze([input('good'), bad]))
++            .toThrow(/datasetVersion mismatch/i);
++    });
++
++    test('fails closed on feature-order mismatch', () => {
++        const bad = input('bad');
++        bad.research.manifest.featureNames = ['f2', 'f1'];
++        bad.stability.manifest.featureNames = ['f2', 'f1'];
++        expect(() => new SpotMicrostructureMultiSessionAnalyzer().analyze([input('good'), bad]))
++            .toThrow(/featureNames mismatch/i);
++    });
++
++    test('requires at least two sessions', () => {
++        expect(() => new SpotMicrostructureMultiSessionAnalyzer().analyze([input('only')]))
++            .toThrow(/at least two sessions/i);
++    });
++});
