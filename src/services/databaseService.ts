@@ -236,12 +236,24 @@ export class DatabaseService {
     }
 
     /**
-     * Get open live trades (status OPEN/LIVE_OPEN)
+     * Get live trades that still carry real Spot exposure.
+     *
+     * Pending entry is included only after Binance reports a positive executed
+     * quantity. Pending exits remain visible while residual inventory exists so
+     * the risk layer never loses sight of real Spot exposure.
      */
     async getOpenLiveTrades(userId?: number, symbol?: string) {
         return await this.prisma.trade.findMany({
             where: {
-                status: { in: ['OPEN', 'LIVE_OPEN'] },
+                status: {
+                    in: [
+                        'OPEN',
+                        'LIVE_OPEN',
+                        'LIVE_ENTRY_PENDING_RECONCILIATION',
+                        'LIVE_EXIT_PENDING_RECONCILIATION',
+                    ],
+                },
+                quantity: { gt: 0 },
                 ...(userId !== undefined && { userId }),
                 ...(symbol && { symbol })
             },
@@ -250,14 +262,90 @@ export class DatabaseService {
     }
 
     /**
-     * Count open live trades for a user
+     * Count live positions and unresolved live entry/exit orders for a user.
+     * Zero-fill pending entries count toward the cap to avoid submitting another
+     * order while the first order still has unknown/unfinished exchange state.
      */
     async countOpenLiveTrades(userId: number) {
         return await this.prisma.trade.count({
             where: {
                 userId,
-                status: { in: ['OPEN', 'LIVE_OPEN'] }
+                status: {
+                    in: [
+                        'OPEN',
+                        'LIVE_OPEN',
+                        'LIVE_ENTRY_PENDING_RECONCILIATION',
+                        'LIVE_EXIT_PENDING_RECONCILIATION',
+                    ],
+                },
             }
+        });
+    }
+
+    /** Return all live trades whose Binance order state still needs recovery. */
+    async getPendingLiveTrades() {
+        return await this.prisma.trade.findMany({
+            where: {
+                status: {
+                    in: [
+                        'LIVE_ENTRY_PENDING_RECONCILIATION',
+                        'LIVE_EXIT_PENDING_RECONCILIATION',
+                    ],
+                },
+            },
+            orderBy: { updatedAt: 'asc' },
+        });
+    }
+
+    /**
+     * Find a pending live trade by the persisted Binance order id.
+     * Order ids are stored in JSON tags; filtering the small pending set in
+     * application code keeps this compatible with both SQLite and PostgreSQL.
+     */
+    async findPendingLiveTradeByOrderId(orderId: number, symbol?: string) {
+        const candidates = await this.prisma.trade.findMany({
+            where: {
+                status: {
+                    in: [
+                        'LIVE_ENTRY_PENDING_RECONCILIATION',
+                        'LIVE_EXIT_PENDING_RECONCILIATION',
+                    ],
+                },
+                ...(symbol && { symbol: symbol.toUpperCase() }),
+            },
+            orderBy: { updatedAt: 'desc' },
+        });
+
+        return candidates.find((trade: any) => {
+            if (!trade.tags) return false;
+            try {
+                const tags = JSON.parse(trade.tags) as Record<string, unknown>;
+                return Number(tags.entryOrderId) === orderId || Number(tags.exitOrderId) === orderId;
+            } catch {
+                return false;
+            }
+        }) ?? null;
+    }
+
+    /**
+     * Narrow execution-state updater used by the live reconciliation lifecycle.
+     * This deliberately avoids a schema migration: exchange recovery metadata is
+     * persisted in tags while the existing Trade columns keep current exposure.
+     */
+    async updateLiveTradeExecution(tradeId: string, data: {
+        quantity?: number;
+        entryPrice?: number;
+        status?: string;
+        notes?: string;
+        tags?: string;
+        exitPrice?: number | null;
+        exitTime?: Date | null;
+        profit?: number | null;
+        profitPct?: number | null;
+    }) {
+        return await this.prisma.trade.update({
+            where: { id: tradeId },
+            data,
         });
     }
 

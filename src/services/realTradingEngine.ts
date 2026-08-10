@@ -1,7 +1,7 @@
 import { IStrategy } from '../types/strategy';
 import { SignalResult } from './signalGenerator';
 import { db } from './databaseService';
-import { binanceOrderService } from './binanceOrderService';
+import { BinanceOrderResponse, binanceOrderService } from './binanceOrderService';
 import { ExecutionFill, InvalidExecutionCommandError, TradingInstrument, UnsupportedPositionCommandError } from '../domain/execution';
 import { ExecutionRouter } from './execution/executionRouter';
 import {
@@ -51,6 +51,8 @@ export type LiveNotifier = (message: string, userId?: number) => Promise<void> |
 
 export class RealTradingEngine {
     private notifier?: LiveNotifier;
+    private startupRecoveryRequired = false;
+    private startupRecoveryComplete = true;
 
     constructor(
         notifier?: LiveNotifier,
@@ -63,12 +65,32 @@ export class RealTradingEngine {
         this.notifier = notifier;
     }
 
+    /**
+     * Production startup gate: live orders must not be submitted until persisted
+     * unresolved exchange orders have completed their initial recovery sweep.
+     */
+    requireStartupRecovery(): void {
+        this.startupRecoveryRequired = true;
+        this.startupRecoveryComplete = false;
+    }
+
+    markStartupRecoveryComplete(): void {
+        if (this.startupRecoveryRequired) {
+            this.startupRecoveryComplete = true;
+        }
+    }
+
+    isStartupRecoveryReady(): boolean {
+        return !this.startupRecoveryRequired || this.startupRecoveryComplete;
+    }
+
     private async notify(message: string, userId?: number): Promise<void> {
         if (!this.notifier) return;
         await this.notifier(message, userId);
     }
 
     async executeEntry(input: ExecuteEntryInput): Promise<ExecuteEntryResult> {
+        this.assertStartupRecoveryReady();
         const { userId, symbol, signal, strategy, riskParams } = input;
 
         if (signal.action === 'HOLD') {
@@ -148,10 +170,14 @@ export class RealTradingEngine {
         });
         this.assertSpotExecutionFill(execution, 'BUY', upperSymbol);
 
-        const trackedQuantity = execution.executedQuantity > 0
-            ? execution.executedQuantity
-            : quantity;
+        // Never manufacture Spot inventory from the requested quantity.
+        // A zero-fill accepted order is persisted as pending with quantity=0
+        // until Binance confirms actual execution.
+        const trackedQuantity = Math.max(0, execution.executedQuantity);
         const entryPrice = execution.averageFillPrice ?? currentPrice;
+        const entryStatus = execution.requiresReconciliation
+            ? 'LIVE_ENTRY_PENDING_RECONCILIATION'
+            : 'LIVE_OPEN';
 
         await db.logError({
             level: execution.requiresReconciliation ? 'WARN' : 'INFO',
@@ -184,6 +210,15 @@ export class RealTradingEngine {
             requiresReconciliation: execution.requiresReconciliation,
             requestedQuantity: quantity,
             executedQuantity: execution.executedQuantity,
+            entryRequestedQuantity: quantity,
+            entryExecutedQuantity: execution.executedQuantity,
+            entryCumulativeQuoteQuantity: execution.cumulativeQuoteQuantity,
+            entryAverageFillPrice: execution.averageFillPrice ?? null,
+            entryPriceProvisional: execution.averageFillPrice === undefined,
+            // Updated to the actual terminal executed quantity by reconciliation.
+            positionInitialQuantity: trackedQuantity,
+            realizedExitQuantityCarry: 0,
+            realizedExitQuoteCarry: 0,
             risk: {
                 riskPerTrade: riskParams.riskPerTrade,
                 kellyFraction,
@@ -204,12 +239,21 @@ export class RealTradingEngine {
             notes: execution.requiresReconciliation
                 ? `LIVE_ENTRY_RECONCILIATION:${execution.orderId}`
                 : `LIVE_ENTRY:${execution.orderId}`,
-            status: 'LIVE_OPEN',
+            status: entryStatus,
             tags: JSON.stringify(metadata),
         });
 
+        if (execution.requiresReconciliation) {
+            await this.attemptImmediateReconciliation(
+                execution.orderId,
+                upperSymbol,
+                userId,
+                'POST_SUBMIT_ENTRY',
+            );
+        }
+
         await this.notify(
-            `✅ LIVE ENTRY ${upperSymbol}\nSide: BUY\nQty: ${trackedQuantity}\nEntry: ${entryPrice.toFixed(4)}\nSL: ${stopLoss.toFixed(4)}\nTP: ${takeProfit.toFixed(4)}\nOrder ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Reconciliation required' : ''}`,
+            `✅ LIVE ENTRY ${upperSymbol}\nSide: BUY\nExecuted Qty: ${trackedQuantity}\nEntry: ${entryPrice.toFixed(4)}\nSL: ${stopLoss.toFixed(4)}\nTP: ${takeProfit.toFixed(4)}\nOrder ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Exchange response required reconciliation; canonical status check triggered.' : ''}`,
             userId,
         );
 
@@ -243,6 +287,7 @@ export class RealTradingEngine {
     }
 
     async executeExit(tradeId: string, reason: string): Promise<ExitResult> {
+        this.assertStartupRecoveryReady();
         const trade = await db.getTradeById(tradeId);
         if (!trade) {
             throw new Error(`Trade not found: ${tradeId}`);
@@ -252,6 +297,17 @@ export class RealTradingEngine {
         const symbol = trade.symbol.toUpperCase();
 
         const metadata = this.parseTags(trade.tags);
+        if (trade.status === 'LIVE_EXIT_PENDING_RECONCILIATION') {
+            throw new Error(
+                `Trade ${trade.id} already has an unresolved Spot exit. Reconcile the existing order before submitting another SELL.`,
+            );
+        }
+        if (trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION') {
+            throw new Error(
+                `Trade ${trade.id} entry is still pending reconciliation. Resolve the BUY order before submitting an exit.`,
+            );
+        }
+
         const product = resolveTradeProductFromMetadata(metadata);
         const position = mapLegacyTradeSideToClosePosition(product, trade.side as 'BUY' | 'SELL' | 'LONG' | 'SHORT');
         if (product !== 'SPOT') {
@@ -329,17 +385,61 @@ export class RealTradingEngine {
             },
         });
 
-        await db.closeTrade(trade.id, resolvedExitPrice, undefined, {
-            status: execution.requiresReconciliation
-                ? 'LIVE_EXIT_PENDING_RECONCILIATION'
-                : 'CLOSED',
-            notes: execution.requiresReconciliation
-                ? `LIVE_EXIT_RECONCILIATION:${execution.orderId}:${reason}`
-                : `LIVE_EXIT:${execution.orderId}:${reason}`,
-        });
+        const previousExitCarryQuantity = this.readFiniteMetadataNumber(metadata, 'realizedExitQuantityCarry');
+        const previousExitCarryQuote = this.readFiniteMetadataNumber(metadata, 'realizedExitQuoteCarry');
 
+        if (execution.requiresReconciliation) {
+            const remainingQuantity = Math.max(0, quantity - execution.executedQuantity);
+            const pendingMetadata = {
+                ...(metadata ?? {}),
+                exitOrderId: execution.orderId,
+                exitReason: reason,
+                exitStatus: execution.status,
+                exitBaseQuantity: quantity,
+                exitRequestedQuantity: execution.requestedQuantity,
+                exitOrderExecutedQuantity: execution.executedQuantity,
+                exitOrderCumulativeQuoteQuantity: execution.cumulativeQuoteQuantity,
+                exitOrderAverageFillPrice: execution.averageFillPrice ?? null,
+                requiresReconciliation: true,
+            };
+
+            await db.updateLiveTradeExecution(trade.id, {
+                quantity: remainingQuantity,
+                status: 'LIVE_EXIT_PENDING_RECONCILIATION',
+                notes: `LIVE_EXIT_RECONCILIATION:${execution.orderId}:${reason}`,
+                tags: JSON.stringify(pendingMetadata),
+            });
+        } else if (previousExitCarryQuantity > 0 || previousExitCarryQuote > 0) {
+            await this.finalizeExitWithCarry(
+                trade,
+                metadata,
+                execution.executedQuantity,
+                execution.cumulativeQuoteQuantity,
+                execution.orderId,
+                reason,
+                execution.status,
+            );
+        } else {
+            await db.closeTrade(trade.id, resolvedExitPrice, undefined, {
+                status: 'CLOSED',
+                notes: `LIVE_EXIT:${execution.orderId}:${reason}`,
+            });
+        }
+
+        if (execution.requiresReconciliation) {
+            await this.attemptImmediateReconciliation(
+                execution.orderId,
+                symbol,
+                userId,
+                'POST_SUBMIT_EXIT',
+            );
+        }
+
+        const remainingForNotice = execution.requiresReconciliation
+            ? Math.max(0, quantity - execution.executedQuantity)
+            : 0;
         await this.notify(
-            `📤 LIVE EXIT ${symbol}\nReason: ${reason}\nExit Price: ${resolvedExitPrice.toFixed(4)}\nExit Order ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Reconciliation required before final closure' : ''}`,
+            `📤 LIVE EXIT ${symbol}\nReason: ${reason}\nExecuted Qty: ${execution.executedQuantity}\nExit Price: ${resolvedExitPrice.toFixed(4)}\nExit Order ID: ${execution.orderId}${execution.requiresReconciliation ? `\n⚠️ Exchange response required reconciliation; canonical status check triggered. Initially tracked residual: ${remainingForNotice}` : ''}`,
             userId,
         );
 
@@ -367,6 +467,483 @@ export class RealTradingEngine {
             exitPrice: resolvedExitPrice,
             reason,
         };
+    }
+
+    private async attemptImmediateReconciliation(
+        orderId: number,
+        symbol: string,
+        userId: number,
+        eventStatus: string,
+    ): Promise<void> {
+        try {
+            await this.reconcileOrderUpdate(orderId, symbol, eventStatus);
+        } catch (error) {
+            // The exchange already accepted the order. Never surface this as a
+            // submission failure that a caller might retry and duplicate.
+            await db.logError({
+                level: 'WARN',
+                source: 'realTradingEngine.attemptImmediateReconciliation',
+                message: `Immediate canonical reconciliation deferred for ${symbol} orderId=${orderId}: ${error instanceof Error ? error.message : String(error)}`,
+                userId,
+                symbol,
+                metadata: { orderId, eventStatus },
+            });
+        }
+    }
+
+    /**
+     * Legacy F3 hook kept for compatibility. A FILLED execution report delegates
+     * here; the canonical state is always re-read from Binance REST before local
+     * state is changed.
+     */
+    async confirmFill(orderId: number): Promise<void> {
+        await this.reconcileOrderUpdate(orderId);
+    }
+
+    /**
+     * Reconcile one pending live Spot order against Binance's canonical order
+     * status. `symbolHint`/`eventStatus` are provenance only; REST remains the
+     * source of truth for cumulative execution state.
+     */
+    async reconcileOrderUpdate(orderId: number, symbolHint?: string, eventStatus?: string): Promise<boolean> {
+        const pendingTrade = await db.findPendingLiveTradeByOrderId(orderId, symbolHint);
+        if (!pendingTrade) {
+            return false;
+        }
+
+        const symbol = pendingTrade.symbol.toUpperCase();
+        const metadata = this.parseTags(pendingTrade.tags) ?? {};
+        const order = await binanceOrderService.getOrderStatus(symbol, orderId);
+
+        if (Number(metadata.entryOrderId) === orderId) {
+            await this.reconcileEntryOrder(pendingTrade, metadata, order, eventStatus);
+            return true;
+        }
+        if (Number(metadata.exitOrderId) === orderId) {
+            await this.reconcileExitOrder(pendingTrade, metadata, order, eventStatus);
+            return true;
+        }
+
+        await db.logError({
+            level: 'ERROR',
+            source: 'realTradingEngine.reconcileOrderUpdate',
+            message: `Pending trade ${pendingTrade.id} did not match persisted orderId=${orderId}`,
+            userId: pendingTrade.userId,
+            symbol,
+            metadata: { tradeId: pendingTrade.id, orderId, eventStatus },
+        });
+        return false;
+    }
+
+    /**
+     * Startup/recovery sweep. Safe to call repeatedly: every iteration derives
+     * state from cumulative Binance order quantities rather than applying deltas.
+     */
+    async reconcilePendingOrders(): Promise<{ checked: number; reconciled: number; failed: number }> {
+        const pendingTrades = await db.getPendingLiveTrades();
+        let reconciled = 0;
+        let failed = 0;
+
+        for (const trade of pendingTrades) {
+            const metadata = this.parseTags(trade.tags) ?? {};
+            const orderId = trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION'
+                ? Number(metadata.entryOrderId)
+                : Number(metadata.exitOrderId);
+
+            if (!Number.isFinite(orderId) || orderId <= 0) {
+                failed += 1;
+                await db.logError({
+                    level: 'ERROR',
+                    source: 'realTradingEngine.reconcilePendingOrders',
+                    message: `Pending trade ${trade.id} has no valid Binance order id`,
+                    userId: trade.userId,
+                    symbol: trade.symbol,
+                    metadata: { tradeId: trade.id, status: trade.status },
+                });
+                continue;
+            }
+
+            try {
+                const didReconcile = await this.reconcileOrderUpdate(orderId, trade.symbol, 'STARTUP_RECOVERY');
+                if (didReconcile) reconciled += 1;
+            } catch (error) {
+                failed += 1;
+                await db.logError({
+                    level: 'ERROR',
+                    source: 'realTradingEngine.reconcilePendingOrders',
+                    message: `Failed to reconcile ${trade.symbol} orderId=${orderId}: ${error instanceof Error ? error.message : String(error)}`,
+                    userId: trade.userId,
+                    symbol: trade.symbol,
+                    metadata: { tradeId: trade.id, orderId, status: trade.status },
+                });
+            }
+        }
+
+        return { checked: pendingTrades.length, reconciled, failed };
+    }
+
+    private async reconcileEntryOrder(
+        trade: any,
+        metadata: Record<string, unknown>,
+        order: BinanceOrderResponse,
+        eventStatus?: string,
+    ): Promise<void> {
+        const status = this.normalizeOrderStatus(order.status);
+        const expectedOrderId = Number(metadata.entryOrderId);
+        this.assertReconciliationOrderIdentity(order, trade.symbol, 'BUY', expectedOrderId);
+        const executedQuantity = this.parseRequiredNonNegativeNumber(
+            order.executedQty,
+            'executedQty',
+            trade.symbol,
+            order.orderId,
+        );
+        const requestedQuantity = this.readFiniteMetadataNumber(metadata, 'entryRequestedQuantity');
+        if (requestedQuantity > 0 && executedQuantity > requestedQuantity + this.quantityTolerance(requestedQuantity)) {
+            throw new InvalidExecutionCommandError(
+                `Entry reconciliation overfill detected for ${trade.symbol} orderId=${order.orderId}: executed=${executedQuantity}, requested=${requestedQuantity}.`,
+            );
+        }
+        const cumulativeQuote = this.parseRequiredNonNegativeNumber(
+            order.cummulativeQuoteQty,
+            'cummulativeQuoteQty',
+            trade.symbol,
+            order.orderId,
+        );
+        const averageFillPrice = executedQuantity > 0 && cumulativeQuote > 0
+            ? cumulativeQuote / executedQuantity
+            : this.parsePositiveNumber(order.price);
+        const isTerminal = this.isTerminalOrderStatus(status);
+        if (isTerminal && executedQuantity > 0 && averageFillPrice === undefined) {
+            throw new InvalidExecutionCommandError(
+                `Entry reconciliation has executed inventory but no trustworthy fill price for ${trade.symbol} orderId=${order.orderId}.`,
+            );
+        }
+
+        const nextMetadata: Record<string, unknown> = {
+            ...metadata,
+            executionStatus: status,
+            entryStatus: status,
+            entryExecutedQuantity: executedQuantity,
+            executedQuantity,
+            entryCumulativeQuoteQuantity: cumulativeQuote,
+            entryAverageFillPrice: averageFillPrice ?? null,
+            entryPriceProvisional: averageFillPrice === undefined,
+            lastReconciledAt: new Date().toISOString(),
+            lastExecutionEventStatus: eventStatus ?? null,
+        };
+
+        if (!isTerminal) {
+            nextMetadata.requiresReconciliation = true;
+            nextMetadata.positionInitialQuantity = executedQuantity;
+            await db.updateLiveTradeExecution(trade.id, {
+                quantity: executedQuantity,
+                ...(averageFillPrice !== undefined && { entryPrice: averageFillPrice }),
+                status: 'LIVE_ENTRY_PENDING_RECONCILIATION',
+                notes: `LIVE_ENTRY_RECONCILIATION:${order.orderId}`,
+                tags: JSON.stringify(nextMetadata),
+            });
+            return;
+        }
+
+        if (executedQuantity <= 0) {
+            // Terminal zero-fill means no Spot exposure ever existed.
+            nextMetadata.requiresReconciliation = false;
+            nextMetadata.positionInitialQuantity = 0;
+            nextMetadata.entryTerminalStatus = status;
+            await db.updateLiveTradeExecution(trade.id, {
+                quantity: 0,
+                status: 'CANCELLED',
+                notes: `LIVE_ENTRY_TERMINAL_ZERO_FILL:${order.orderId}:${status}`,
+                tags: JSON.stringify(nextMetadata),
+            });
+            await this.notify(
+                `⚠️ LIVE ENTRY ${trade.symbol} ended ${status} with zero executed quantity. No Spot position was created.`,
+                trade.userId,
+            );
+            return;
+        }
+
+        // A terminal order can legitimately finish below requested quantity after
+        // cancellation/expiry. The actual executed quantity becomes the position.
+        nextMetadata.requiresReconciliation = false;
+        nextMetadata.positionInitialQuantity = executedQuantity;
+        nextMetadata.entryTerminalStatus = status;
+        nextMetadata.entryTerminalShortFill = executedQuantity + this.quantityTolerance(executedQuantity)
+            < this.readFiniteMetadataNumber(metadata, 'entryRequestedQuantity');
+
+        await db.updateLiveTradeExecution(trade.id, {
+            quantity: executedQuantity,
+            ...(averageFillPrice !== undefined && { entryPrice: averageFillPrice }),
+            status: 'LIVE_OPEN',
+            notes: `LIVE_ENTRY_RECONCILED:${order.orderId}:${status}`,
+            tags: JSON.stringify(nextMetadata),
+        });
+
+        await db.logError({
+            level: status === 'FILLED' ? 'INFO' : 'WARN',
+            source: 'realTradingEngine.reconcileEntryOrder',
+            message: `Spot entry reconciled ${trade.symbol} orderId=${order.orderId} status=${status} executed=${executedQuantity}`,
+            userId: trade.userId,
+            symbol: trade.symbol,
+            metadata: { tradeId: trade.id, orderId: order.orderId, status, executedQuantity },
+        });
+    }
+
+    private async reconcileExitOrder(
+        trade: any,
+        metadata: Record<string, unknown>,
+        order: BinanceOrderResponse,
+        eventStatus?: string,
+    ): Promise<void> {
+        const status = this.normalizeOrderStatus(order.status);
+        const expectedOrderId = Number(metadata.exitOrderId);
+        this.assertReconciliationOrderIdentity(order, trade.symbol, 'SELL', expectedOrderId);
+        const executedQuantity = this.parseRequiredNonNegativeNumber(
+            order.executedQty,
+            'executedQty',
+            trade.symbol,
+            order.orderId,
+        );
+        const cumulativeQuote = this.parseRequiredNonNegativeNumber(
+            order.cummulativeQuoteQty,
+            'cummulativeQuoteQty',
+            trade.symbol,
+            order.orderId,
+        );
+        const exitBaseQuantity = this.readFiniteMetadataNumber(metadata, 'exitBaseQuantity') || trade.quantity;
+        if (executedQuantity > exitBaseQuantity + this.quantityTolerance(exitBaseQuantity)) {
+            throw new InvalidExecutionCommandError(
+                `Exit reconciliation overfill detected for ${trade.symbol} orderId=${order.orderId}: executed=${executedQuantity}, base=${exitBaseQuantity}.`,
+            );
+        }
+        const requestedQuantity = this.readFiniteMetadataNumber(metadata, 'exitRequestedQuantity') || exitBaseQuantity;
+        const clampedExecuted = Math.min(executedQuantity, exitBaseQuantity);
+        const remainingQuantity = Math.max(0, exitBaseQuantity - clampedExecuted);
+        const currentAverage = clampedExecuted > 0 && cumulativeQuote > 0
+            ? cumulativeQuote / clampedExecuted
+            : this.parsePositiveNumber(order.price);
+        const effectiveCumulativeQuote = cumulativeQuote > 0
+            ? cumulativeQuote
+            : (currentAverage !== undefined ? currentAverage * clampedExecuted : 0);
+        const carryQuantity = this.readFiniteMetadataNumber(metadata, 'realizedExitQuantityCarry');
+        const carryQuote = this.readFiniteMetadataNumber(metadata, 'realizedExitQuoteCarry');
+        const reason = String(metadata.exitReason ?? 'reconciliation');
+        const isTerminal = this.isTerminalOrderStatus(status);
+        if (isTerminal && clampedExecuted > 0 && currentAverage === undefined) {
+            throw new InvalidExecutionCommandError(
+                `Exit reconciliation has executed inventory but no trustworthy fill price for ${trade.symbol} orderId=${order.orderId}.`,
+            );
+        }
+
+        const nextMetadata: Record<string, unknown> = {
+            ...metadata,
+            exitStatus: status,
+            exitOrderExecutedQuantity: clampedExecuted,
+            exitOrderCumulativeQuoteQuantity: effectiveCumulativeQuote,
+            exitOrderAverageFillPrice: currentAverage ?? null,
+            lastReconciledAt: new Date().toISOString(),
+            lastExecutionEventStatus: eventStatus ?? null,
+        };
+
+        if (!isTerminal) {
+            nextMetadata.requiresReconciliation = true;
+            await db.updateLiveTradeExecution(trade.id, {
+                quantity: remainingQuantity,
+                status: 'LIVE_EXIT_PENDING_RECONCILIATION',
+                notes: `LIVE_EXIT_RECONCILIATION:${order.orderId}:${reason}`,
+                tags: JSON.stringify(nextMetadata),
+            });
+            return;
+        }
+
+        const totalRealizedQuantity = carryQuantity + clampedExecuted;
+        const totalRealizedQuote = carryQuote + effectiveCumulativeQuote;
+        const positionInitialQuantity = this.readFiniteMetadataNumber(metadata, 'positionInitialQuantity')
+            || Math.max(totalRealizedQuantity + remainingQuantity, requestedQuantity);
+        const fullyFlat = remainingQuantity <= this.quantityTolerance(exitBaseQuantity);
+
+        if (fullyFlat) {
+            await this.finalizeReconciledExit(
+                trade,
+                nextMetadata,
+                totalRealizedQuantity,
+                totalRealizedQuote,
+                positionInitialQuantity,
+                order.orderId,
+                reason,
+                status,
+            );
+            return;
+        }
+
+        // Terminal short-fill: the order is no longer live, so resume risk
+        // management on the residual inventory and carry realized fills forward.
+        nextMetadata.requiresReconciliation = false;
+        nextMetadata.realizedExitQuantityCarry = totalRealizedQuantity;
+        nextMetadata.realizedExitQuoteCarry = totalRealizedQuote;
+        nextMetadata.lastTerminalExitOrderId = order.orderId;
+        nextMetadata.lastTerminalExitStatus = status;
+        nextMetadata.exitOrderId = null;
+        nextMetadata.exitBaseQuantity = null;
+        nextMetadata.exitRequestedQuantity = null;
+
+        await db.updateLiveTradeExecution(trade.id, {
+            quantity: remainingQuantity,
+            status: 'LIVE_OPEN',
+            notes: `LIVE_EXIT_PARTIAL_TERMINAL:${order.orderId}:${status}:${reason}`,
+            tags: JSON.stringify(nextMetadata),
+        });
+
+        await this.notify(
+            `⚠️ LIVE EXIT ${trade.symbol} ended ${status} with residual inventory ${remainingQuantity}. Risk monitoring resumed for the remaining Spot position.`,
+            trade.userId,
+        );
+    }
+
+    private async finalizeExitWithCarry(
+        trade: any,
+        metadata: Record<string, unknown> | null,
+        currentExecutedQuantity: number,
+        currentCumulativeQuote: number,
+        orderId: number,
+        reason: string,
+        orderStatus: string,
+    ): Promise<void> {
+        const safeMetadata = metadata ?? {};
+        const carryQuantity = this.readFiniteMetadataNumber(safeMetadata, 'realizedExitQuantityCarry');
+        const carryQuote = this.readFiniteMetadataNumber(safeMetadata, 'realizedExitQuoteCarry');
+        const totalQuantity = carryQuantity + Math.max(0, currentExecutedQuantity);
+        const totalQuote = carryQuote + Math.max(0, currentCumulativeQuote);
+        const positionInitialQuantity = this.readFiniteMetadataNumber(safeMetadata, 'positionInitialQuantity')
+            || totalQuantity;
+
+        await this.finalizeReconciledExit(
+            trade,
+            safeMetadata,
+            totalQuantity,
+            totalQuote,
+            positionInitialQuantity,
+            orderId,
+            reason,
+            orderStatus,
+        );
+    }
+
+    private async finalizeReconciledExit(
+        trade: any,
+        metadata: Record<string, unknown>,
+        totalExitQuantity: number,
+        totalExitQuote: number,
+        positionInitialQuantity: number,
+        orderId: number,
+        reason: string,
+        orderStatus: string,
+    ): Promise<void> {
+        const safeExitQuantity = Math.max(0, totalExitQuantity);
+        const exitPrice = safeExitQuantity > 0 && totalExitQuote > 0
+            ? totalExitQuote / safeExitQuantity
+            : trade.entryPrice;
+        const realizedProfit = totalExitQuote - (trade.entryPrice * safeExitQuantity);
+        const costBasis = trade.entryPrice * Math.max(positionInitialQuantity, safeExitQuantity);
+        const profitPct = costBasis > 0 ? (realizedProfit / costBasis) * 100 : 0;
+
+        const finalMetadata: Record<string, unknown> = {
+            ...metadata,
+            requiresReconciliation: false,
+            exitOrderId: orderId,
+            exitStatus: orderStatus,
+            realizedExitQuantityCarry: safeExitQuantity,
+            realizedExitQuoteCarry: totalExitQuote,
+            finalExitQuantity: safeExitQuantity,
+            finalExitQuote: totalExitQuote,
+            finalExitAveragePrice: exitPrice,
+            finalExitReason: reason,
+            reconciledClosedAt: new Date().toISOString(),
+        };
+
+        await db.updateLiveTradeExecution(trade.id, {
+            quantity: Math.max(positionInitialQuantity, safeExitQuantity),
+            exitPrice,
+            exitTime: new Date(),
+            status: 'CLOSED',
+            profit: realizedProfit,
+            profitPct,
+            notes: `LIVE_EXIT_RECONCILED:${orderId}:${orderStatus}:${reason}`,
+            tags: JSON.stringify(finalMetadata),
+        });
+
+        await this.notify(
+            `✅ LIVE EXIT RECONCILED ${trade.symbol}\nOrder ID: ${orderId}\nStatus: ${orderStatus}\nFinal Qty: ${safeExitQuantity}\nAverage Exit: ${exitPrice.toFixed(4)}`,
+            trade.userId,
+        );
+    }
+
+    private assertReconciliationOrderIdentity(
+        order: BinanceOrderResponse,
+        expectedSymbol: string,
+        expectedSide: 'BUY' | 'SELL',
+        expectedOrderId: number,
+    ): void {
+        if (!Number.isFinite(expectedOrderId) || expectedOrderId <= 0 || Number(order.orderId) !== expectedOrderId) {
+            throw new InvalidExecutionCommandError(
+                `Reconciliation order id mismatch: expected=${expectedOrderId}, actual=${order.orderId}.`,
+            );
+        }
+        if (String(order.symbol || '').toUpperCase() !== expectedSymbol.toUpperCase()) {
+            throw new InvalidExecutionCommandError(
+                `Reconciliation order symbol mismatch: expected=${expectedSymbol}, actual=${order.symbol}.`,
+            );
+        }
+        if (order.side !== expectedSide) {
+            throw new InvalidExecutionCommandError(
+                `Reconciliation order side mismatch: expected=${expectedSide}, actual=${order.side}.`,
+            );
+        }
+    }
+
+    private normalizeOrderStatus(status: string | undefined): string {
+        return String(status || 'UNKNOWN').toUpperCase();
+    }
+
+    private isTerminalOrderStatus(status: string): boolean {
+        return ['FILLED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'EXPIRED_IN_MATCH', 'REJECTED'].includes(status);
+    }
+
+    private parseRequiredNonNegativeNumber(
+        value: string | number | undefined,
+        field: string,
+        symbol: string,
+        orderId: number,
+    ): number {
+        const parsed = Number(value);
+        if (!Number.isFinite(parsed) || parsed < 0) {
+            throw new InvalidExecutionCommandError(
+                `Invalid Binance reconciliation field ${field}=${String(value)} for ${symbol} orderId=${orderId}.`,
+            );
+        }
+        return parsed;
+    }
+
+    private parsePositiveNumber(value: string | number | undefined): number | undefined {
+        const parsed = Number(value ?? 0);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+    }
+
+    private readFiniteMetadataNumber(metadata: Record<string, unknown> | null, key: string): number {
+        const parsed = Number(metadata?.[key] ?? 0);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
+    }
+
+    private quantityTolerance(quantity: number): number {
+        return Math.max(1e-12, Math.abs(quantity) * 1e-12);
+    }
+
+    private assertStartupRecoveryReady(): void {
+        if (!this.isStartupRecoveryReady()) {
+            throw new InvalidExecutionCommandError(
+                'Live Spot execution is blocked until startup order reconciliation completes successfully.',
+            );
+        }
     }
 
     private resolveUsdtSpotInstrument(symbol: string): TradingInstrument {
@@ -402,6 +979,24 @@ export class RealTradingEngine {
         if (fill.symbol.toUpperCase() !== expectedSymbol.toUpperCase()) {
             throw new InvalidExecutionCommandError(
                 `ExecutionRouter returned unexpected symbol=${fill.symbol}; expected ${expectedSymbol}.`,
+            );
+        }
+
+        const requestedQuantity = Number(fill.requestedQuantity);
+        const executedQuantity = Number(fill.executedQuantity);
+        if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
+            throw new InvalidExecutionCommandError(
+                `ExecutionRouter returned invalid requestedQuantity=${fill.requestedQuantity} for ${expectedSymbol}.`,
+            );
+        }
+        if (!Number.isFinite(executedQuantity) || executedQuantity < 0) {
+            throw new InvalidExecutionCommandError(
+                `ExecutionRouter returned invalid executedQuantity=${fill.executedQuantity} for ${expectedSymbol}.`,
+            );
+        }
+        if (executedQuantity > requestedQuantity + this.quantityTolerance(requestedQuantity)) {
+            throw new InvalidExecutionCommandError(
+                `ExecutionRouter returned an impossible Spot overfill for ${expectedSymbol}: executed=${executedQuantity}, requested=${requestedQuantity}.`,
             );
         }
     }

@@ -4,6 +4,9 @@ jest.mock('../src/services/databaseService', () => ({
         saveTrade: jest.fn(),
         getTradeById: jest.fn(),
         closeTrade: jest.fn(),
+        updateLiveTradeExecution: jest.fn(),
+        findPendingLiveTradeByOrderId: jest.fn(),
+        getPendingLiveTrades: jest.fn(),
         logError: jest.fn(),
     },
 }));
@@ -17,6 +20,7 @@ jest.mock('../src/services/binanceOrderService', () => ({
         roundToStepSize: jest.fn(),
         placeMarketOrder: jest.fn(),
         cancelOrder: jest.fn(),
+        getOrderStatus: jest.fn(),
     },
 }));
 
@@ -97,6 +101,8 @@ describe('B4.2 Patch 2 - RealTradingEngine uses explicit execution semantics', (
         (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(0);
         (db.saveTrade as jest.Mock).mockResolvedValue({ id: 'trade-1' });
         (db.closeTrade as jest.Mock).mockResolvedValue({ id: 'trade-1' });
+        (db.updateLiveTradeExecution as jest.Mock).mockResolvedValue({ id: 'trade-1' });
+        (db.getPendingLiveTrades as jest.Mock).mockResolvedValue([]);
         (binanceOrderService.cancelOrder as jest.Mock).mockResolvedValue({});
     });
 
@@ -202,13 +208,14 @@ describe('B4.2 Patch 2 - RealTradingEngine uses explicit execution semantics', (
 
         await engine.executeExit('trade-1', 'stop_loss');
 
-        expect(db.closeTrade).toHaveBeenCalledWith(
+        expect(db.closeTrade).not.toHaveBeenCalled();
+        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
             'trade-1',
-            50500,
-            undefined,
             expect.objectContaining({
+                quantity: 0.006,
                 status: 'LIVE_EXIT_PENDING_RECONCILIATION',
                 notes: expect.stringContaining('LIVE_EXIT_RECONCILIATION:303'),
+                tags: expect.stringContaining('\"exitOrderId\":303'),
             }),
         );
     });

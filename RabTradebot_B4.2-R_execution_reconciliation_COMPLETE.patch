@@ -1,0 +1,2233 @@
+diff --git a/.env.development.example b/.env.development.example
+index a47d57a..3eac4a5 100644
+--- a/.env.development.example
++++ b/.env.development.example
+@@ -12,6 +12,8 @@ ADMIN_CHAT_ID=your_admin_chat_id_here
+ # Binance (Testnet)
+ BINANCE_TESTNET=true
+ BINANCE_TESTNET_URL=https://testnet.binance.vision
++# Optional explicit authenticated User Data Stream endpoint
++# BINANCE_WS_API_URL=wss://ws-api.testnet.binance.vision/ws-api/v3
+ BINANCE_API_KEY=your_binance_testnet_api_key_here
+ BINANCE_API_SECRET=your_binance_testnet_api_secret_here
+ 
+diff --git a/.env.example b/.env.example
+index 517f184..7eca707 100644
+--- a/.env.example
++++ b/.env.example
+@@ -23,6 +23,10 @@ BINANCE_API_SECRET=your_binance_api_secret_here
+ BINANCE_TESTNET=true
+ # Optional explicit Testnet URL
+ BINANCE_TESTNET_URL=https://testnet.binance.vision
++# Optional WebSocket API override for authenticated User Data Stream
++# Mainnet: wss://ws-api.binance.com:443/ws-api/v3
++# Testnet: wss://ws-api.testnet.binance.vision/ws-api/v3
++# BINANCE_WS_API_URL=wss://ws-api.testnet.binance.vision/ws-api/v3
+ # Optional override for region-specific endpoint
+ # BINANCE_BASE_URL=https://api.binance.com
+ # Optional order service tuning
+diff --git a/.env.production.example b/.env.production.example
+index 657299e..769c42a 100644
+--- a/.env.production.example
++++ b/.env.production.example
+@@ -12,6 +12,8 @@ ADMIN_CHAT_ID=your_admin_chat_id_here
+ # Binance (Mainnet)
+ BINANCE_TESTNET=false
+ BINANCE_BASE_URL=https://api.binance.com
++# Optional explicit authenticated User Data Stream endpoint
++# BINANCE_WS_API_URL=wss://ws-api.binance.com:443/ws-api/v3
+ BINANCE_API_KEY=your_binance_mainnet_api_key_here
+ BINANCE_API_SECRET=your_binance_mainnet_api_secret_here
+ 
+diff --git a/src/enhancedBot.ts b/src/enhancedBot.ts
+index 65d0c94..ee1b5a4 100644
+--- a/src/enhancedBot.ts
++++ b/src/enhancedBot.ts
+@@ -4102,13 +4102,66 @@ setInterval(async () => {
+   }
+ }, parseInt(process.env.HEALTH_MONITOR_INTERVAL_MS || '300000', 10));
+ 
++// B4.2-R: once Binance live execution is configured, fail closed until the
++// persisted pending-order startup sweep has completed without unresolved errors.
++if (binanceOrderService.isConfigured()) {
++  realTradingEngine.requireStartupRecovery();
++}
++
+ bot
+   .launch({ dropPendingUpdates: true })
+-  .then(() => {
++  .then(async () => {
+     withLogContext({ service: 'enhancedBot' }).info('Bot started successfully');
+     withLogContext({ service: 'enhancedBot' }).info('Ready to receive commands');
+     withLogContext({ service: 'enhancedBot' }).info('Send /start to see available commands');
+     withLogContext({ service: 'enhancedBot' }).info('Prediction verification service active');
++
++    // B4.2-R: recover persisted live orders before normal risk actions resume.
++    if (binanceOrderService.isConfigured()) {
++      try {
++        const recovery = await realTradingEngine.reconcilePendingOrders();
++        if (recovery.failed === 0) {
++          realTradingEngine.markStartupRecoveryComplete();
++          withLogContext({ service: 'enhancedBot' }).info(
++            { recovery },
++            'Live Spot order reconciliation startup sweep complete; execution gate opened',
++          );
++        } else {
++          withLogContext({ service: 'enhancedBot' }).error(
++            { recovery },
++            'Live Spot startup reconciliation has unresolved failures; execution remains fail-closed',
++          );
++        }
++      } catch (error) {
++        withLogContext({ service: 'enhancedBot' }).error(
++          { err: error },
++          'Initial live Spot order reconciliation sweep failed',
++        );
++      }
++
++      try {
++        connectionManager.startUserDataStreamV2({
++          onExecutionReport: (data) => {
++            riskMonitorLoop.handleOrderExecutionReport(data).catch((error) => {
++              withLogContext({ service: 'enhancedBot', symbol: data.symbol }).error(
++                { err: error, orderId: data.orderId, status: data.status },
++                'WebSocket API execution reconciliation failed',
++              );
++            });
++          },
++        });
++        withLogContext({ service: 'enhancedBot' }).info(
++          'Binance WebSocket API User Data Stream reconciliation active',
++        );
++      } catch (error) {
++        // REST reconciliation sweep in RiskMonitorLoop remains the fail-safe.
++        withLogContext({ service: 'enhancedBot' }).error(
++          { err: error },
++          'Failed to start modern Binance User Data Stream; REST reconciliation fallback remains active',
++        );
++      }
++    }
++
+     riskMonitorLoop.start().catch((error) => {
+       withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start risk monitor loop');
+     });
+@@ -4127,6 +4180,7 @@ process.once('SIGINT', () => {
+     }
+   }
+   riskMonitorLoop.stop();
++  connectionManager.shutdown();
+   predictionVerifier.stop();
+   bot.stop('SIGINT');
+   db.disconnect();
+@@ -4141,6 +4195,7 @@ process.once('SIGTERM', () => {
+     }
+   }
+   riskMonitorLoop.stop();
++  connectionManager.shutdown();
+   predictionVerifier.stop();
+   bot.stop('SIGTERM');
+   db.disconnect();
+diff --git a/src/services/binanceWebSocketService.ts b/src/services/binanceWebSocketService.ts
+index dcb6b41..d6a550d 100644
+--- a/src/services/binanceWebSocketService.ts
++++ b/src/services/binanceWebSocketService.ts
+@@ -1,4 +1,5 @@
+ import WebSocket from 'ws';
++import crypto from 'crypto';
+ 
+ // ─── Types ────────────────────────────────────────────────────────────────────
+ 
+@@ -45,6 +46,12 @@ export interface UserDataCallbacks {
+     onAccountPosition?: (data: AccountPositionData) => void;
+ }
+ 
++export interface UserDataStreamSignatureOptions {
++    apiKey: string;
++    apiSecret: string;
++    wsApiUrl?: string;
++}
++
+ export type AlertCallback = (message: string) => void;
+ 
+ // ─── Stream Metadata ───────────────────────────────────────────────────────────
+@@ -146,32 +153,110 @@ export class BinanceWebSocketService {
+ 
+         const url = `${WS_BASE_URL}/${listenKey}`;
+         this.openStream(key, url, 'userData', 'userData', (raw) => {
+-            const d = JSON.parse(raw);
++            this.dispatchUserDataEvent(JSON.parse(raw), callbacks);
++        });
++    }
+ 
+-            if (d.e === 'executionReport' && callbacks.onExecutionReport) {
+-                callbacks.onExecutionReport({
+-                    orderId: d.i,
+-                    clientOrderId: d.c,
+-                    symbol: d.s,
+-                    side: d.S,
+-                    status: d.X,
+-                    executedQty: parseFloat(d.z),
+-                    price: parseFloat(d.p),
+-                    lastFilledPrice: parseFloat(d.L),
+-                    cumulativeFilledQty: parseFloat(d.z),
+-                });
+-            }
+ 
+-            if (d.e === 'outboundAccountPosition' && callbacks.onAccountPosition) {
+-                callbacks.onAccountPosition({
+-                    balances: (d.B || []).map((b: any) => ({
+-                        asset: b.a,
+-                        free: b.f,
+-                        locked: b.l,
+-                    })),
+-                });
++    /**
++     * Binance Spot User Data Stream over the current WebSocket API.
++     *
++     * The old REST listenKey lifecycle was removed by Binance in February 2026.
++     * This signature subscription works with the HMAC API keys already used by
++     * RabTradebot and re-subscribes automatically after reconnect.
++     */
++    subscribeUserDataStreamSignature(
++        callbacks: UserDataCallbacks,
++        options: UserDataStreamSignatureOptions,
++    ): void {
++        const apiKey = options.apiKey?.trim();
++        const apiSecret = options.apiSecret?.trim();
++        if (!apiKey || !apiSecret) {
++            throw new Error('BINANCE_API_KEY and BINANCE_API_SECRET are required for User Data Stream subscription.');
++        }
++
++        const key = 'userData_wsapi';
++        if (this.streams.has(key)) return;
++
++        const testnetEnabled = /^(1|true|yes)$/i.test(process.env.BINANCE_TESTNET || '');
++        const url = options.wsApiUrl
++            || process.env.BINANCE_WS_API_URL
++            || (testnetEnabled
++                ? 'wss://ws-api.testnet.binance.vision/ws-api/v3'
++                : 'wss://ws-api.binance.com:443/ws-api/v3');
++
++        const onMessage = (raw: string) => {
++            const envelope = JSON.parse(raw);
++
++            // Request/response frame for the subscription itself.
++            if (typeof envelope?.status === 'number' && envelope?.id !== undefined) {
++                if (envelope.status >= 400) {
++                    this.alertCallback?.(
++                        `⚠️ Binance User Data Stream subscription rejected: ${envelope?.error?.msg || envelope.status}`,
++                    );
++                }
++                return;
+             }
+-        });
++
++            // WebSocket API wraps user events as { subscriptionId, event }.
++            // Keeping the fallback supports fixtures and any transitional payload.
++            const d = envelope?.event ?? envelope;
++            this.dispatchUserDataEvent(d, callbacks);
++        };
++
++        const onOpen = (ws: WebSocket) => {
++            const timestamp = Date.now();
++            const unsignedParams: Record<string, string | number> = { apiKey, timestamp };
++            const payload = Object.keys(unsignedParams)
++                .sort()
++                .map((name) => `${name}=${unsignedParams[name]}`)
++                .join('&');
++            const signature = crypto
++                .createHmac('sha256', apiSecret)
++                .update(payload)
++                .digest('hex');
++
++            ws.send(JSON.stringify({
++                id: `rabtradebot-uds-${timestamp}`,
++                method: 'userDataStream.subscribe.signature',
++                params: {
++                    ...unsignedParams,
++                    signature,
++                },
++            }));
++        };
++
++        this.openStream(key, url, 'userData', 'userData', onMessage, onOpen);
++    }
++
++    private dispatchUserDataEvent(d: any, callbacks: UserDataCallbacks): void {
++        if (d?.e === 'executionReport' && callbacks.onExecutionReport) {
++            callbacks.onExecutionReport({
++                orderId: Number(d.i),
++                clientOrderId: String(d.c ?? ''),
++                symbol: String(d.s ?? ''),
++                side: String(d.S ?? ''),
++                status: String(d.X ?? ''),
++                executedQty: parseFloat(d.z ?? '0'),
++                price: parseFloat(d.p ?? '0'),
++                lastFilledPrice: parseFloat(d.L ?? '0'),
++                cumulativeFilledQty: parseFloat(d.z ?? '0'),
++            });
++        }
++
++        if (d?.e === 'outboundAccountPosition' && callbacks.onAccountPosition) {
++            callbacks.onAccountPosition({
++                balances: (d.B || []).map((b: any) => ({
++                    asset: b.a,
++                    free: b.f,
++                    locked: b.l,
++                })),
++            });
++        }
++
++        if (d?.e === 'eventStreamTerminated') {
++            this.alertCallback?.('⚠️ Binance User Data Stream terminated; reconnect/recovery will be attempted.');
++        }
+     }
+ 
+     /** Close all streams for a given symbol across all types */
+@@ -209,6 +294,7 @@ export class BinanceWebSocketService {
+         type: StreamMeta['type'],
+         symbol: string,
+         onMessage: (raw: string) => void,
++        onOpen?: (ws: WebSocket) => void,
+     ): void {
+         const ws = new WebSocket(url);
+ 
+@@ -228,6 +314,7 @@ export class BinanceWebSocketService {
+             meta.connectedAt = Date.now();
+             // Reset persistent counter on successful connection
+             this.reconnectCounters.delete(key);
++            onOpen?.(ws);
+         });
+ 
+         ws.on('message', (data: WebSocket.RawData) => {
+@@ -244,7 +331,7 @@ export class BinanceWebSocketService {
+ 
+         ws.on('close', () => {
+             if (meta.destroyed) return;
+-            this.scheduleReconnect(key, url, type, symbol, onMessage, meta);
++            this.scheduleReconnect(key, url, type, symbol, onMessage, meta, onOpen);
+         });
+     }
+ 
+@@ -255,6 +342,7 @@ export class BinanceWebSocketService {
+         symbol: string,
+         onMessage: (raw: string) => void,
+         meta: StreamMeta,
++        onOpen?: (ws: WebSocket) => void,
+     ): void {
+         if (meta.destroyed) return;
+ 
+@@ -280,7 +368,7 @@ export class BinanceWebSocketService {
+             if (meta.destroyed) return;
+             // Remove old entry and reopen
+             this.streams.delete(key);
+-            this.openStream(key, url, type, symbol, onMessage);
++            this.openStream(key, url, type, symbol, onMessage, onOpen);
+         }, delay);
+     }
+ 
+diff --git a/src/services/connectionManager.ts b/src/services/connectionManager.ts
+index 723a419..7e75d5f 100644
+--- a/src/services/connectionManager.ts
++++ b/src/services/connectionManager.ts
+@@ -153,6 +153,37 @@ export class ConnectionManager {
+         this.scheduleListenKeyRefresh();
+     }
+ 
++
++    /**
++     * Current Binance Spot User Data Stream subscription.
++     * Uses WebSocket API `userDataStream.subscribe.signature`; unlike the legacy
++     * listenKey path above, this remains supported after February 2026.
++     */
++    startUserDataStreamV2(callbacks: UserDataCallbacks): void {
++        const key = 'userData_wsapi';
++        this.ensureSlotAvailable(key);
++        if (this.streamInfoMap.has(key)) return;
++
++        const apiKey = process.env.BINANCE_API_KEY || '';
++        const apiSecret = process.env.BINANCE_API_SECRET || '';
++        if (!apiKey || !apiSecret) {
++            throw new Error('BINANCE_API_KEY and BINANCE_API_SECRET are required for User Data Stream V2.');
++        }
++
++        this.wsService.subscribeUserDataStreamSignature(callbacks, {
++            apiKey,
++            apiSecret,
++            wsApiUrl: process.env.BINANCE_WS_API_URL,
++        });
++        this.streamInfoMap.set(key, {
++            key,
++            type: 'userData',
++            symbol: 'userData',
++            subscriberIds: new Set(),
++            startedAt: new Date(),
++        });
++    }
++
+     /** F3-6: Request a new listenKey from Binance REST API */
+     async getListenKey(): Promise<string> {
+         const baseUrl = binanceOrderService.getBaseUrl();
+@@ -270,6 +301,7 @@ export class ConnectionManager {
+         this.listenKey = null;
+         this.listenKeyExpiresAt = null;
+         this.streamInfoMap.delete('userData_main');
++        this.streamInfoMap.delete('userData_wsapi');
+         this.wsService.unsubscribeAll();
+     }
+ 
+diff --git a/src/services/databaseService.ts b/src/services/databaseService.ts
+index 48b94de..8500435 100644
+--- a/src/services/databaseService.ts
++++ b/src/services/databaseService.ts
+@@ -236,12 +236,24 @@ export class DatabaseService {
+     }
+ 
+     /**
+-     * Get open live trades (status OPEN/LIVE_OPEN)
++     * Get live trades that still carry real Spot exposure.
++     *
++     * Pending entry is included only after Binance reports a positive executed
++     * quantity. Pending exits remain visible while residual inventory exists so
++     * the risk layer never loses sight of real Spot exposure.
+      */
+     async getOpenLiveTrades(userId?: number, symbol?: string) {
+         return await this.prisma.trade.findMany({
+             where: {
+-                status: { in: ['OPEN', 'LIVE_OPEN'] },
++                status: {
++                    in: [
++                        'OPEN',
++                        'LIVE_OPEN',
++                        'LIVE_ENTRY_PENDING_RECONCILIATION',
++                        'LIVE_EXIT_PENDING_RECONCILIATION',
++                    ],
++                },
++                quantity: { gt: 0 },
+                 ...(userId !== undefined && { userId }),
+                 ...(symbol && { symbol })
+             },
+@@ -250,14 +262,90 @@ export class DatabaseService {
+     }
+ 
+     /**
+-     * Count open live trades for a user
++     * Count live positions and unresolved live entry/exit orders for a user.
++     * Zero-fill pending entries count toward the cap to avoid submitting another
++     * order while the first order still has unknown/unfinished exchange state.
+      */
+     async countOpenLiveTrades(userId: number) {
+         return await this.prisma.trade.count({
+             where: {
+                 userId,
+-                status: { in: ['OPEN', 'LIVE_OPEN'] }
++                status: {
++                    in: [
++                        'OPEN',
++                        'LIVE_OPEN',
++                        'LIVE_ENTRY_PENDING_RECONCILIATION',
++                        'LIVE_EXIT_PENDING_RECONCILIATION',
++                    ],
++                },
++            }
++        });
++    }
++
++    /** Return all live trades whose Binance order state still needs recovery. */
++    async getPendingLiveTrades() {
++        return await this.prisma.trade.findMany({
++            where: {
++                status: {
++                    in: [
++                        'LIVE_ENTRY_PENDING_RECONCILIATION',
++                        'LIVE_EXIT_PENDING_RECONCILIATION',
++                    ],
++                },
++            },
++            orderBy: { updatedAt: 'asc' },
++        });
++    }
++
++    /**
++     * Find a pending live trade by the persisted Binance order id.
++     * Order ids are stored in JSON tags; filtering the small pending set in
++     * application code keeps this compatible with both SQLite and PostgreSQL.
++     */
++    async findPendingLiveTradeByOrderId(orderId: number, symbol?: string) {
++        const candidates = await this.prisma.trade.findMany({
++            where: {
++                status: {
++                    in: [
++                        'LIVE_ENTRY_PENDING_RECONCILIATION',
++                        'LIVE_EXIT_PENDING_RECONCILIATION',
++                    ],
++                },
++                ...(symbol && { symbol: symbol.toUpperCase() }),
++            },
++            orderBy: { updatedAt: 'desc' },
++        });
++
++        return candidates.find((trade: any) => {
++            if (!trade.tags) return false;
++            try {
++                const tags = JSON.parse(trade.tags) as Record<string, unknown>;
++                return Number(tags.entryOrderId) === orderId || Number(tags.exitOrderId) === orderId;
++            } catch {
++                return false;
+             }
++        }) ?? null;
++    }
++
++    /**
++     * Narrow execution-state updater used by the live reconciliation lifecycle.
++     * This deliberately avoids a schema migration: exchange recovery metadata is
++     * persisted in tags while the existing Trade columns keep current exposure.
++     */
++    async updateLiveTradeExecution(tradeId: string, data: {
++        quantity?: number;
++        entryPrice?: number;
++        status?: string;
++        notes?: string;
++        tags?: string;
++        exitPrice?: number | null;
++        exitTime?: Date | null;
++        profit?: number | null;
++        profitPct?: number | null;
++    }) {
++        return await this.prisma.trade.update({
++            where: { id: tradeId },
++            data,
+         });
+     }
+ 
+diff --git a/src/services/execution/spotExecutionBroker.ts b/src/services/execution/spotExecutionBroker.ts
+index f6934ac..a09c747 100644
+--- a/src/services/execution/spotExecutionBroker.ts
++++ b/src/services/execution/spotExecutionBroker.ts
+@@ -138,6 +138,11 @@ export class SpotExecutionBroker {
+         const status = String(order.status || 'UNKNOWN').toUpperCase();
+         const executionKnown = executedQuantity > 0 && averageFillPrice !== undefined;
+         const quantityTolerance = Math.max(1e-12, command.quantity * 1e-12);
++        if (executedQuantity > command.quantity + quantityTolerance) {
++            throw new InvalidExecutionCommandError(
++                `Binance Spot execution overfill detected for ${command.instrument.symbol}: executed=${executedQuantity}, requested=${command.quantity}.`,
++            );
++        }
+         const fullyExecuted = executedQuantity + quantityTolerance >= command.quantity;
+         const fullyFilled = status === 'FILLED' && fullyExecuted;
+ 
+diff --git a/src/services/realTradingEngine.ts b/src/services/realTradingEngine.ts
+index c789a0a..ec5f94e 100644
+--- a/src/services/realTradingEngine.ts
++++ b/src/services/realTradingEngine.ts
+@@ -1,7 +1,7 @@
+ import { IStrategy } from '../types/strategy';
+ import { SignalResult } from './signalGenerator';
+ import { db } from './databaseService';
+-import { binanceOrderService } from './binanceOrderService';
++import { BinanceOrderResponse, binanceOrderService } from './binanceOrderService';
+ import { ExecutionFill, InvalidExecutionCommandError, TradingInstrument, UnsupportedPositionCommandError } from '../domain/execution';
+ import { ExecutionRouter } from './execution/executionRouter';
+ import {
+@@ -51,6 +51,8 @@ export type LiveNotifier = (message: string, userId?: number) => Promise<void> |
+ 
+ export class RealTradingEngine {
+     private notifier?: LiveNotifier;
++    private startupRecoveryRequired = false;
++    private startupRecoveryComplete = true;
+ 
+     constructor(
+         notifier?: LiveNotifier,
+@@ -63,12 +65,32 @@ export class RealTradingEngine {
+         this.notifier = notifier;
+     }
+ 
++    /**
++     * Production startup gate: live orders must not be submitted until persisted
++     * unresolved exchange orders have completed their initial recovery sweep.
++     */
++    requireStartupRecovery(): void {
++        this.startupRecoveryRequired = true;
++        this.startupRecoveryComplete = false;
++    }
++
++    markStartupRecoveryComplete(): void {
++        if (this.startupRecoveryRequired) {
++            this.startupRecoveryComplete = true;
++        }
++    }
++
++    isStartupRecoveryReady(): boolean {
++        return !this.startupRecoveryRequired || this.startupRecoveryComplete;
++    }
++
+     private async notify(message: string, userId?: number): Promise<void> {
+         if (!this.notifier) return;
+         await this.notifier(message, userId);
+     }
+ 
+     async executeEntry(input: ExecuteEntryInput): Promise<ExecuteEntryResult> {
++        this.assertStartupRecoveryReady();
+         const { userId, symbol, signal, strategy, riskParams } = input;
+ 
+         if (signal.action === 'HOLD') {
+@@ -148,10 +170,14 @@ export class RealTradingEngine {
+         });
+         this.assertSpotExecutionFill(execution, 'BUY', upperSymbol);
+ 
+-        const trackedQuantity = execution.executedQuantity > 0
+-            ? execution.executedQuantity
+-            : quantity;
++        // Never manufacture Spot inventory from the requested quantity.
++        // A zero-fill accepted order is persisted as pending with quantity=0
++        // until Binance confirms actual execution.
++        const trackedQuantity = Math.max(0, execution.executedQuantity);
+         const entryPrice = execution.averageFillPrice ?? currentPrice;
++        const entryStatus = execution.requiresReconciliation
++            ? 'LIVE_ENTRY_PENDING_RECONCILIATION'
++            : 'LIVE_OPEN';
+ 
+         await db.logError({
+             level: execution.requiresReconciliation ? 'WARN' : 'INFO',
+@@ -184,6 +210,15 @@ export class RealTradingEngine {
+             requiresReconciliation: execution.requiresReconciliation,
+             requestedQuantity: quantity,
+             executedQuantity: execution.executedQuantity,
++            entryRequestedQuantity: quantity,
++            entryExecutedQuantity: execution.executedQuantity,
++            entryCumulativeQuoteQuantity: execution.cumulativeQuoteQuantity,
++            entryAverageFillPrice: execution.averageFillPrice ?? null,
++            entryPriceProvisional: execution.averageFillPrice === undefined,
++            // Updated to the actual terminal executed quantity by reconciliation.
++            positionInitialQuantity: trackedQuantity,
++            realizedExitQuantityCarry: 0,
++            realizedExitQuoteCarry: 0,
+             risk: {
+                 riskPerTrade: riskParams.riskPerTrade,
+                 kellyFraction,
+@@ -204,12 +239,21 @@ export class RealTradingEngine {
+             notes: execution.requiresReconciliation
+                 ? `LIVE_ENTRY_RECONCILIATION:${execution.orderId}`
+                 : `LIVE_ENTRY:${execution.orderId}`,
+-            status: 'LIVE_OPEN',
++            status: entryStatus,
+             tags: JSON.stringify(metadata),
+         });
+ 
++        if (execution.requiresReconciliation) {
++            await this.attemptImmediateReconciliation(
++                execution.orderId,
++                upperSymbol,
++                userId,
++                'POST_SUBMIT_ENTRY',
++            );
++        }
++
+         await this.notify(
+-            `✅ LIVE ENTRY ${upperSymbol}\nSide: BUY\nQty: ${trackedQuantity}\nEntry: ${entryPrice.toFixed(4)}\nSL: ${stopLoss.toFixed(4)}\nTP: ${takeProfit.toFixed(4)}\nOrder ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Reconciliation required' : ''}`,
++            `✅ LIVE ENTRY ${upperSymbol}\nSide: BUY\nExecuted Qty: ${trackedQuantity}\nEntry: ${entryPrice.toFixed(4)}\nSL: ${stopLoss.toFixed(4)}\nTP: ${takeProfit.toFixed(4)}\nOrder ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Exchange response required reconciliation; canonical status check triggered.' : ''}`,
+             userId,
+         );
+ 
+@@ -243,6 +287,7 @@ export class RealTradingEngine {
+     }
+ 
+     async executeExit(tradeId: string, reason: string): Promise<ExitResult> {
++        this.assertStartupRecoveryReady();
+         const trade = await db.getTradeById(tradeId);
+         if (!trade) {
+             throw new Error(`Trade not found: ${tradeId}`);
+@@ -252,6 +297,17 @@ export class RealTradingEngine {
+         const symbol = trade.symbol.toUpperCase();
+ 
+         const metadata = this.parseTags(trade.tags);
++        if (trade.status === 'LIVE_EXIT_PENDING_RECONCILIATION') {
++            throw new Error(
++                `Trade ${trade.id} already has an unresolved Spot exit. Reconcile the existing order before submitting another SELL.`,
++            );
++        }
++        if (trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION') {
++            throw new Error(
++                `Trade ${trade.id} entry is still pending reconciliation. Resolve the BUY order before submitting an exit.`,
++            );
++        }
++
+         const product = resolveTradeProductFromMetadata(metadata);
+         const position = mapLegacyTradeSideToClosePosition(product, trade.side as 'BUY' | 'SELL' | 'LONG' | 'SHORT');
+         if (product !== 'SPOT') {
+@@ -329,17 +385,61 @@ export class RealTradingEngine {
+             },
+         });
+ 
+-        await db.closeTrade(trade.id, resolvedExitPrice, undefined, {
+-            status: execution.requiresReconciliation
+-                ? 'LIVE_EXIT_PENDING_RECONCILIATION'
+-                : 'CLOSED',
+-            notes: execution.requiresReconciliation
+-                ? `LIVE_EXIT_RECONCILIATION:${execution.orderId}:${reason}`
+-                : `LIVE_EXIT:${execution.orderId}:${reason}`,
+-        });
++        const previousExitCarryQuantity = this.readFiniteMetadataNumber(metadata, 'realizedExitQuantityCarry');
++        const previousExitCarryQuote = this.readFiniteMetadataNumber(metadata, 'realizedExitQuoteCarry');
++
++        if (execution.requiresReconciliation) {
++            const remainingQuantity = Math.max(0, quantity - execution.executedQuantity);
++            const pendingMetadata = {
++                ...(metadata ?? {}),
++                exitOrderId: execution.orderId,
++                exitReason: reason,
++                exitStatus: execution.status,
++                exitBaseQuantity: quantity,
++                exitRequestedQuantity: execution.requestedQuantity,
++                exitOrderExecutedQuantity: execution.executedQuantity,
++                exitOrderCumulativeQuoteQuantity: execution.cumulativeQuoteQuantity,
++                exitOrderAverageFillPrice: execution.averageFillPrice ?? null,
++                requiresReconciliation: true,
++            };
+ 
++            await db.updateLiveTradeExecution(trade.id, {
++                quantity: remainingQuantity,
++                status: 'LIVE_EXIT_PENDING_RECONCILIATION',
++                notes: `LIVE_EXIT_RECONCILIATION:${execution.orderId}:${reason}`,
++                tags: JSON.stringify(pendingMetadata),
++            });
++        } else if (previousExitCarryQuantity > 0 || previousExitCarryQuote > 0) {
++            await this.finalizeExitWithCarry(
++                trade,
++                metadata,
++                execution.executedQuantity,
++                execution.cumulativeQuoteQuantity,
++                execution.orderId,
++                reason,
++                execution.status,
++            );
++        } else {
++            await db.closeTrade(trade.id, resolvedExitPrice, undefined, {
++                status: 'CLOSED',
++                notes: `LIVE_EXIT:${execution.orderId}:${reason}`,
++            });
++        }
++
++        if (execution.requiresReconciliation) {
++            await this.attemptImmediateReconciliation(
++                execution.orderId,
++                symbol,
++                userId,
++                'POST_SUBMIT_EXIT',
++            );
++        }
++
++        const remainingForNotice = execution.requiresReconciliation
++            ? Math.max(0, quantity - execution.executedQuantity)
++            : 0;
+         await this.notify(
+-            `📤 LIVE EXIT ${symbol}\nReason: ${reason}\nExit Price: ${resolvedExitPrice.toFixed(4)}\nExit Order ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Reconciliation required before final closure' : ''}`,
++            `📤 LIVE EXIT ${symbol}\nReason: ${reason}\nExecuted Qty: ${execution.executedQuantity}\nExit Price: ${resolvedExitPrice.toFixed(4)}\nExit Order ID: ${execution.orderId}${execution.requiresReconciliation ? `\n⚠️ Exchange response required reconciliation; canonical status check triggered. Initially tracked residual: ${remainingForNotice}` : ''}`,
+             userId,
+         );
+ 
+@@ -369,6 +469,483 @@ export class RealTradingEngine {
+         };
+     }
+ 
++    private async attemptImmediateReconciliation(
++        orderId: number,
++        symbol: string,
++        userId: number,
++        eventStatus: string,
++    ): Promise<void> {
++        try {
++            await this.reconcileOrderUpdate(orderId, symbol, eventStatus);
++        } catch (error) {
++            // The exchange already accepted the order. Never surface this as a
++            // submission failure that a caller might retry and duplicate.
++            await db.logError({
++                level: 'WARN',
++                source: 'realTradingEngine.attemptImmediateReconciliation',
++                message: `Immediate canonical reconciliation deferred for ${symbol} orderId=${orderId}: ${error instanceof Error ? error.message : String(error)}`,
++                userId,
++                symbol,
++                metadata: { orderId, eventStatus },
++            });
++        }
++    }
++
++    /**
++     * Legacy F3 hook kept for compatibility. A FILLED execution report delegates
++     * here; the canonical state is always re-read from Binance REST before local
++     * state is changed.
++     */
++    async confirmFill(orderId: number): Promise<void> {
++        await this.reconcileOrderUpdate(orderId);
++    }
++
++    /**
++     * Reconcile one pending live Spot order against Binance's canonical order
++     * status. `symbolHint`/`eventStatus` are provenance only; REST remains the
++     * source of truth for cumulative execution state.
++     */
++    async reconcileOrderUpdate(orderId: number, symbolHint?: string, eventStatus?: string): Promise<boolean> {
++        const pendingTrade = await db.findPendingLiveTradeByOrderId(orderId, symbolHint);
++        if (!pendingTrade) {
++            return false;
++        }
++
++        const symbol = pendingTrade.symbol.toUpperCase();
++        const metadata = this.parseTags(pendingTrade.tags) ?? {};
++        const order = await binanceOrderService.getOrderStatus(symbol, orderId);
++
++        if (Number(metadata.entryOrderId) === orderId) {
++            await this.reconcileEntryOrder(pendingTrade, metadata, order, eventStatus);
++            return true;
++        }
++        if (Number(metadata.exitOrderId) === orderId) {
++            await this.reconcileExitOrder(pendingTrade, metadata, order, eventStatus);
++            return true;
++        }
++
++        await db.logError({
++            level: 'ERROR',
++            source: 'realTradingEngine.reconcileOrderUpdate',
++            message: `Pending trade ${pendingTrade.id} did not match persisted orderId=${orderId}`,
++            userId: pendingTrade.userId,
++            symbol,
++            metadata: { tradeId: pendingTrade.id, orderId, eventStatus },
++        });
++        return false;
++    }
++
++    /**
++     * Startup/recovery sweep. Safe to call repeatedly: every iteration derives
++     * state from cumulative Binance order quantities rather than applying deltas.
++     */
++    async reconcilePendingOrders(): Promise<{ checked: number; reconciled: number; failed: number }> {
++        const pendingTrades = await db.getPendingLiveTrades();
++        let reconciled = 0;
++        let failed = 0;
++
++        for (const trade of pendingTrades) {
++            const metadata = this.parseTags(trade.tags) ?? {};
++            const orderId = trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION'
++                ? Number(metadata.entryOrderId)
++                : Number(metadata.exitOrderId);
++
++            if (!Number.isFinite(orderId) || orderId <= 0) {
++                failed += 1;
++                await db.logError({
++                    level: 'ERROR',
++                    source: 'realTradingEngine.reconcilePendingOrders',
++                    message: `Pending trade ${trade.id} has no valid Binance order id`,
++                    userId: trade.userId,
++                    symbol: trade.symbol,
++                    metadata: { tradeId: trade.id, status: trade.status },
++                });
++                continue;
++            }
++
++            try {
++                const didReconcile = await this.reconcileOrderUpdate(orderId, trade.symbol, 'STARTUP_RECOVERY');
++                if (didReconcile) reconciled += 1;
++            } catch (error) {
++                failed += 1;
++                await db.logError({
++                    level: 'ERROR',
++                    source: 'realTradingEngine.reconcilePendingOrders',
++                    message: `Failed to reconcile ${trade.symbol} orderId=${orderId}: ${error instanceof Error ? error.message : String(error)}`,
++                    userId: trade.userId,
++                    symbol: trade.symbol,
++                    metadata: { tradeId: trade.id, orderId, status: trade.status },
++                });
++            }
++        }
++
++        return { checked: pendingTrades.length, reconciled, failed };
++    }
++
++    private async reconcileEntryOrder(
++        trade: any,
++        metadata: Record<string, unknown>,
++        order: BinanceOrderResponse,
++        eventStatus?: string,
++    ): Promise<void> {
++        const status = this.normalizeOrderStatus(order.status);
++        const expectedOrderId = Number(metadata.entryOrderId);
++        this.assertReconciliationOrderIdentity(order, trade.symbol, 'BUY', expectedOrderId);
++        const executedQuantity = this.parseRequiredNonNegativeNumber(
++            order.executedQty,
++            'executedQty',
++            trade.symbol,
++            order.orderId,
++        );
++        const requestedQuantity = this.readFiniteMetadataNumber(metadata, 'entryRequestedQuantity');
++        if (requestedQuantity > 0 && executedQuantity > requestedQuantity + this.quantityTolerance(requestedQuantity)) {
++            throw new InvalidExecutionCommandError(
++                `Entry reconciliation overfill detected for ${trade.symbol} orderId=${order.orderId}: executed=${executedQuantity}, requested=${requestedQuantity}.`,
++            );
++        }
++        const cumulativeQuote = this.parseRequiredNonNegativeNumber(
++            order.cummulativeQuoteQty,
++            'cummulativeQuoteQty',
++            trade.symbol,
++            order.orderId,
++        );
++        const averageFillPrice = executedQuantity > 0 && cumulativeQuote > 0
++            ? cumulativeQuote / executedQuantity
++            : this.parsePositiveNumber(order.price);
++        const isTerminal = this.isTerminalOrderStatus(status);
++        if (isTerminal && executedQuantity > 0 && averageFillPrice === undefined) {
++            throw new InvalidExecutionCommandError(
++                `Entry reconciliation has executed inventory but no trustworthy fill price for ${trade.symbol} orderId=${order.orderId}.`,
++            );
++        }
++
++        const nextMetadata: Record<string, unknown> = {
++            ...metadata,
++            executionStatus: status,
++            entryStatus: status,
++            entryExecutedQuantity: executedQuantity,
++            executedQuantity,
++            entryCumulativeQuoteQuantity: cumulativeQuote,
++            entryAverageFillPrice: averageFillPrice ?? null,
++            entryPriceProvisional: averageFillPrice === undefined,
++            lastReconciledAt: new Date().toISOString(),
++            lastExecutionEventStatus: eventStatus ?? null,
++        };
++
++        if (!isTerminal) {
++            nextMetadata.requiresReconciliation = true;
++            nextMetadata.positionInitialQuantity = executedQuantity;
++            await db.updateLiveTradeExecution(trade.id, {
++                quantity: executedQuantity,
++                ...(averageFillPrice !== undefined && { entryPrice: averageFillPrice }),
++                status: 'LIVE_ENTRY_PENDING_RECONCILIATION',
++                notes: `LIVE_ENTRY_RECONCILIATION:${order.orderId}`,
++                tags: JSON.stringify(nextMetadata),
++            });
++            return;
++        }
++
++        if (executedQuantity <= 0) {
++            // Terminal zero-fill means no Spot exposure ever existed.
++            nextMetadata.requiresReconciliation = false;
++            nextMetadata.positionInitialQuantity = 0;
++            nextMetadata.entryTerminalStatus = status;
++            await db.updateLiveTradeExecution(trade.id, {
++                quantity: 0,
++                status: 'CANCELLED',
++                notes: `LIVE_ENTRY_TERMINAL_ZERO_FILL:${order.orderId}:${status}`,
++                tags: JSON.stringify(nextMetadata),
++            });
++            await this.notify(
++                `⚠️ LIVE ENTRY ${trade.symbol} ended ${status} with zero executed quantity. No Spot position was created.`,
++                trade.userId,
++            );
++            return;
++        }
++
++        // A terminal order can legitimately finish below requested quantity after
++        // cancellation/expiry. The actual executed quantity becomes the position.
++        nextMetadata.requiresReconciliation = false;
++        nextMetadata.positionInitialQuantity = executedQuantity;
++        nextMetadata.entryTerminalStatus = status;
++        nextMetadata.entryTerminalShortFill = executedQuantity + this.quantityTolerance(executedQuantity)
++            < this.readFiniteMetadataNumber(metadata, 'entryRequestedQuantity');
++
++        await db.updateLiveTradeExecution(trade.id, {
++            quantity: executedQuantity,
++            ...(averageFillPrice !== undefined && { entryPrice: averageFillPrice }),
++            status: 'LIVE_OPEN',
++            notes: `LIVE_ENTRY_RECONCILED:${order.orderId}:${status}`,
++            tags: JSON.stringify(nextMetadata),
++        });
++
++        await db.logError({
++            level: status === 'FILLED' ? 'INFO' : 'WARN',
++            source: 'realTradingEngine.reconcileEntryOrder',
++            message: `Spot entry reconciled ${trade.symbol} orderId=${order.orderId} status=${status} executed=${executedQuantity}`,
++            userId: trade.userId,
++            symbol: trade.symbol,
++            metadata: { tradeId: trade.id, orderId: order.orderId, status, executedQuantity },
++        });
++    }
++
++    private async reconcileExitOrder(
++        trade: any,
++        metadata: Record<string, unknown>,
++        order: BinanceOrderResponse,
++        eventStatus?: string,
++    ): Promise<void> {
++        const status = this.normalizeOrderStatus(order.status);
++        const expectedOrderId = Number(metadata.exitOrderId);
++        this.assertReconciliationOrderIdentity(order, trade.symbol, 'SELL', expectedOrderId);
++        const executedQuantity = this.parseRequiredNonNegativeNumber(
++            order.executedQty,
++            'executedQty',
++            trade.symbol,
++            order.orderId,
++        );
++        const cumulativeQuote = this.parseRequiredNonNegativeNumber(
++            order.cummulativeQuoteQty,
++            'cummulativeQuoteQty',
++            trade.symbol,
++            order.orderId,
++        );
++        const exitBaseQuantity = this.readFiniteMetadataNumber(metadata, 'exitBaseQuantity') || trade.quantity;
++        if (executedQuantity > exitBaseQuantity + this.quantityTolerance(exitBaseQuantity)) {
++            throw new InvalidExecutionCommandError(
++                `Exit reconciliation overfill detected for ${trade.symbol} orderId=${order.orderId}: executed=${executedQuantity}, base=${exitBaseQuantity}.`,
++            );
++        }
++        const requestedQuantity = this.readFiniteMetadataNumber(metadata, 'exitRequestedQuantity') || exitBaseQuantity;
++        const clampedExecuted = Math.min(executedQuantity, exitBaseQuantity);
++        const remainingQuantity = Math.max(0, exitBaseQuantity - clampedExecuted);
++        const currentAverage = clampedExecuted > 0 && cumulativeQuote > 0
++            ? cumulativeQuote / clampedExecuted
++            : this.parsePositiveNumber(order.price);
++        const effectiveCumulativeQuote = cumulativeQuote > 0
++            ? cumulativeQuote
++            : (currentAverage !== undefined ? currentAverage * clampedExecuted : 0);
++        const carryQuantity = this.readFiniteMetadataNumber(metadata, 'realizedExitQuantityCarry');
++        const carryQuote = this.readFiniteMetadataNumber(metadata, 'realizedExitQuoteCarry');
++        const reason = String(metadata.exitReason ?? 'reconciliation');
++        const isTerminal = this.isTerminalOrderStatus(status);
++        if (isTerminal && clampedExecuted > 0 && currentAverage === undefined) {
++            throw new InvalidExecutionCommandError(
++                `Exit reconciliation has executed inventory but no trustworthy fill price for ${trade.symbol} orderId=${order.orderId}.`,
++            );
++        }
++
++        const nextMetadata: Record<string, unknown> = {
++            ...metadata,
++            exitStatus: status,
++            exitOrderExecutedQuantity: clampedExecuted,
++            exitOrderCumulativeQuoteQuantity: effectiveCumulativeQuote,
++            exitOrderAverageFillPrice: currentAverage ?? null,
++            lastReconciledAt: new Date().toISOString(),
++            lastExecutionEventStatus: eventStatus ?? null,
++        };
++
++        if (!isTerminal) {
++            nextMetadata.requiresReconciliation = true;
++            await db.updateLiveTradeExecution(trade.id, {
++                quantity: remainingQuantity,
++                status: 'LIVE_EXIT_PENDING_RECONCILIATION',
++                notes: `LIVE_EXIT_RECONCILIATION:${order.orderId}:${reason}`,
++                tags: JSON.stringify(nextMetadata),
++            });
++            return;
++        }
++
++        const totalRealizedQuantity = carryQuantity + clampedExecuted;
++        const totalRealizedQuote = carryQuote + effectiveCumulativeQuote;
++        const positionInitialQuantity = this.readFiniteMetadataNumber(metadata, 'positionInitialQuantity')
++            || Math.max(totalRealizedQuantity + remainingQuantity, requestedQuantity);
++        const fullyFlat = remainingQuantity <= this.quantityTolerance(exitBaseQuantity);
++
++        if (fullyFlat) {
++            await this.finalizeReconciledExit(
++                trade,
++                nextMetadata,
++                totalRealizedQuantity,
++                totalRealizedQuote,
++                positionInitialQuantity,
++                order.orderId,
++                reason,
++                status,
++            );
++            return;
++        }
++
++        // Terminal short-fill: the order is no longer live, so resume risk
++        // management on the residual inventory and carry realized fills forward.
++        nextMetadata.requiresReconciliation = false;
++        nextMetadata.realizedExitQuantityCarry = totalRealizedQuantity;
++        nextMetadata.realizedExitQuoteCarry = totalRealizedQuote;
++        nextMetadata.lastTerminalExitOrderId = order.orderId;
++        nextMetadata.lastTerminalExitStatus = status;
++        nextMetadata.exitOrderId = null;
++        nextMetadata.exitBaseQuantity = null;
++        nextMetadata.exitRequestedQuantity = null;
++
++        await db.updateLiveTradeExecution(trade.id, {
++            quantity: remainingQuantity,
++            status: 'LIVE_OPEN',
++            notes: `LIVE_EXIT_PARTIAL_TERMINAL:${order.orderId}:${status}:${reason}`,
++            tags: JSON.stringify(nextMetadata),
++        });
++
++        await this.notify(
++            `⚠️ LIVE EXIT ${trade.symbol} ended ${status} with residual inventory ${remainingQuantity}. Risk monitoring resumed for the remaining Spot position.`,
++            trade.userId,
++        );
++    }
++
++    private async finalizeExitWithCarry(
++        trade: any,
++        metadata: Record<string, unknown> | null,
++        currentExecutedQuantity: number,
++        currentCumulativeQuote: number,
++        orderId: number,
++        reason: string,
++        orderStatus: string,
++    ): Promise<void> {
++        const safeMetadata = metadata ?? {};
++        const carryQuantity = this.readFiniteMetadataNumber(safeMetadata, 'realizedExitQuantityCarry');
++        const carryQuote = this.readFiniteMetadataNumber(safeMetadata, 'realizedExitQuoteCarry');
++        const totalQuantity = carryQuantity + Math.max(0, currentExecutedQuantity);
++        const totalQuote = carryQuote + Math.max(0, currentCumulativeQuote);
++        const positionInitialQuantity = this.readFiniteMetadataNumber(safeMetadata, 'positionInitialQuantity')
++            || totalQuantity;
++
++        await this.finalizeReconciledExit(
++            trade,
++            safeMetadata,
++            totalQuantity,
++            totalQuote,
++            positionInitialQuantity,
++            orderId,
++            reason,
++            orderStatus,
++        );
++    }
++
++    private async finalizeReconciledExit(
++        trade: any,
++        metadata: Record<string, unknown>,
++        totalExitQuantity: number,
++        totalExitQuote: number,
++        positionInitialQuantity: number,
++        orderId: number,
++        reason: string,
++        orderStatus: string,
++    ): Promise<void> {
++        const safeExitQuantity = Math.max(0, totalExitQuantity);
++        const exitPrice = safeExitQuantity > 0 && totalExitQuote > 0
++            ? totalExitQuote / safeExitQuantity
++            : trade.entryPrice;
++        const realizedProfit = totalExitQuote - (trade.entryPrice * safeExitQuantity);
++        const costBasis = trade.entryPrice * Math.max(positionInitialQuantity, safeExitQuantity);
++        const profitPct = costBasis > 0 ? (realizedProfit / costBasis) * 100 : 0;
++
++        const finalMetadata: Record<string, unknown> = {
++            ...metadata,
++            requiresReconciliation: false,
++            exitOrderId: orderId,
++            exitStatus: orderStatus,
++            realizedExitQuantityCarry: safeExitQuantity,
++            realizedExitQuoteCarry: totalExitQuote,
++            finalExitQuantity: safeExitQuantity,
++            finalExitQuote: totalExitQuote,
++            finalExitAveragePrice: exitPrice,
++            finalExitReason: reason,
++            reconciledClosedAt: new Date().toISOString(),
++        };
++
++        await db.updateLiveTradeExecution(trade.id, {
++            quantity: Math.max(positionInitialQuantity, safeExitQuantity),
++            exitPrice,
++            exitTime: new Date(),
++            status: 'CLOSED',
++            profit: realizedProfit,
++            profitPct,
++            notes: `LIVE_EXIT_RECONCILED:${orderId}:${orderStatus}:${reason}`,
++            tags: JSON.stringify(finalMetadata),
++        });
++
++        await this.notify(
++            `✅ LIVE EXIT RECONCILED ${trade.symbol}\nOrder ID: ${orderId}\nStatus: ${orderStatus}\nFinal Qty: ${safeExitQuantity}\nAverage Exit: ${exitPrice.toFixed(4)}`,
++            trade.userId,
++        );
++    }
++
++    private assertReconciliationOrderIdentity(
++        order: BinanceOrderResponse,
++        expectedSymbol: string,
++        expectedSide: 'BUY' | 'SELL',
++        expectedOrderId: number,
++    ): void {
++        if (!Number.isFinite(expectedOrderId) || expectedOrderId <= 0 || Number(order.orderId) !== expectedOrderId) {
++            throw new InvalidExecutionCommandError(
++                `Reconciliation order id mismatch: expected=${expectedOrderId}, actual=${order.orderId}.`,
++            );
++        }
++        if (String(order.symbol || '').toUpperCase() !== expectedSymbol.toUpperCase()) {
++            throw new InvalidExecutionCommandError(
++                `Reconciliation order symbol mismatch: expected=${expectedSymbol}, actual=${order.symbol}.`,
++            );
++        }
++        if (order.side !== expectedSide) {
++            throw new InvalidExecutionCommandError(
++                `Reconciliation order side mismatch: expected=${expectedSide}, actual=${order.side}.`,
++            );
++        }
++    }
++
++    private normalizeOrderStatus(status: string | undefined): string {
++        return String(status || 'UNKNOWN').toUpperCase();
++    }
++
++    private isTerminalOrderStatus(status: string): boolean {
++        return ['FILLED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'EXPIRED_IN_MATCH', 'REJECTED'].includes(status);
++    }
++
++    private parseRequiredNonNegativeNumber(
++        value: string | number | undefined,
++        field: string,
++        symbol: string,
++        orderId: number,
++    ): number {
++        const parsed = Number(value);
++        if (!Number.isFinite(parsed) || parsed < 0) {
++            throw new InvalidExecutionCommandError(
++                `Invalid Binance reconciliation field ${field}=${String(value)} for ${symbol} orderId=${orderId}.`,
++            );
++        }
++        return parsed;
++    }
++
++    private parsePositiveNumber(value: string | number | undefined): number | undefined {
++        const parsed = Number(value ?? 0);
++        return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
++    }
++
++    private readFiniteMetadataNumber(metadata: Record<string, unknown> | null, key: string): number {
++        const parsed = Number(metadata?.[key] ?? 0);
++        return Number.isFinite(parsed) && parsed >= 0 ? parsed : 0;
++    }
++
++    private quantityTolerance(quantity: number): number {
++        return Math.max(1e-12, Math.abs(quantity) * 1e-12);
++    }
++
++    private assertStartupRecoveryReady(): void {
++        if (!this.isStartupRecoveryReady()) {
++            throw new InvalidExecutionCommandError(
++                'Live Spot execution is blocked until startup order reconciliation completes successfully.',
++            );
++        }
++    }
++
+     private resolveUsdtSpotInstrument(symbol: string): TradingInstrument {
+         const normalized = symbol.trim().toUpperCase();
+         if (!normalized.endsWith('USDT') || normalized.length <= 4) {
+@@ -404,6 +981,24 @@ export class RealTradingEngine {
+                 `ExecutionRouter returned unexpected symbol=${fill.symbol}; expected ${expectedSymbol}.`,
+             );
+         }
++
++        const requestedQuantity = Number(fill.requestedQuantity);
++        const executedQuantity = Number(fill.executedQuantity);
++        if (!Number.isFinite(requestedQuantity) || requestedQuantity <= 0) {
++            throw new InvalidExecutionCommandError(
++                `ExecutionRouter returned invalid requestedQuantity=${fill.requestedQuantity} for ${expectedSymbol}.`,
++            );
++        }
++        if (!Number.isFinite(executedQuantity) || executedQuantity < 0) {
++            throw new InvalidExecutionCommandError(
++                `ExecutionRouter returned invalid executedQuantity=${fill.executedQuantity} for ${expectedSymbol}.`,
++            );
++        }
++        if (executedQuantity > requestedQuantity + this.quantityTolerance(requestedQuantity)) {
++            throw new InvalidExecutionCommandError(
++                `ExecutionRouter returned an impossible Spot overfill for ${expectedSymbol}: executed=${executedQuantity}, requested=${requestedQuantity}.`,
++            );
++        }
+     }
+ 
+     private findUsdtBalance(balances: Array<{ asset: string; free: string; locked: string }>): number {
+diff --git a/src/services/riskMonitorLoop.ts b/src/services/riskMonitorLoop.ts
+index 0246458..833b0ce 100644
+--- a/src/services/riskMonitorLoop.ts
++++ b/src/services/riskMonitorLoop.ts
+@@ -1,7 +1,7 @@
+ import { db } from './databaseService';
+ import { binanceOrderService } from './binanceOrderService';
+ import { RealTradingEngine, realTradingEngine } from './realTradingEngine';
+-import { BinanceWebSocketService } from './binanceWebSocketService';
++import { BinanceWebSocketService, ExecutionReportData } from './binanceWebSocketService';
+ import { connectionManager } from './connectionManager';
+ import { withLogContext } from '../utils/logger';
+ 
+@@ -41,6 +41,8 @@ export class RiskMonitorLoop {
+     private notifier?: RiskAlertNotifier;
+     private trailState = new Map<string, TrailState>();
+     private baselineEquityByUser = new Map<number, number>();
++    private lastReconciliationSweepAt = 0;
++    private readonly reconciliationSweepIntervalMs = 15_000;
+ 
+     // ── F3-10/F3-11: WebSocket mode ────────────────────────────────────────────
+     /** Symbols currently subscribed via WebSocket */
+@@ -100,6 +102,11 @@ export class RiskMonitorLoop {
+                         (t: any) => t.symbol.toUpperCase() === symUpper,
+                     );
+                     for (const trade of symbolTrades) {
++                        const isPendingExecution = trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION'
++                            || trade.status === 'LIVE_EXIT_PENDING_RECONCILIATION';
++                        if (isPendingExecution) {
++                            continue;
++                        }
+                         await this.updateTrailingStop(trade, tick.lastPrice);
+                         await this.evaluateExitTriggers(trade, tick.lastPrice);
+                     }
+@@ -130,10 +137,31 @@ export class RiskMonitorLoop {
+      */
+     async handleExecutionReport(orderId: number, status: string): Promise<void> {
+         if (status !== 'FILLED') return;
+-        // Delegate to engine for DB sync — engine already has confirmFill logic
++        // Legacy compatibility hook retained for the existing F3 contract.
+         await (this.engine as any).confirmFill?.(orderId).catch(() => {});
+     }
+ 
++    /**
++     * B4.2-R canonical User Data Stream reconciliation path. Binance events are
++     * treated as a trigger; RealTradingEngine re-queries REST order status so
++     * cumulative execution is idempotent and restart-safe.
++     */
++    async handleOrderExecutionReport(data: ExecutionReportData): Promise<void> {
++        const status = String(data.status || '').toUpperCase();
++        if (!['PARTIALLY_FILLED', 'FILLED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'EXPIRED_IN_MATCH', 'REJECTED'].includes(status)) {
++            return;
++        }
++
++        try {
++            await (this.engine as any).reconcileOrderUpdate?.(data.orderId, data.symbol, status);
++        } catch (error) {
++            withLogContext({ service: 'riskMonitorLoop', symbol: data.symbol }).error(
++                { err: error, orderId: data.orderId, status },
++                'Live order executionReport reconciliation failed',
++            );
++        }
++    }
++
+     // ── F3-13: Auto-signal from kline close ───────────────────────────────────
+ 
+     /**
+@@ -239,6 +267,28 @@ export class RiskMonitorLoop {
+     private async tick(): Promise<void> {
+         if (!this.isRunning) return;
+ 
++        // REST fallback for missed WS events / process restarts. Keep this slower
++        // than the price-risk loop to avoid unnecessary USER_DATA weight.
++        if (Date.now() - this.lastReconciliationSweepAt >= this.reconciliationSweepIntervalMs) {
++            this.lastReconciliationSweepAt = Date.now();
++            try {
++                const recovery = await (this.engine as any).reconcilePendingOrders?.();
++                const recoveryReady = (this.engine as any).isStartupRecoveryReady?.();
++                if (recovery && recovery.failed === 0 && recoveryReady === false) {
++                    (this.engine as any).markStartupRecoveryComplete?.();
++                    withLogContext({ service: 'riskMonitorLoop' }).info(
++                        { recovery },
++                        'Startup reconciliation recovered; live execution gate opened',
++                    );
++                }
++            } catch (error) {
++                withLogContext({ service: 'riskMonitorLoop' }).error(
++                    { err: error },
++                    'Pending live-order reconciliation sweep failed',
++                );
++            }
++        }
++
+         const openTrades = await db.getOpenLiveTrades();
+         if (openTrades.length === 0) {
+             return;
+@@ -248,8 +298,16 @@ export class RiskMonitorLoop {
+             const symbol = trade.symbol.toUpperCase();
+             const currentPrice = await binanceOrderService.getCurrentPrice(symbol);
+ 
+-            await this.updateTrailingStop(trade, currentPrice);
+-            await this.evaluateExitTriggers(trade, currentPrice);
++            // Do not submit a second exit while Binance still owns an unresolved
++            // entry/exit order. The exposure remains visible to monitoring and
++            // circuit-breaker accounting until reconciliation resolves it.
++            const isPendingExecution = trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION'
++                || trade.status === 'LIVE_EXIT_PENDING_RECONCILIATION';
++
++            if (!isPendingExecution) {
++                await this.updateTrailingStop(trade, currentPrice);
++                await this.evaluateExitTriggers(trade, currentPrice);
++            }
+             await this.evaluateCircuitBreaker(trade.userId);
+         }
+     }
+diff --git a/tests/fase3-connection-manager.test.ts b/tests/fase3-connection-manager.test.ts
+index 5609e7e..6b4e2a0 100644
+--- a/tests/fase3-connection-manager.test.ts
++++ b/tests/fase3-connection-manager.test.ts
+@@ -10,6 +10,7 @@ const mockWsService = {
+     subscribeTickerStream: jest.fn(),
+     subscribeKlineStream: jest.fn(),
+     subscribeUserDataStream: jest.fn(),
++    subscribeUserDataStreamSignature: jest.fn(),
+     unsubscribe: jest.fn(),
+     unsubscribeAll: jest.fn(),
+     getActiveStreamCount: jest.fn().mockReturnValue(0),
+@@ -140,6 +141,25 @@ describe('F3-Sprint2: ConnectionManager', () => {
+         expect(key).toBe('test-listen-key-abc');
+     });
+ 
++
++
++    it('B4.2-R: startUserDataStreamV2 uses current WebSocket API signature subscription', () => {
++        process.env.BINANCE_API_KEY = 'test-api-key';
++        process.env.BINANCE_API_SECRET = 'test-api-secret';
++        const onExecutionReport = jest.fn();
++
++        cm.startUserDataStreamV2({ onExecutionReport });
++
++        expect(mockWsService.subscribeUserDataStreamSignature).toHaveBeenCalledWith(
++            expect.objectContaining({ onExecutionReport }),
++            expect.objectContaining({
++                apiKey: 'test-api-key',
++                apiSecret: 'test-api-secret',
++            }),
++        );
++        expect(cm.getActiveStreamCount()).toBe(1);
++    });
++
+     // ── Signal Subscribers ─────────────────────────────────────────────────────
+ 
+     it('addSignalSubscriber registers user correctly', () => {
+diff --git a/tests/fase3-risk-monitor-ws.test.ts b/tests/fase3-risk-monitor-ws.test.ts
+index 0f31c62..c3a1aeb 100644
+--- a/tests/fase3-risk-monitor-ws.test.ts
++++ b/tests/fase3-risk-monitor-ws.test.ts
+@@ -122,12 +122,27 @@ describe('F3-Sprint3: RiskMonitorLoop WebSocket Integration', () => {
+     let loop: RiskMonitorLoop;
+     let mockWs: MockWsService;
+     let executeExit: jest.Mock;
++    let reconcileOrderUpdate: jest.Mock;
++    let reconcilePendingOrders: jest.Mock;
++    let isStartupRecoveryReady: jest.Mock;
++    let markStartupRecoveryComplete: jest.Mock;
+ 
+     beforeEach(() => {
+         jest.clearAllMocks();
+         mockWs = new MockWsService();
+         executeExit = jest.fn().mockResolvedValue({});
+-        const mockEngine = { executeExit, confirmFill: jest.fn() } as any;
++        reconcileOrderUpdate = jest.fn().mockResolvedValue(true);
++        reconcilePendingOrders = jest.fn().mockResolvedValue({ checked: 0, reconciled: 0, failed: 0 });
++        isStartupRecoveryReady = jest.fn().mockReturnValue(true);
++        markStartupRecoveryComplete = jest.fn();
++        const mockEngine = {
++            executeExit,
++            confirmFill: jest.fn(),
++            reconcileOrderUpdate,
++            reconcilePendingOrders,
++            isStartupRecoveryReady,
++            markStartupRecoveryComplete,
++        } as any;
+ 
+         loop = new RiskMonitorLoop(
+             mockEngine,
+@@ -176,6 +191,25 @@ describe('F3-Sprint3: RiskMonitorLoop WebSocket Integration', () => {
+         expect(executeExit).toHaveBeenCalledWith('trade-1', 'stop_loss_triggered');
+     });
+ 
++    it('B4.2-R: ticker callback does not submit a second SELL while exit reconciliation is pending', async () => {
++        loop.startWebSocket(['BTCUSDT']);
++
++        (db.getOpenLiveTrades as jest.Mock).mockResolvedValueOnce([
++            makeOpenTrade({
++                status: 'LIVE_EXIT_PENDING_RECONCILIATION',
++                quantity: 0.004,
++                stopLoss: 49000,
++                takeProfit: 0,
++            }),
++        ]);
++
++        await mockWs.emitTick('BTCUSDT', 48000);
++        await new Promise((r) => setImmediate(r));
++
++        expect(executeExit).not.toHaveBeenCalled();
++        expect(db.updateTradeRisk).not.toHaveBeenCalled();
++    });
++
+     it('F3-11: ticker callback triggers executeExit when price hits take profit', async () => {
+         loop.startWebSocket(['BTCUSDT']);
+ 
+@@ -258,6 +292,79 @@ describe('F3-Sprint3: RiskMonitorLoop WebSocket Integration', () => {
+         expect(confirmFill).not.toHaveBeenCalled();
+     });
+ 
++
++
++    it('B4.2-R: modern executionReport reconciles PARTIALLY_FILLED orders via canonical REST state', async () => {
++        await loop.handleOrderExecutionReport({
++            orderId: 8080,
++            clientOrderId: 'rabtradebot',
++            symbol: 'BTCUSDT',
++            side: 'SELL',
++            status: 'PARTIALLY_FILLED',
++            executedQty: 0.004,
++            price: 0,
++            lastFilledPrice: 51000,
++            cumulativeFilledQty: 0.004,
++        });
++
++        expect(reconcileOrderUpdate).toHaveBeenCalledWith(8080, 'BTCUSDT', 'PARTIALLY_FILLED');
++    });
++
++    it('B4.2-R: modern executionReport reconciles EXPIRED_IN_MATCH as terminal', async () => {
++        await loop.handleOrderExecutionReport({
++            orderId: 8082,
++            clientOrderId: 'rabtradebot',
++            symbol: 'BTCUSDT',
++            side: 'SELL',
++            status: 'EXPIRED_IN_MATCH',
++            executedQty: 0.004,
++            price: 0,
++            lastFilledPrice: 51000,
++            cumulativeFilledQty: 0.004,
++        });
++
++        expect(reconcileOrderUpdate).toHaveBeenCalledWith(8082, 'BTCUSDT', 'EXPIRED_IN_MATCH');
++    });
++
++    it('B4.2-R: modern executionReport ignores NEW orders', async () => {
++        await loop.handleOrderExecutionReport({
++            orderId: 8081,
++            clientOrderId: 'rabtradebot',
++            symbol: 'BTCUSDT',
++            side: 'BUY',
++            status: 'NEW',
++            executedQty: 0,
++            price: 0,
++            lastFilledPrice: 0,
++            cumulativeFilledQty: 0,
++        });
++
++        expect(reconcileOrderUpdate).not.toHaveBeenCalled();
++    });
++
++    it('B4.2-R: periodic REST sweep can reopen the startup gate after recovery succeeds', async () => {
++        isStartupRecoveryReady.mockReturnValue(false);
++        reconcilePendingOrders.mockResolvedValue({ checked: 1, reconciled: 1, failed: 0 });
++        (db.getOpenLiveTrades as jest.Mock).mockResolvedValue([]);
++        (loop as any).lastReconciliationSweepAt = 0;
++
++        await (loop as any).tick();
++
++        expect(reconcilePendingOrders).toHaveBeenCalledTimes(1);
++        expect(markStartupRecoveryComplete).toHaveBeenCalledTimes(1);
++    });
++
++    it('B4.2-R: periodic REST sweep keeps the startup gate closed while recovery still fails', async () => {
++        isStartupRecoveryReady.mockReturnValue(false);
++        reconcilePendingOrders.mockResolvedValue({ checked: 1, reconciled: 0, failed: 1 });
++        (db.getOpenLiveTrades as jest.Mock).mockResolvedValue([]);
++        (loop as any).lastReconciliationSweepAt = 0;
++
++        await (loop as any).tick();
++
++        expect(markStartupRecoveryComplete).not.toHaveBeenCalled();
++    });
++
+     // ── F3-13: Auto-signal from kline close ───────────────────────────────────
+ 
+     it('F3-13: startKlineSignal triggers notifier on candle close with BUY signal', async () => {
+diff --git a/tests/fase3-websocket-service.test.ts b/tests/fase3-websocket-service.test.ts
+index 697dab1..03b1aa8 100644
+--- a/tests/fase3-websocket-service.test.ts
++++ b/tests/fase3-websocket-service.test.ts
+@@ -14,6 +14,7 @@ let mockWsInstances: MockWs[] = [];
+ class MockWs extends EventEmitter {
+     readyState: number;
+     url: string;
++    sent: string[] = [];
+ 
+     static OPEN = 1;
+     static CONNECTING = 0;
+@@ -35,7 +36,7 @@ class MockWs extends EventEmitter {
+         this.emit('close');
+     }
+ 
+-    send(_data: string) {}
++    send(data: string) { this.sent.push(data); }
+ }
+ 
+ jest.mock('ws', () => MockWs);
+@@ -358,6 +359,57 @@ describe('F3-Sprint1: BinanceWebSocketService', () => {
+         expect(pos.balances[0].asset).toBe('BTC');
+     });
+ 
++
++
++    it('B4.2-R: modern User Data Stream sends signature subscription and parses wrapped executionReport', async () => {
++        const onExecutionReport = jest.fn();
++        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1747385641636);
++
++        svc.subscribeUserDataStreamSignature(
++            { onExecutionReport },
++            {
++                apiKey: 'test-api-key',
++                apiSecret: 'test-api-secret',
++                wsApiUrl: 'wss://ws-api.test.example/ws-api/v3',
++            },
++        );
++        await new Promise((r) => setImmediate(r));
++
++        const ws = mockWsInstances[0];
++        expect(ws.url).toBe('wss://ws-api.test.example/ws-api/v3');
++        expect(ws.sent).toHaveLength(1);
++        const request = JSON.parse(ws.sent[0]);
++        expect(request.method).toBe('userDataStream.subscribe.signature');
++        expect(request.params.apiKey).toBe('test-api-key');
++        expect(request.params.timestamp).toBe(1747385641636);
++        expect(request.params.signature).toBe('217f7488e69c2949d6ea0b8546793978e49da29029b9dfee7824db70aab9f3b1');
++
++        ws.emit('message', Buffer.from(JSON.stringify({
++            subscriptionId: 0,
++            event: {
++                e: 'executionReport',
++                s: 'BTCUSDT',
++                S: 'SELL',
++                i: 8080,
++                c: 'rabtradebot',
++                X: 'PARTIALLY_FILLED',
++                z: '0.004',
++                p: '0',
++                L: '51000',
++            },
++        })));
++
++        expect(onExecutionReport).toHaveBeenCalledWith(expect.objectContaining({
++            orderId: 8080,
++            symbol: 'BTCUSDT',
++            side: 'SELL',
++            status: 'PARTIALLY_FILLED',
++            executedQty: 0.004,
++        }));
++
++        nowSpy.mockRestore();
++    });
++
+     // ── getActiveStreams ────────────────────────────────────────────────────────
+ 
+     it('getActiveStreams() returns correct stream keys', async () => {
+diff --git a/tests/realTradingEngine.b4-2-recovery.test.ts b/tests/realTradingEngine.b4-2-recovery.test.ts
+new file mode 100644
+index 0000000..c69f21e
+--- /dev/null
++++ b/tests/realTradingEngine.b4-2-recovery.test.ts
+@@ -0,0 +1,541 @@
++jest.mock('../src/services/databaseService', () => ({
++    db: {
++        countOpenLiveTrades: jest.fn(),
++        saveTrade: jest.fn(),
++        getTradeById: jest.fn(),
++        closeTrade: jest.fn(),
++        updateLiveTradeExecution: jest.fn(),
++        findPendingLiveTradeByOrderId: jest.fn(),
++        getPendingLiveTrades: jest.fn(),
++        logError: jest.fn(),
++    },
++}));
++
++jest.mock('../src/services/binanceOrderService', () => ({
++    binanceOrderService: {
++        isConfigured: jest.fn(),
++        getSymbolInfo: jest.fn(),
++        getAccountBalance: jest.fn(),
++        getCurrentPrice: jest.fn(),
++        roundToStepSize: jest.fn(),
++        cancelOrder: jest.fn(),
++        getOrderStatus: jest.fn(),
++    },
++}));
++
++import { ExecutionFill } from '../src/domain/execution';
++import { RealTradingEngine } from '../src/services/realTradingEngine';
++import { db } from '../src/services/databaseService';
++import { binanceOrderService } from '../src/services/binanceOrderService';
++import { SignalResult } from '../src/services/signalGenerator';
++import { IStrategy } from '../src/types/strategy';
++
++const strategy: IStrategy = {
++    name: 'B42Recovery',
++    version: '1.0.0',
++    timeframe: '5m',
++    canShort: false,
++    stoploss: -0.03,
++    minimalRoi: { '0': 0.1 },
++    trailingStop: true,
++    trailingStopPositive: 0.01,
++    trailingStopPositiveOffset: 0.02,
++    stakeAmount: 'unlimited',
++    maxOpenTrades: 3,
++    startupCandleCount: 10,
++    processOnlyNewCandles: true,
++    useExitSignal: true,
++    exitProfitOnly: false,
++    exitProfitOffset: 0,
++    ignoreRoiIfEntrySignal: false,
++    populateIndicators: (df) => df,
++    populateEntryTrend: (df) => df,
++    populateExitTrend: (df) => df,
++};
++
++const riskParams = {
++    riskPerTrade: 0.01,
++    maxPositionSize: 0.15,
++    minPositionSize: 0.01,
++    maxOpenTrades: 3,
++    stopLossPctFallback: 0.03,
++    expectedWinRate: 0.55,
++    rewardRiskRatio: 2,
++};
++
++const signal: SignalResult = {
++    action: 'BUY',
++    price: 0,
++    stopLoss: 49000,
++    takeProfit: 52000,
++    confidence: 0.8,
++    reason: 'recovery test',
++    text: 'recovery test',
++};
++
++function fill(overrides: Partial<ExecutionFill> = {}): ExecutionFill {
++    return {
++        product: 'SPOT',
++        symbol: 'BTCUSDT',
++        side: 'BUY',
++        reduceOnly: false,
++        orderId: 7001,
++        status: 'PARTIALLY_FILLED',
++        requestedQuantity: 0.01,
++        executedQuantity: 0,
++        cumulativeQuoteQuantity: 0,
++        averageFillPrice: undefined,
++        requiresReconciliation: true,
++        ...overrides,
++    };
++}
++
++function binanceOrder(overrides: Record<string, unknown> = {}) {
++    return {
++        symbol: 'BTCUSDT',
++        orderId: 7001,
++        status: 'PARTIALLY_FILLED',
++        executedQty: '0.004',
++        cummulativeQuoteQty: '200',
++        price: '0',
++        origQty: '0.01',
++        type: 'MARKET',
++        side: 'BUY',
++        ...overrides,
++    };
++}
++
++function entryPendingTrade(overrides: Record<string, unknown> = {}) {
++    return {
++        id: 'entry-pending',
++        userId: 1,
++        symbol: 'BTCUSDT',
++        side: 'BUY',
++        entryPrice: 50000,
++        quantity: 0,
++        status: 'LIVE_ENTRY_PENDING_RECONCILIATION',
++        tags: JSON.stringify({
++            live: true,
++            product: 'SPOT',
++            entryOrderId: 7001,
++            entryRequestedQuantity: 0.01,
++            positionInitialQuantity: 0,
++            requiresReconciliation: true,
++        }),
++        ...overrides,
++    };
++}
++
++function exitPendingTrade(overrides: Record<string, unknown> = {}) {
++    return {
++        id: 'exit-pending',
++        userId: 1,
++        symbol: 'BTCUSDT',
++        side: 'BUY',
++        entryPrice: 49000,
++        quantity: 0.006,
++        status: 'LIVE_EXIT_PENDING_RECONCILIATION',
++        tags: JSON.stringify({
++            live: true,
++            product: 'SPOT',
++            positionInitialQuantity: 0.01,
++            exitOrderId: 8001,
++            exitReason: 'stop_loss',
++            exitBaseQuantity: 0.01,
++            exitRequestedQuantity: 0.01,
++            realizedExitQuantityCarry: 0,
++            realizedExitQuoteCarry: 0,
++            requiresReconciliation: true,
++        }),
++        ...overrides,
++    };
++}
++
++describe('B4.2-R - live Spot reconciliation and recovery', () => {
++    beforeEach(() => {
++        jest.clearAllMocks();
++        (binanceOrderService.isConfigured as jest.Mock).mockReturnValue(true);
++        (binanceOrderService.getSymbolInfo as jest.Mock).mockResolvedValue({
++            minQty: 0.001,
++            maxQty: 1000,
++            stepSize: 0.001,
++            minNotional: 5,
++            tickSize: 0.01,
++        });
++        (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
++            { asset: 'USDT', free: '1000', locked: '0' },
++        ]);
++        (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(50000);
++        (binanceOrderService.roundToStepSize as jest.Mock).mockReturnValue(0.01);
++        (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(0);
++        (db.saveTrade as jest.Mock).mockResolvedValue({ id: 'entry-pending' });
++        (db.updateLiveTradeExecution as jest.Mock).mockResolvedValue({ id: 'updated' });
++        (db.getPendingLiveTrades as jest.Mock).mockResolvedValue([]);
++    });
++
++    it('blocks live execution until an explicitly required startup recovery gate is completed', async () => {
++        const executeMarket = jest.fn().mockResolvedValue(fill({
++            status: 'FILLED',
++            executedQuantity: 0.01,
++            cumulativeQuoteQuantity: 500,
++            averageFillPrice: 50000,
++            requiresReconciliation: false,
++        }));
++        const engine = new RealTradingEngine(undefined, { executeMarket } as any);
++        engine.requireStartupRecovery();
++
++        await expect(engine.executeEntry({
++            userId: 1,
++            symbol: 'BTCUSDT',
++            signal,
++            strategy,
++            riskParams,
++        })).rejects.toThrow(/startup order reconciliation/);
++        expect(executeMarket).not.toHaveBeenCalled();
++
++        engine.markStartupRecoveryComplete();
++        expect(engine.isStartupRecoveryReady()).toBe(true);
++
++        await expect(engine.executeEntry({
++            userId: 1,
++            symbol: 'BTCUSDT',
++            signal,
++            strategy,
++            riskParams,
++        })).resolves.toEqual(expect.objectContaining({ quantity: 0.01 }));
++        expect(executeMarket).toHaveBeenCalledTimes(1);
++    });
++
++    it('fails closed if the execution adapter reports an impossible initial Spot overfill', async () => {
++        const executeMarket = jest.fn().mockResolvedValue(fill({
++            status: 'FILLED',
++            requestedQuantity: 0.01,
++            executedQuantity: 0.011,
++            cumulativeQuoteQuantity: 550,
++            averageFillPrice: 50000,
++            requiresReconciliation: false,
++        }));
++        const engine = new RealTradingEngine(undefined, { executeMarket } as any);
++
++        await expect(engine.executeEntry({
++            userId: 1,
++            symbol: 'BTCUSDT',
++            signal,
++            strategy,
++            riskParams,
++        })).rejects.toThrow(/impossible Spot overfill/);
++
++        expect(db.saveTrade).not.toHaveBeenCalled();
++    });
++
++    it('persists accepted zero-fill BUY as pending with quantity=0 instead of synthetic inventory', async () => {
++        const executeMarket = jest.fn().mockResolvedValue(fill());
++        const engine = new RealTradingEngine(undefined, { executeMarket } as any);
++
++        const result = await engine.executeEntry({
++            userId: 1,
++            symbol: 'BTCUSDT',
++            signal,
++            strategy,
++            riskParams,
++        });
++
++        expect(result.quantity).toBe(0);
++        expect(db.saveTrade).toHaveBeenCalledWith(expect.objectContaining({
++            quantity: 0,
++            status: 'LIVE_ENTRY_PENDING_RECONCILIATION',
++            notes: 'LIVE_ENTRY_RECONCILIATION:7001',
++        }));
++    });
++
++    it('reconciles a partial BUY using cumulative Binance quantity and quote', async () => {
++        const trade = entryPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder());
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(7001, 'BTCUSDT', 'PARTIALLY_FILLED');
++
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
++            'entry-pending',
++            expect.objectContaining({
++                quantity: 0.004,
++                entryPrice: 50000,
++                status: 'LIVE_ENTRY_PENDING_RECONCILIATION',
++            }),
++        );
++    });
++
++    it('turns a terminal zero-fill BUY into CANCELLED with no Spot exposure', async () => {
++        const trade = entryPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            status: 'CANCELED',
++            executedQty: '0',
++            cummulativeQuoteQty: '0',
++        }));
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(7001, 'BTCUSDT', 'CANCELED');
++
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
++            'entry-pending',
++            expect.objectContaining({ quantity: 0, status: 'CANCELLED' }),
++        );
++    });
++
++    it('turns a terminal short-filled BUY into a real LIVE_OPEN position at actual fill size', async () => {
++        const trade = entryPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            status: 'CANCELED',
++            executedQty: '0.004',
++            cummulativeQuoteQty: '200',
++        }));
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(7001, 'BTCUSDT', 'CANCELED');
++
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
++            'entry-pending',
++            expect.objectContaining({ quantity: 0.004, entryPrice: 50000, status: 'LIVE_OPEN' }),
++        );
++    });
++
++    it('keeps a PARTIALLY_FILLED SELL pending and tracks only residual inventory', async () => {
++        const trade = exitPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            orderId: 8001,
++            side: 'SELL',
++            status: 'PARTIALLY_FILLED',
++            executedQty: '0.006',
++            cummulativeQuoteQty: '306',
++        }));
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(8001, 'BTCUSDT', 'PARTIALLY_FILLED');
++
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
++            'exit-pending',
++            expect.objectContaining({ quantity: 0.004, status: 'LIVE_EXIT_PENDING_RECONCILIATION' }),
++        );
++        expect(db.closeTrade).not.toHaveBeenCalled();
++    });
++
++    it('returns a canceled partial SELL to LIVE_OPEN with realized fills carried forward', async () => {
++        const trade = exitPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            orderId: 8001,
++            side: 'SELL',
++            status: 'CANCELED',
++            executedQty: '0.004',
++            cummulativeQuoteQty: '204',
++        }));
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(8001, 'BTCUSDT', 'CANCELED');
++
++        const update = (db.updateLiveTradeExecution as jest.Mock).mock.calls[0][1];
++        expect(update.quantity).toBeCloseTo(0.006);
++        expect(update.status).toBe('LIVE_OPEN');
++        const tags = JSON.parse(update.tags);
++        expect(tags.realizedExitQuantityCarry).toBeCloseTo(0.004);
++        expect(tags.realizedExitQuoteCarry).toBeCloseTo(204);
++        expect(tags.requiresReconciliation).toBe(false);
++    });
++
++    it('aggregates realized carry when a residual Spot position is closed by a later SELL order', async () => {
++        (db.getTradeById as jest.Mock).mockResolvedValue({
++            id: 'residual-open',
++            userId: 1,
++            symbol: 'BTCUSDT',
++            side: 'BUY',
++            entryPrice: 49000,
++            quantity: 0.006,
++            status: 'LIVE_OPEN',
++            tags: JSON.stringify({
++                live: true,
++                product: 'SPOT',
++                positionInitialQuantity: 0.01,
++                realizedExitQuantityCarry: 0.004,
++                realizedExitQuoteCarry: 204,
++                protectiveOrderIds: [],
++            }),
++        });
++        const executeMarket = jest.fn().mockResolvedValue(fill({
++            side: 'SELL',
++            reduceOnly: true,
++            orderId: 8002,
++            status: 'FILLED',
++            requestedQuantity: 0.006,
++            executedQuantity: 0.006,
++            cumulativeQuoteQuantity: 306,
++            averageFillPrice: 51000,
++            requiresReconciliation: false,
++        }));
++        const engine = new RealTradingEngine(undefined, { executeMarket } as any);
++
++        await engine.executeExit('residual-open', 'risk_resume_exit');
++
++        expect(db.closeTrade).not.toHaveBeenCalled();
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
++            'residual-open',
++            expect.objectContaining({
++                quantity: 0.01,
++                exitPrice: 51000,
++                status: 'CLOSED',
++                profit: 20,
++            }),
++        );
++    });
++
++    it('rejects a duplicate SELL while the previous Spot exit order is unresolved', async () => {
++        (db.getTradeById as jest.Mock).mockResolvedValue(exitPendingTrade());
++        const executeMarket = jest.fn();
++        const engine = new RealTradingEngine(undefined, { executeMarket } as any);
++
++        await expect(engine.executeExit('exit-pending', 'duplicate_exit'))
++            .rejects.toThrow(/already has an unresolved Spot exit/);
++        expect(executeMarket).not.toHaveBeenCalled();
++    });
++
++    it('finalizes a FILLED SELL from cumulative fills without premature closeTrade accounting', async () => {
++        const trade = exitPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            orderId: 8001,
++            side: 'SELL',
++            status: 'FILLED',
++            executedQty: '0.01',
++            cummulativeQuoteQty: '510',
++        }));
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(8001, 'BTCUSDT', 'FILLED');
++
++        expect(db.closeTrade).not.toHaveBeenCalled();
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
++            'exit-pending',
++            expect.objectContaining({
++                quantity: 0.01,
++                exitPrice: 51000,
++                status: 'CLOSED',
++                profit: 20,
++            }),
++        );
++    });
++
++    it('fails closed when canonical REST order identity does not match the persisted Binance order id', async () => {
++        const trade = exitPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            orderId: 9999,
++            side: 'SELL',
++            status: 'FILLED',
++            executedQty: '0.01',
++            cummulativeQuoteQty: '510',
++        }));
++        const engine = new RealTradingEngine();
++
++        await expect(engine.reconcileOrderUpdate(8001, 'BTCUSDT', 'FILLED'))
++            .rejects.toThrow(/order id mismatch/);
++        expect(db.updateLiveTradeExecution).not.toHaveBeenCalled();
++    });
++
++    it('fails closed when canonical REST execution quantities are malformed', async () => {
++        const trade = entryPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            executedQty: 'not-a-number',
++            cummulativeQuoteQty: '200',
++        }));
++        const engine = new RealTradingEngine();
++
++        await expect(engine.reconcileOrderUpdate(7001, 'BTCUSDT', 'PARTIALLY_FILLED'))
++            .rejects.toThrow(/Invalid Binance reconciliation field executedQty/);
++        expect(db.updateLiveTradeExecution).not.toHaveBeenCalled();
++    });
++
++    it('uses explicit REST fill price when cumulative quote is unavailable at terminal reconciliation', async () => {
++        const trade = exitPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            orderId: 8001,
++            side: 'SELL',
++            status: 'FILLED',
++            executedQty: '0.01',
++            cummulativeQuoteQty: '0',
++            price: '51000',
++        }));
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(8001, 'BTCUSDT', 'FILLED');
++
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
++            'exit-pending',
++            expect.objectContaining({
++                exitPrice: 51000,
++                profit: 20,
++                status: 'CLOSED',
++            }),
++        );
++    });
++
++    it('rejects reconciliation if Binance reports an exit overfill beyond tracked Spot inventory', async () => {
++        const trade = exitPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            orderId: 8001,
++            side: 'SELL',
++            status: 'FILLED',
++            executedQty: '0.011',
++            cummulativeQuoteQty: '561',
++        }));
++        const engine = new RealTradingEngine();
++
++        await expect(engine.reconcileOrderUpdate(8001, 'BTCUSDT', 'FILLED'))
++            .rejects.toThrow(/overfill detected/);
++        expect(db.updateLiveTradeExecution).not.toHaveBeenCalled();
++    });
++
++    it('treats EXPIRED_IN_MATCH as terminal and resumes residual Spot risk management', async () => {
++        const trade = exitPendingTrade();
++        (db.findPendingLiveTradeByOrderId as jest.Mock).mockResolvedValue(trade);
++        (binanceOrderService.getOrderStatus as jest.Mock).mockResolvedValue(binanceOrder({
++            orderId: 8001,
++            side: 'SELL',
++            status: 'EXPIRED_IN_MATCH',
++            executedQty: '0.004',
++            cummulativeQuoteQty: '204',
++        }));
++        const engine = new RealTradingEngine();
++
++        await engine.reconcileOrderUpdate(8001, 'BTCUSDT', 'EXPIRED_IN_MATCH');
++
++        const update = (db.updateLiveTradeExecution as jest.Mock).mock.calls[0][1];
++        expect(update.quantity).toBeCloseTo(0.006);
++        expect(update.status).toBe('LIVE_OPEN');
++        const tags = JSON.parse(update.tags);
++        expect(tags.lastTerminalExitStatus).toBe('EXPIRED_IN_MATCH');
++    });
++
++    it('startup recovery sweeps every persisted pending order independently', async () => {
++        const entry = entryPendingTrade();
++        const exit = exitPendingTrade();
++        (db.getPendingLiveTrades as jest.Mock).mockResolvedValue([entry, exit]);
++        (db.findPendingLiveTradeByOrderId as jest.Mock)
++            .mockResolvedValueOnce(entry)
++            .mockResolvedValueOnce(exit);
++        (binanceOrderService.getOrderStatus as jest.Mock)
++            .mockResolvedValueOnce(binanceOrder({ status: 'FILLED', executedQty: '0.01', cummulativeQuoteQty: '500' }))
++            .mockResolvedValueOnce(binanceOrder({ orderId: 8001, side: 'SELL', status: 'FILLED', executedQty: '0.01', cummulativeQuoteQty: '510' }));
++        const engine = new RealTradingEngine();
++
++        const result = await engine.reconcilePendingOrders();
++
++        expect(result).toEqual({ checked: 2, reconciled: 2, failed: 0 });
++        expect(binanceOrderService.getOrderStatus).toHaveBeenCalledTimes(2);
++    });
++});
+diff --git a/tests/realTradingEngine.b4-2-router.test.ts b/tests/realTradingEngine.b4-2-router.test.ts
+index 29b2ea6..276c536 100644
+--- a/tests/realTradingEngine.b4-2-router.test.ts
++++ b/tests/realTradingEngine.b4-2-router.test.ts
+@@ -4,6 +4,9 @@ jest.mock('../src/services/databaseService', () => ({
+         saveTrade: jest.fn(),
+         getTradeById: jest.fn(),
+         closeTrade: jest.fn(),
++        updateLiveTradeExecution: jest.fn(),
++        findPendingLiveTradeByOrderId: jest.fn(),
++        getPendingLiveTrades: jest.fn(),
+         logError: jest.fn(),
+     },
+ }));
+@@ -17,6 +20,7 @@ jest.mock('../src/services/binanceOrderService', () => ({
+         roundToStepSize: jest.fn(),
+         placeMarketOrder: jest.fn(),
+         cancelOrder: jest.fn(),
++        getOrderStatus: jest.fn(),
+     },
+ }));
+ 
+@@ -97,6 +101,8 @@ describe('B4.2 Patch 2 - RealTradingEngine uses explicit execution semantics', (
+         (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(0);
+         (db.saveTrade as jest.Mock).mockResolvedValue({ id: 'trade-1' });
+         (db.closeTrade as jest.Mock).mockResolvedValue({ id: 'trade-1' });
++        (db.updateLiveTradeExecution as jest.Mock).mockResolvedValue({ id: 'trade-1' });
++        (db.getPendingLiveTrades as jest.Mock).mockResolvedValue([]);
+         (binanceOrderService.cancelOrder as jest.Mock).mockResolvedValue({});
+     });
+ 
+@@ -202,13 +208,14 @@ describe('B4.2 Patch 2 - RealTradingEngine uses explicit execution semantics', (
+ 
+         await engine.executeExit('trade-1', 'stop_loss');
+ 
+-        expect(db.closeTrade).toHaveBeenCalledWith(
++        expect(db.closeTrade).not.toHaveBeenCalled();
++        expect(db.updateLiveTradeExecution).toHaveBeenCalledWith(
+             'trade-1',
+-            50500,
+-            undefined,
+             expect.objectContaining({
++                quantity: 0.006,
+                 status: 'LIVE_EXIT_PENDING_RECONCILIATION',
+                 notes: expect.stringContaining('LIVE_EXIT_RECONCILIATION:303'),
++                tags: expect.stringContaining('\"exitOrderId\":303'),
+             }),
+         );
+     });
+diff --git a/tests/spotExecutionBroker.b4-2-reconciliation.test.ts b/tests/spotExecutionBroker.b4-2-reconciliation.test.ts
+index 0a801c4..834a658 100644
+--- a/tests/spotExecutionBroker.b4-2-reconciliation.test.ts
++++ b/tests/spotExecutionBroker.b4-2-reconciliation.test.ts
+@@ -63,6 +63,24 @@ describe('B4.2 Patch 2 - Spot fill reconciliation semantics', () => {
+         expect(fill.requiresReconciliation).toBe(false);
+     });
+ 
++    it('fails closed if Binance reports executed quantity above the requested Spot quantity', async () => {
++        const exchange = client();
++        exchange.placeMarketOrder.mockResolvedValue({
++            symbol: 'BTCUSDT',
++            orderId: 22,
++            status: 'FILLED',
++            executedQty: '0.011',
++            cummulativeQuoteQty: '555.5',
++            price: '0',
++            origQty: '0.01',
++            type: 'MARKET',
++            side: 'SELL',
++        });
++
++        await expect(new SpotExecutionBroker(exchange).executeMarket(command()))
++            .rejects.toThrow(/overfill detected/);
++    });
++
+     it('keeps a FILLED response with less than requested execution in reconciliation state', async () => {
+         const exchange = client();
+         exchange.placeMarketOrder.mockResolvedValue({

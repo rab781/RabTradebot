@@ -153,6 +153,37 @@ export class ConnectionManager {
         this.scheduleListenKeyRefresh();
     }
 
+
+    /**
+     * Current Binance Spot User Data Stream subscription.
+     * Uses WebSocket API `userDataStream.subscribe.signature`; unlike the legacy
+     * listenKey path above, this remains supported after February 2026.
+     */
+    startUserDataStreamV2(callbacks: UserDataCallbacks): void {
+        const key = 'userData_wsapi';
+        this.ensureSlotAvailable(key);
+        if (this.streamInfoMap.has(key)) return;
+
+        const apiKey = process.env.BINANCE_API_KEY || '';
+        const apiSecret = process.env.BINANCE_API_SECRET || '';
+        if (!apiKey || !apiSecret) {
+            throw new Error('BINANCE_API_KEY and BINANCE_API_SECRET are required for User Data Stream V2.');
+        }
+
+        this.wsService.subscribeUserDataStreamSignature(callbacks, {
+            apiKey,
+            apiSecret,
+            wsApiUrl: process.env.BINANCE_WS_API_URL,
+        });
+        this.streamInfoMap.set(key, {
+            key,
+            type: 'userData',
+            symbol: 'userData',
+            subscriberIds: new Set(),
+            startedAt: new Date(),
+        });
+    }
+
     /** F3-6: Request a new listenKey from Binance REST API */
     async getListenKey(): Promise<string> {
         const baseUrl = binanceOrderService.getBaseUrl();
@@ -270,6 +301,7 @@ export class ConnectionManager {
         this.listenKey = null;
         this.listenKeyExpiresAt = null;
         this.streamInfoMap.delete('userData_main');
+        this.streamInfoMap.delete('userData_wsapi');
         this.wsService.unsubscribeAll();
     }
 

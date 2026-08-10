@@ -14,6 +14,7 @@ let mockWsInstances: MockWs[] = [];
 class MockWs extends EventEmitter {
     readyState: number;
     url: string;
+    sent: string[] = [];
 
     static OPEN = 1;
     static CONNECTING = 0;
@@ -35,7 +36,7 @@ class MockWs extends EventEmitter {
         this.emit('close');
     }
 
-    send(_data: string) {}
+    send(data: string) { this.sent.push(data); }
 }
 
 jest.mock('ws', () => MockWs);
@@ -356,6 +357,57 @@ describe('F3-Sprint1: BinanceWebSocketService', () => {
         const pos = onAccountPosition.mock.calls[0][0];
         expect(pos.balances.length).toBe(2);
         expect(pos.balances[0].asset).toBe('BTC');
+    });
+
+
+
+    it('B4.2-R: modern User Data Stream sends signature subscription and parses wrapped executionReport', async () => {
+        const onExecutionReport = jest.fn();
+        const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(1747385641636);
+
+        svc.subscribeUserDataStreamSignature(
+            { onExecutionReport },
+            {
+                apiKey: 'test-api-key',
+                apiSecret: 'test-api-secret',
+                wsApiUrl: 'wss://ws-api.test.example/ws-api/v3',
+            },
+        );
+        await new Promise((r) => setImmediate(r));
+
+        const ws = mockWsInstances[0];
+        expect(ws.url).toBe('wss://ws-api.test.example/ws-api/v3');
+        expect(ws.sent).toHaveLength(1);
+        const request = JSON.parse(ws.sent[0]);
+        expect(request.method).toBe('userDataStream.subscribe.signature');
+        expect(request.params.apiKey).toBe('test-api-key');
+        expect(request.params.timestamp).toBe(1747385641636);
+        expect(request.params.signature).toBe('217f7488e69c2949d6ea0b8546793978e49da29029b9dfee7824db70aab9f3b1');
+
+        ws.emit('message', Buffer.from(JSON.stringify({
+            subscriptionId: 0,
+            event: {
+                e: 'executionReport',
+                s: 'BTCUSDT',
+                S: 'SELL',
+                i: 8080,
+                c: 'rabtradebot',
+                X: 'PARTIALLY_FILLED',
+                z: '0.004',
+                p: '0',
+                L: '51000',
+            },
+        })));
+
+        expect(onExecutionReport).toHaveBeenCalledWith(expect.objectContaining({
+            orderId: 8080,
+            symbol: 'BTCUSDT',
+            side: 'SELL',
+            status: 'PARTIALLY_FILLED',
+            executedQty: 0.004,
+        }));
+
+        nowSpy.mockRestore();
     });
 
     // ── getActiveStreams ────────────────────────────────────────────────────────

@@ -63,6 +63,24 @@ describe('B4.2 Patch 2 - Spot fill reconciliation semantics', () => {
         expect(fill.requiresReconciliation).toBe(false);
     });
 
+    it('fails closed if Binance reports executed quantity above the requested Spot quantity', async () => {
+        const exchange = client();
+        exchange.placeMarketOrder.mockResolvedValue({
+            symbol: 'BTCUSDT',
+            orderId: 22,
+            status: 'FILLED',
+            executedQty: '0.011',
+            cummulativeQuoteQty: '555.5',
+            price: '0',
+            origQty: '0.01',
+            type: 'MARKET',
+            side: 'SELL',
+        });
+
+        await expect(new SpotExecutionBroker(exchange).executeMarket(command()))
+            .rejects.toThrow(/overfill detected/);
+    });
+
     it('keeps a FILLED response with less than requested execution in reconciliation state', async () => {
         const exchange = client();
         exchange.placeMarketOrder.mockResolvedValue({

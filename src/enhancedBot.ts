@@ -4102,13 +4102,66 @@ setInterval(async () => {
   }
 }, parseInt(process.env.HEALTH_MONITOR_INTERVAL_MS || '300000', 10));
 
+// B4.2-R: once Binance live execution is configured, fail closed until the
+// persisted pending-order startup sweep has completed without unresolved errors.
+if (binanceOrderService.isConfigured()) {
+  realTradingEngine.requireStartupRecovery();
+}
+
 bot
   .launch({ dropPendingUpdates: true })
-  .then(() => {
+  .then(async () => {
     withLogContext({ service: 'enhancedBot' }).info('Bot started successfully');
     withLogContext({ service: 'enhancedBot' }).info('Ready to receive commands');
     withLogContext({ service: 'enhancedBot' }).info('Send /start to see available commands');
     withLogContext({ service: 'enhancedBot' }).info('Prediction verification service active');
+
+    // B4.2-R: recover persisted live orders before normal risk actions resume.
+    if (binanceOrderService.isConfigured()) {
+      try {
+        const recovery = await realTradingEngine.reconcilePendingOrders();
+        if (recovery.failed === 0) {
+          realTradingEngine.markStartupRecoveryComplete();
+          withLogContext({ service: 'enhancedBot' }).info(
+            { recovery },
+            'Live Spot order reconciliation startup sweep complete; execution gate opened',
+          );
+        } else {
+          withLogContext({ service: 'enhancedBot' }).error(
+            { recovery },
+            'Live Spot startup reconciliation has unresolved failures; execution remains fail-closed',
+          );
+        }
+      } catch (error) {
+        withLogContext({ service: 'enhancedBot' }).error(
+          { err: error },
+          'Initial live Spot order reconciliation sweep failed',
+        );
+      }
+
+      try {
+        connectionManager.startUserDataStreamV2({
+          onExecutionReport: (data) => {
+            riskMonitorLoop.handleOrderExecutionReport(data).catch((error) => {
+              withLogContext({ service: 'enhancedBot', symbol: data.symbol }).error(
+                { err: error, orderId: data.orderId, status: data.status },
+                'WebSocket API execution reconciliation failed',
+              );
+            });
+          },
+        });
+        withLogContext({ service: 'enhancedBot' }).info(
+          'Binance WebSocket API User Data Stream reconciliation active',
+        );
+      } catch (error) {
+        // REST reconciliation sweep in RiskMonitorLoop remains the fail-safe.
+        withLogContext({ service: 'enhancedBot' }).error(
+          { err: error },
+          'Failed to start modern Binance User Data Stream; REST reconciliation fallback remains active',
+        );
+      }
+    }
+
     riskMonitorLoop.start().catch((error) => {
       withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start risk monitor loop');
     });
@@ -4127,6 +4180,7 @@ process.once('SIGINT', () => {
     }
   }
   riskMonitorLoop.stop();
+  connectionManager.shutdown();
   predictionVerifier.stop();
   bot.stop('SIGINT');
   db.disconnect();
@@ -4141,6 +4195,7 @@ process.once('SIGTERM', () => {
     }
   }
   riskMonitorLoop.stop();
+  connectionManager.shutdown();
   predictionVerifier.stop();
   bot.stop('SIGTERM');
   db.disconnect();

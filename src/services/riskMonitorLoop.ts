@@ -1,7 +1,7 @@
 import { db } from './databaseService';
 import { binanceOrderService } from './binanceOrderService';
 import { RealTradingEngine, realTradingEngine } from './realTradingEngine';
-import { BinanceWebSocketService } from './binanceWebSocketService';
+import { BinanceWebSocketService, ExecutionReportData } from './binanceWebSocketService';
 import { connectionManager } from './connectionManager';
 import { withLogContext } from '../utils/logger';
 
@@ -41,6 +41,8 @@ export class RiskMonitorLoop {
     private notifier?: RiskAlertNotifier;
     private trailState = new Map<string, TrailState>();
     private baselineEquityByUser = new Map<number, number>();
+    private lastReconciliationSweepAt = 0;
+    private readonly reconciliationSweepIntervalMs = 15_000;
 
     // ── F3-10/F3-11: WebSocket mode ────────────────────────────────────────────
     /** Symbols currently subscribed via WebSocket */
@@ -100,6 +102,11 @@ export class RiskMonitorLoop {
                         (t: any) => t.symbol.toUpperCase() === symUpper,
                     );
                     for (const trade of symbolTrades) {
+                        const isPendingExecution = trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION'
+                            || trade.status === 'LIVE_EXIT_PENDING_RECONCILIATION';
+                        if (isPendingExecution) {
+                            continue;
+                        }
                         await this.updateTrailingStop(trade, tick.lastPrice);
                         await this.evaluateExitTriggers(trade, tick.lastPrice);
                     }
@@ -130,8 +137,29 @@ export class RiskMonitorLoop {
      */
     async handleExecutionReport(orderId: number, status: string): Promise<void> {
         if (status !== 'FILLED') return;
-        // Delegate to engine for DB sync — engine already has confirmFill logic
+        // Legacy compatibility hook retained for the existing F3 contract.
         await (this.engine as any).confirmFill?.(orderId).catch(() => {});
+    }
+
+    /**
+     * B4.2-R canonical User Data Stream reconciliation path. Binance events are
+     * treated as a trigger; RealTradingEngine re-queries REST order status so
+     * cumulative execution is idempotent and restart-safe.
+     */
+    async handleOrderExecutionReport(data: ExecutionReportData): Promise<void> {
+        const status = String(data.status || '').toUpperCase();
+        if (!['PARTIALLY_FILLED', 'FILLED', 'CANCELED', 'CANCELLED', 'EXPIRED', 'EXPIRED_IN_MATCH', 'REJECTED'].includes(status)) {
+            return;
+        }
+
+        try {
+            await (this.engine as any).reconcileOrderUpdate?.(data.orderId, data.symbol, status);
+        } catch (error) {
+            withLogContext({ service: 'riskMonitorLoop', symbol: data.symbol }).error(
+                { err: error, orderId: data.orderId, status },
+                'Live order executionReport reconciliation failed',
+            );
+        }
     }
 
     // ── F3-13: Auto-signal from kline close ───────────────────────────────────
@@ -239,6 +267,28 @@ export class RiskMonitorLoop {
     private async tick(): Promise<void> {
         if (!this.isRunning) return;
 
+        // REST fallback for missed WS events / process restarts. Keep this slower
+        // than the price-risk loop to avoid unnecessary USER_DATA weight.
+        if (Date.now() - this.lastReconciliationSweepAt >= this.reconciliationSweepIntervalMs) {
+            this.lastReconciliationSweepAt = Date.now();
+            try {
+                const recovery = await (this.engine as any).reconcilePendingOrders?.();
+                const recoveryReady = (this.engine as any).isStartupRecoveryReady?.();
+                if (recovery && recovery.failed === 0 && recoveryReady === false) {
+                    (this.engine as any).markStartupRecoveryComplete?.();
+                    withLogContext({ service: 'riskMonitorLoop' }).info(
+                        { recovery },
+                        'Startup reconciliation recovered; live execution gate opened',
+                    );
+                }
+            } catch (error) {
+                withLogContext({ service: 'riskMonitorLoop' }).error(
+                    { err: error },
+                    'Pending live-order reconciliation sweep failed',
+                );
+            }
+        }
+
         const openTrades = await db.getOpenLiveTrades();
         if (openTrades.length === 0) {
             return;
@@ -248,8 +298,16 @@ export class RiskMonitorLoop {
             const symbol = trade.symbol.toUpperCase();
             const currentPrice = await binanceOrderService.getCurrentPrice(symbol);
 
-            await this.updateTrailingStop(trade, currentPrice);
-            await this.evaluateExitTriggers(trade, currentPrice);
+            // Do not submit a second exit while Binance still owns an unresolved
+            // entry/exit order. The exposure remains visible to monitoring and
+            // circuit-breaker accounting until reconciliation resolves it.
+            const isPendingExecution = trade.status === 'LIVE_ENTRY_PENDING_RECONCILIATION'
+                || trade.status === 'LIVE_EXIT_PENDING_RECONCILIATION';
+
+            if (!isPendingExecution) {
+                await this.updateTrailingStop(trade, currentPrice);
+                await this.evaluateExitTriggers(trade, currentPrice);
+            }
             await this.evaluateCircuitBreaker(trade.userId);
         }
     }

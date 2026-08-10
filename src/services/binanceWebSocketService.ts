@@ -1,4 +1,5 @@
 import WebSocket from 'ws';
+import crypto from 'crypto';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
@@ -43,6 +44,12 @@ export interface AccountPositionData {
 export interface UserDataCallbacks {
     onExecutionReport?: (data: ExecutionReportData) => void;
     onAccountPosition?: (data: AccountPositionData) => void;
+}
+
+export interface UserDataStreamSignatureOptions {
+    apiKey: string;
+    apiSecret: string;
+    wsApiUrl?: string;
 }
 
 export type AlertCallback = (message: string) => void;
@@ -146,32 +153,110 @@ export class BinanceWebSocketService {
 
         const url = `${WS_BASE_URL}/${listenKey}`;
         this.openStream(key, url, 'userData', 'userData', (raw) => {
-            const d = JSON.parse(raw);
-
-            if (d.e === 'executionReport' && callbacks.onExecutionReport) {
-                callbacks.onExecutionReport({
-                    orderId: d.i,
-                    clientOrderId: d.c,
-                    symbol: d.s,
-                    side: d.S,
-                    status: d.X,
-                    executedQty: parseFloat(d.z),
-                    price: parseFloat(d.p),
-                    lastFilledPrice: parseFloat(d.L),
-                    cumulativeFilledQty: parseFloat(d.z),
-                });
-            }
-
-            if (d.e === 'outboundAccountPosition' && callbacks.onAccountPosition) {
-                callbacks.onAccountPosition({
-                    balances: (d.B || []).map((b: any) => ({
-                        asset: b.a,
-                        free: b.f,
-                        locked: b.l,
-                    })),
-                });
-            }
+            this.dispatchUserDataEvent(JSON.parse(raw), callbacks);
         });
+    }
+
+
+    /**
+     * Binance Spot User Data Stream over the current WebSocket API.
+     *
+     * The old REST listenKey lifecycle was removed by Binance in February 2026.
+     * This signature subscription works with the HMAC API keys already used by
+     * RabTradebot and re-subscribes automatically after reconnect.
+     */
+    subscribeUserDataStreamSignature(
+        callbacks: UserDataCallbacks,
+        options: UserDataStreamSignatureOptions,
+    ): void {
+        const apiKey = options.apiKey?.trim();
+        const apiSecret = options.apiSecret?.trim();
+        if (!apiKey || !apiSecret) {
+            throw new Error('BINANCE_API_KEY and BINANCE_API_SECRET are required for User Data Stream subscription.');
+        }
+
+        const key = 'userData_wsapi';
+        if (this.streams.has(key)) return;
+
+        const testnetEnabled = /^(1|true|yes)$/i.test(process.env.BINANCE_TESTNET || '');
+        const url = options.wsApiUrl
+            || process.env.BINANCE_WS_API_URL
+            || (testnetEnabled
+                ? 'wss://ws-api.testnet.binance.vision/ws-api/v3'
+                : 'wss://ws-api.binance.com:443/ws-api/v3');
+
+        const onMessage = (raw: string) => {
+            const envelope = JSON.parse(raw);
+
+            // Request/response frame for the subscription itself.
+            if (typeof envelope?.status === 'number' && envelope?.id !== undefined) {
+                if (envelope.status >= 400) {
+                    this.alertCallback?.(
+                        `⚠️ Binance User Data Stream subscription rejected: ${envelope?.error?.msg || envelope.status}`,
+                    );
+                }
+                return;
+            }
+
+            // WebSocket API wraps user events as { subscriptionId, event }.
+            // Keeping the fallback supports fixtures and any transitional payload.
+            const d = envelope?.event ?? envelope;
+            this.dispatchUserDataEvent(d, callbacks);
+        };
+
+        const onOpen = (ws: WebSocket) => {
+            const timestamp = Date.now();
+            const unsignedParams: Record<string, string | number> = { apiKey, timestamp };
+            const payload = Object.keys(unsignedParams)
+                .sort()
+                .map((name) => `${name}=${unsignedParams[name]}`)
+                .join('&');
+            const signature = crypto
+                .createHmac('sha256', apiSecret)
+                .update(payload)
+                .digest('hex');
+
+            ws.send(JSON.stringify({
+                id: `rabtradebot-uds-${timestamp}`,
+                method: 'userDataStream.subscribe.signature',
+                params: {
+                    ...unsignedParams,
+                    signature,
+                },
+            }));
+        };
+
+        this.openStream(key, url, 'userData', 'userData', onMessage, onOpen);
+    }
+
+    private dispatchUserDataEvent(d: any, callbacks: UserDataCallbacks): void {
+        if (d?.e === 'executionReport' && callbacks.onExecutionReport) {
+            callbacks.onExecutionReport({
+                orderId: Number(d.i),
+                clientOrderId: String(d.c ?? ''),
+                symbol: String(d.s ?? ''),
+                side: String(d.S ?? ''),
+                status: String(d.X ?? ''),
+                executedQty: parseFloat(d.z ?? '0'),
+                price: parseFloat(d.p ?? '0'),
+                lastFilledPrice: parseFloat(d.L ?? '0'),
+                cumulativeFilledQty: parseFloat(d.z ?? '0'),
+            });
+        }
+
+        if (d?.e === 'outboundAccountPosition' && callbacks.onAccountPosition) {
+            callbacks.onAccountPosition({
+                balances: (d.B || []).map((b: any) => ({
+                    asset: b.a,
+                    free: b.f,
+                    locked: b.l,
+                })),
+            });
+        }
+
+        if (d?.e === 'eventStreamTerminated') {
+            this.alertCallback?.('⚠️ Binance User Data Stream terminated; reconnect/recovery will be attempted.');
+        }
     }
 
     /** Close all streams for a given symbol across all types */
@@ -209,6 +294,7 @@ export class BinanceWebSocketService {
         type: StreamMeta['type'],
         symbol: string,
         onMessage: (raw: string) => void,
+        onOpen?: (ws: WebSocket) => void,
     ): void {
         const ws = new WebSocket(url);
 
@@ -228,6 +314,7 @@ export class BinanceWebSocketService {
             meta.connectedAt = Date.now();
             // Reset persistent counter on successful connection
             this.reconnectCounters.delete(key);
+            onOpen?.(ws);
         });
 
         ws.on('message', (data: WebSocket.RawData) => {
@@ -244,7 +331,7 @@ export class BinanceWebSocketService {
 
         ws.on('close', () => {
             if (meta.destroyed) return;
-            this.scheduleReconnect(key, url, type, symbol, onMessage, meta);
+            this.scheduleReconnect(key, url, type, symbol, onMessage, meta, onOpen);
         });
     }
 
@@ -255,6 +342,7 @@ export class BinanceWebSocketService {
         symbol: string,
         onMessage: (raw: string) => void,
         meta: StreamMeta,
+        onOpen?: (ws: WebSocket) => void,
     ): void {
         if (meta.destroyed) return;
 
@@ -280,7 +368,7 @@ export class BinanceWebSocketService {
             if (meta.destroyed) return;
             // Remove old entry and reopen
             this.streams.delete(key);
-            this.openStream(key, url, type, symbol, onMessage);
+            this.openStream(key, url, type, symbol, onMessage, onOpen);
         }, delay);
     }
 

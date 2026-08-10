@@ -10,6 +10,7 @@ const mockWsService = {
     subscribeTickerStream: jest.fn(),
     subscribeKlineStream: jest.fn(),
     subscribeUserDataStream: jest.fn(),
+    subscribeUserDataStreamSignature: jest.fn(),
     unsubscribe: jest.fn(),
     unsubscribeAll: jest.fn(),
     getActiveStreamCount: jest.fn().mockReturnValue(0),
@@ -138,6 +139,25 @@ describe('F3-Sprint2: ConnectionManager', () => {
     it('F3-6: getListenKey returns the listen key from Binance API', async () => {
         const key = await cm.getListenKey();
         expect(key).toBe('test-listen-key-abc');
+    });
+
+
+
+    it('B4.2-R: startUserDataStreamV2 uses current WebSocket API signature subscription', () => {
+        process.env.BINANCE_API_KEY = 'test-api-key';
+        process.env.BINANCE_API_SECRET = 'test-api-secret';
+        const onExecutionReport = jest.fn();
+
+        cm.startUserDataStreamV2({ onExecutionReport });
+
+        expect(mockWsService.subscribeUserDataStreamSignature).toHaveBeenCalledWith(
+            expect.objectContaining({ onExecutionReport }),
+            expect.objectContaining({
+                apiKey: 'test-api-key',
+                apiSecret: 'test-api-secret',
+            }),
+        );
+        expect(cm.getActiveStreamCount()).toBe(1);
     });
 
     // ── Signal Subscribers ─────────────────────────────────────────────────────

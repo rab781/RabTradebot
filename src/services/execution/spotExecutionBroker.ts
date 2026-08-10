@@ -138,6 +138,11 @@ export class SpotExecutionBroker {
         const status = String(order.status || 'UNKNOWN').toUpperCase();
         const executionKnown = executedQuantity > 0 && averageFillPrice !== undefined;
         const quantityTolerance = Math.max(1e-12, command.quantity * 1e-12);
+        if (executedQuantity > command.quantity + quantityTolerance) {
+            throw new InvalidExecutionCommandError(
+                `Binance Spot execution overfill detected for ${command.instrument.symbol}: executed=${executedQuantity}, requested=${command.quantity}.`,
+            );
+        }
         const fullyExecuted = executedQuantity + quantityTolerance >= command.quantity;
         const fullyFilled = status === 'FILLED' && fullyExecuted;
 

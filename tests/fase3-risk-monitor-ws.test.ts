@@ -122,12 +122,27 @@ describe('F3-Sprint3: RiskMonitorLoop WebSocket Integration', () => {
     let loop: RiskMonitorLoop;
     let mockWs: MockWsService;
     let executeExit: jest.Mock;
+    let reconcileOrderUpdate: jest.Mock;
+    let reconcilePendingOrders: jest.Mock;
+    let isStartupRecoveryReady: jest.Mock;
+    let markStartupRecoveryComplete: jest.Mock;
 
     beforeEach(() => {
         jest.clearAllMocks();
         mockWs = new MockWsService();
         executeExit = jest.fn().mockResolvedValue({});
-        const mockEngine = { executeExit, confirmFill: jest.fn() } as any;
+        reconcileOrderUpdate = jest.fn().mockResolvedValue(true);
+        reconcilePendingOrders = jest.fn().mockResolvedValue({ checked: 0, reconciled: 0, failed: 0 });
+        isStartupRecoveryReady = jest.fn().mockReturnValue(true);
+        markStartupRecoveryComplete = jest.fn();
+        const mockEngine = {
+            executeExit,
+            confirmFill: jest.fn(),
+            reconcileOrderUpdate,
+            reconcilePendingOrders,
+            isStartupRecoveryReady,
+            markStartupRecoveryComplete,
+        } as any;
 
         loop = new RiskMonitorLoop(
             mockEngine,
@@ -174,6 +189,25 @@ describe('F3-Sprint3: RiskMonitorLoop WebSocket Integration', () => {
         await new Promise((r) => setImmediate(r));
 
         expect(executeExit).toHaveBeenCalledWith('trade-1', 'stop_loss_triggered');
+    });
+
+    it('B4.2-R: ticker callback does not submit a second SELL while exit reconciliation is pending', async () => {
+        loop.startWebSocket(['BTCUSDT']);
+
+        (db.getOpenLiveTrades as jest.Mock).mockResolvedValueOnce([
+            makeOpenTrade({
+                status: 'LIVE_EXIT_PENDING_RECONCILIATION',
+                quantity: 0.004,
+                stopLoss: 49000,
+                takeProfit: 0,
+            }),
+        ]);
+
+        await mockWs.emitTick('BTCUSDT', 48000);
+        await new Promise((r) => setImmediate(r));
+
+        expect(executeExit).not.toHaveBeenCalled();
+        expect(db.updateTradeRisk).not.toHaveBeenCalled();
     });
 
     it('F3-11: ticker callback triggers executeExit when price hits take profit', async () => {
@@ -256,6 +290,79 @@ describe('F3-Sprint3: RiskMonitorLoop WebSocket Integration', () => {
         await loop.handleExecutionReport(99, 'PARTIALLY_FILLED');
 
         expect(confirmFill).not.toHaveBeenCalled();
+    });
+
+
+
+    it('B4.2-R: modern executionReport reconciles PARTIALLY_FILLED orders via canonical REST state', async () => {
+        await loop.handleOrderExecutionReport({
+            orderId: 8080,
+            clientOrderId: 'rabtradebot',
+            symbol: 'BTCUSDT',
+            side: 'SELL',
+            status: 'PARTIALLY_FILLED',
+            executedQty: 0.004,
+            price: 0,
+            lastFilledPrice: 51000,
+            cumulativeFilledQty: 0.004,
+        });
+
+        expect(reconcileOrderUpdate).toHaveBeenCalledWith(8080, 'BTCUSDT', 'PARTIALLY_FILLED');
+    });
+
+    it('B4.2-R: modern executionReport reconciles EXPIRED_IN_MATCH as terminal', async () => {
+        await loop.handleOrderExecutionReport({
+            orderId: 8082,
+            clientOrderId: 'rabtradebot',
+            symbol: 'BTCUSDT',
+            side: 'SELL',
+            status: 'EXPIRED_IN_MATCH',
+            executedQty: 0.004,
+            price: 0,
+            lastFilledPrice: 51000,
+            cumulativeFilledQty: 0.004,
+        });
+
+        expect(reconcileOrderUpdate).toHaveBeenCalledWith(8082, 'BTCUSDT', 'EXPIRED_IN_MATCH');
+    });
+
+    it('B4.2-R: modern executionReport ignores NEW orders', async () => {
+        await loop.handleOrderExecutionReport({
+            orderId: 8081,
+            clientOrderId: 'rabtradebot',
+            symbol: 'BTCUSDT',
+            side: 'BUY',
+            status: 'NEW',
+            executedQty: 0,
+            price: 0,
+            lastFilledPrice: 0,
+            cumulativeFilledQty: 0,
+        });
+
+        expect(reconcileOrderUpdate).not.toHaveBeenCalled();
+    });
+
+    it('B4.2-R: periodic REST sweep can reopen the startup gate after recovery succeeds', async () => {
+        isStartupRecoveryReady.mockReturnValue(false);
+        reconcilePendingOrders.mockResolvedValue({ checked: 1, reconciled: 1, failed: 0 });
+        (db.getOpenLiveTrades as jest.Mock).mockResolvedValue([]);
+        (loop as any).lastReconciliationSweepAt = 0;
+
+        await (loop as any).tick();
+
+        expect(reconcilePendingOrders).toHaveBeenCalledTimes(1);
+        expect(markStartupRecoveryComplete).toHaveBeenCalledTimes(1);
+    });
+
+    it('B4.2-R: periodic REST sweep keeps the startup gate closed while recovery still fails', async () => {
+        isStartupRecoveryReady.mockReturnValue(false);
+        reconcilePendingOrders.mockResolvedValue({ checked: 1, reconciled: 0, failed: 1 });
+        (db.getOpenLiveTrades as jest.Mock).mockResolvedValue([]);
+        (loop as any).lastReconciliationSweepAt = 0;
+
+        await (loop as any).tick();
+
+        expect(markStartupRecoveryComplete).not.toHaveBeenCalled();
     });
 
     // ── F3-13: Auto-signal from kline close ───────────────────────────────────
