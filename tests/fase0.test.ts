@@ -121,7 +121,7 @@ describe('F0-4: SignalGenerator returns a structured SignalResult', () => {
         expect(result.confidence).toBe(0.82);
     });
 
-    it('returns SELL action when Chutes sentiment is BEARISH', async () => {
+    it('returns HOLD action when Chutes sentiment is BEARISH for Spot LONG/FLAT', async () => {
         mockChutesService.isConfigured.mockReturnValue(true);
         mockChutesService.searchCryptoNews.mockResolvedValue([{ title: 'BTC dumps' }] as any);
         mockChutesService.analyzeNewsImpact.mockResolvedValue({
@@ -132,7 +132,7 @@ describe('F0-4: SignalGenerator returns a structured SignalResult', () => {
 
         const result = await signalGenerator.generateSignal('BTCUSDT');
 
-        expect(result.action).toBe('SELL');
+        expect(result.action).toBe('HOLD');
         expect(result.confidence).toBe(0.71);
     });
 

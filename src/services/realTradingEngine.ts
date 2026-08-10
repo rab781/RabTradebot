@@ -64,6 +64,12 @@ export class RealTradingEngine {
             throw new Error('Signal is HOLD, no entry executed');
         }
 
+        if (signal.action === 'SELL') {
+            throw new Error(
+                'Spot live entry rejected: SELL cannot open a Spot position. Use explicit CLOSE LONG semantics for exits.',
+            );
+        }
+
         if (!binanceOrderService.isConfigured()) {
             throw new Error('Binance API key/secret belum diset');
         }
@@ -86,7 +92,7 @@ export class RealTradingEngine {
             throw new Error('Insufficient USDT balance');
         }
 
-        const side: 'BUY' | 'SELL' = signal.action;
+        const side: 'BUY' = 'BUY';
 
         const stopLoss = this.resolveStopLoss(signal, side, currentPrice, riskParams.stopLossPctFallback);
         const takeProfit = this.resolveTakeProfit(signal, side, currentPrice, stopLoss, riskParams.rewardRiskRatio || 2);

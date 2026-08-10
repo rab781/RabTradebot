@@ -352,6 +352,20 @@ async function executeLiveSignal(userDbId: number, symbol: string, strategyToUse
   if (signal.action === 'HOLD') {
     return;
   }
+  if (signal.action === 'SELL') {
+    await db.logError({
+      level: 'WARN',
+      source: 'executeLiveSignal',
+      message: `B4.2-SAFE blocked legacy SELL entry for Spot ${symbol}; SELL != SHORT`,
+      userId: userDbId,
+      symbol,
+      metadata: {
+        signalConfidence: signal.confidence,
+        signalReason: signal.reason,
+      },
+    });
+    return;
+  }
 
   const stats = await db.getUserTradeStats(userDbId, symbol);
   const historicalWinRate = stats.totalTrades > 0 ? stats.winRate / 100 : 0.52;

@@ -46,15 +46,14 @@ export class SignalGenerator {
                     const newsItems = await this.chutesService.searchCryptoNews(symbol, 5);
                     if (newsItems.length > 0) {
                         const newsAnalysis = await this.chutesService.analyzeNewsImpact(symbol, newsItems);
+                        const normalizedNewsConfidence = this.normalizeConfidence(newsAnalysis.marketMovement.confidence);
                         signal += `Sentiment: ${newsAnalysis.overallSentiment} ${newsAnalysis.overallSentiment === 'BULLISH' ? '🟢' : newsAnalysis.overallSentiment === 'BEARISH' ? '🔴' : '🟡'}\n`;
-                        signal += `Direction: ${newsAnalysis.marketMovement.direction} (Confidence: ${(newsAnalysis.marketMovement.confidence * 100).toFixed(1)}%)\n`;
+                        signal += `Direction: ${newsAnalysis.marketMovement.direction} (Confidence: ${(normalizedNewsConfidence * 100).toFixed(1)}%)\n`;
                         signal += `24H Impact: ${newsAnalysis.impactPrediction.shortTerm}\n`;
 
                         // Capture structured data directly from analysis results
-                        action = newsAnalysis.overallSentiment === 'BULLISH' ? 'BUY'
-                               : newsAnalysis.overallSentiment === 'BEARISH' ? 'SELL'
-                               : 'HOLD';
-                        confidence = newsAnalysis.marketMovement.confidence;
+                        action = newsAnalysis.overallSentiment === 'BULLISH' ? 'BUY' : 'HOLD';
+                        confidence = normalizedNewsConfidence;
                         reason = newsAnalysis.impactPrediction.shortTerm || newsAnalysis.overallSentiment;
                     } else {
                         signal += 'No recent news found\n';
@@ -81,5 +80,12 @@ export class SignalGenerator {
             logger.error({ err: error }, 'Error generating signal:');
             throw error;
         }
+    }
+
+    /** Canonical SignalResult confidence is always 0..1. */
+    private normalizeConfidence(value: number): number {
+        if (!Number.isFinite(value)) return 0.5;
+        const normalized = value > 1 ? value / 100 : value;
+        return Math.max(0, Math.min(1, normalized));
     }
 }
