@@ -2,6 +2,14 @@ import { IStrategy } from '../types/strategy';
 import { SignalResult } from './signalGenerator';
 import { db } from './databaseService';
 import { binanceOrderService } from './binanceOrderService';
+import { ExecutionFill, InvalidExecutionCommandError, TradingInstrument, UnsupportedPositionCommandError } from '../domain/execution';
+import { ExecutionRouter } from './execution/executionRouter';
+import {
+    mapLegacyEntrySignalToPosition,
+    mapLegacyTradeSideToClosePosition,
+    resolveTradeProductFromMetadata,
+} from './execution/liveExecutionSemantics';
+import { spotOnlyExecutionRouter } from './execution/spotOnlyExecutionRouter';
 
 export interface RiskParams {
     riskPerTrade: number;     // 0.01 = 1%
@@ -44,7 +52,10 @@ export type LiveNotifier = (message: string, userId?: number) => Promise<void> |
 export class RealTradingEngine {
     private notifier?: LiveNotifier;
 
-    constructor(notifier?: LiveNotifier) {
+    constructor(
+        notifier?: LiveNotifier,
+        private readonly executionRouter: Pick<ExecutionRouter, 'executeMarket'> = spotOnlyExecutionRouter,
+    ) {
         this.notifier = notifier;
     }
 
@@ -70,11 +81,17 @@ export class RealTradingEngine {
             );
         }
 
+        const position = mapLegacyEntrySignalToPosition('SPOT', signal.action);
+        if (!position) {
+            throw new Error('Signal is HOLD, no entry executed');
+        }
+
         if (!binanceOrderService.isConfigured()) {
             throw new Error('Binance API key/secret belum diset');
         }
 
         const upperSymbol = symbol.toUpperCase();
+        const instrument = this.resolveUsdtSpotInstrument(upperSymbol);
 
         const [rules, balances, openTradesCount, currentPrice] = await Promise.all([
             binanceOrderService.getSymbolInfo(upperSymbol),
@@ -124,32 +141,49 @@ export class RealTradingEngine {
             throw new Error(`Insufficient balance for notional ${notional.toFixed(2)} USDT`);
         }
 
-        const order = await binanceOrderService.placeMarketOrder(upperSymbol, side, quantity);
+        const execution = await this.executionRouter.executeMarket({
+            position,
+            instrument,
+            quantity,
+        });
+        this.assertSpotExecutionFill(execution, 'BUY', upperSymbol);
+
+        const trackedQuantity = execution.executedQuantity > 0
+            ? execution.executedQuantity
+            : quantity;
+        const entryPrice = execution.averageFillPrice ?? currentPrice;
 
         await db.logError({
-            level: 'INFO',
+            level: execution.requiresReconciliation ? 'WARN' : 'INFO',
             source: 'realTradingEngine.executeEntry',
-            message: `LIVE order sent ${upperSymbol} ${side} qty=${quantity}`,
+            message: execution.requiresReconciliation
+                ? `LIVE Spot entry accepted but requires reconciliation ${upperSymbol} orderId=${execution.orderId}`
+                : `LIVE Spot entry confirmed ${upperSymbol} BUY qty=${trackedQuantity}`,
             userId,
             symbol: upperSymbol,
             metadata: {
-                side,
-                quantity,
+                product: execution.product,
+                side: execution.side,
+                requestedQuantity: quantity,
+                executedQuantity: execution.executedQuantity,
                 strategyName: strategy.name,
                 signalConfidence: signal.confidence,
-                orderId: order.orderId,
+                orderId: execution.orderId,
+                status: execution.status,
+                requiresReconciliation: execution.requiresReconciliation,
             },
         });
 
-        const entryPrice = parseFloat(order.price || '0') > 0
-            ? parseFloat(order.price)
-            : (parseFloat(order.cummulativeQuoteQty || '0') > 0 && parseFloat(order.executedQty || '0') > 0)
-                ? parseFloat(order.cummulativeQuoteQty) / parseFloat(order.executedQty)
-                : currentPrice;
-
         const metadata = {
             live: true,
-            entryOrderId: order.orderId,
+            product: 'SPOT',
+            positionIntent: 'LONG',
+            positionEffect: 'OPEN',
+            entryOrderId: execution.orderId,
+            executionStatus: execution.status,
+            requiresReconciliation: execution.requiresReconciliation,
+            requestedQuantity: quantity,
+            executedQuantity: execution.executedQuantity,
             risk: {
                 riskPerTrade: riskParams.riskPerTrade,
                 kellyFraction,
@@ -159,34 +193,38 @@ export class RealTradingEngine {
         const trade = await db.saveTrade({
             userId,
             symbol: upperSymbol,
-            side,
+            side: 'BUY',
             entryPrice,
-            quantity,
+            quantity: trackedQuantity,
             strategyName: strategy.name,
             strategyVersion: strategy.version,
             signalStrength: signal.confidence,
             stopLoss,
             takeProfit,
-            notes: `LIVE_ENTRY:${order.orderId}`,
+            notes: execution.requiresReconciliation
+                ? `LIVE_ENTRY_RECONCILIATION:${execution.orderId}`
+                : `LIVE_ENTRY:${execution.orderId}`,
             status: 'LIVE_OPEN',
             tags: JSON.stringify(metadata),
         });
 
         await this.notify(
-            `✅ LIVE ENTRY ${upperSymbol}\nSide: ${side}\nQty: ${quantity}\nEntry: ${entryPrice.toFixed(4)}\nSL: ${stopLoss.toFixed(4)}\nTP: ${takeProfit.toFixed(4)}\nOrder ID: ${order.orderId}`,
+            `✅ LIVE ENTRY ${upperSymbol}\nSide: BUY\nQty: ${trackedQuantity}\nEntry: ${entryPrice.toFixed(4)}\nSL: ${stopLoss.toFixed(4)}\nTP: ${takeProfit.toFixed(4)}\nOrder ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Reconciliation required' : ''}`,
             userId,
         );
 
         await db.logError({
             level: 'INFO',
             source: 'realTradingEngine.executeEntry',
-            message: `LIVE order confirmed ${upperSymbol} ${side} entry=${entryPrice.toFixed(6)} qty=${quantity}`,
+            message: `LIVE order recorded ${upperSymbol} BUY entry=${entryPrice.toFixed(6)} qty=${trackedQuantity}`,
             userId,
             symbol: upperSymbol,
             metadata: {
-                orderId: order.orderId,
+                orderId: execution.orderId,
                 entryPrice,
-                quantity,
+                quantity: trackedQuantity,
+                status: execution.status,
+                requiresReconciliation: execution.requiresReconciliation,
                 stopLoss,
                 takeProfit,
             },
@@ -194,10 +232,10 @@ export class RealTradingEngine {
 
         return {
             tradeId: trade.id,
-            orderId: order.orderId,
+            orderId: execution.orderId,
             symbol: upperSymbol,
-            side,
-            quantity,
+            side: 'BUY',
+            quantity: trackedQuantity,
             entryPrice,
             stopLoss,
             takeProfit,
@@ -213,10 +251,17 @@ export class RealTradingEngine {
         const userId = trade.userId;
         const symbol = trade.symbol.toUpperCase();
 
-        const currentPrice = await binanceOrderService.getCurrentPrice(symbol);
-        const exitSide: 'BUY' | 'SELL' = (trade.side === 'BUY' || trade.side === 'LONG') ? 'SELL' : 'BUY';
-
         const metadata = this.parseTags(trade.tags);
+        const product = resolveTradeProductFromMetadata(metadata);
+        const position = mapLegacyTradeSideToClosePosition(product, trade.side as 'BUY' | 'SELL' | 'LONG' | 'SHORT');
+        if (product !== 'SPOT') {
+            throw new UnsupportedPositionCommandError(
+                `Production RealTradingEngine is Spot-only. Persisted trade ${trade.id} has product=${product}.`,
+            );
+        }
+
+        const instrument = this.resolveUsdtSpotInstrument(symbol);
+        const currentPrice = await binanceOrderService.getCurrentPrice(symbol);
         const protectiveOrderIds: number[] = Array.isArray(metadata?.protectiveOrderIds)
             ? metadata.protectiveOrderIds.filter((x: unknown) => typeof x === 'number')
             : [];
@@ -256,57 +301,109 @@ export class RealTradingEngine {
             throw new Error(`Rounded quantity below minQty for exit (${quantity} < ${rules.minQty})`);
         }
 
-        const exitOrder = await binanceOrderService.placeMarketOrder(symbol, exitSide, quantity);
+        const execution = await this.executionRouter.executeMarket({
+            position,
+            instrument,
+            quantity,
+        });
+        this.assertSpotExecutionFill(execution, 'SELL', symbol);
+
+        const resolvedExitPrice = execution.averageFillPrice ?? currentPrice;
 
         await db.logError({
-            level: 'INFO',
+            level: execution.requiresReconciliation ? 'WARN' : 'INFO',
             source: 'realTradingEngine.executeExit',
-            message: `LIVE exit sent ${symbol} ${exitSide} qty=${quantity} reason=${reason}`,
+            message: execution.requiresReconciliation
+                ? `LIVE Spot exit accepted but requires reconciliation ${symbol} orderId=${execution.orderId}`
+                : `LIVE Spot exit confirmed ${symbol} SELL qty=${execution.executedQuantity} reason=${reason}`,
             userId,
             symbol,
             metadata: {
                 tradeId: trade.id,
                 reason,
-                orderId: exitOrder.orderId,
+                orderId: execution.orderId,
+                status: execution.status,
+                requestedQuantity: quantity,
+                executedQuantity: execution.executedQuantity,
+                requiresReconciliation: execution.requiresReconciliation,
             },
         });
 
-        const resolvedExitPrice = parseFloat(exitOrder.price || '0') > 0
-            ? parseFloat(exitOrder.price)
-            : (parseFloat(exitOrder.cummulativeQuoteQty || '0') > 0 && parseFloat(exitOrder.executedQty || '0') > 0)
-                ? parseFloat(exitOrder.cummulativeQuoteQty) / parseFloat(exitOrder.executedQty)
-                : currentPrice;
-
         await db.closeTrade(trade.id, resolvedExitPrice, undefined, {
-            status: 'CLOSED',
-            notes: `LIVE_EXIT:${exitOrder.orderId}:${reason}`,
+            status: execution.requiresReconciliation
+                ? 'LIVE_EXIT_PENDING_RECONCILIATION'
+                : 'CLOSED',
+            notes: execution.requiresReconciliation
+                ? `LIVE_EXIT_RECONCILIATION:${execution.orderId}:${reason}`
+                : `LIVE_EXIT:${execution.orderId}:${reason}`,
         });
 
         await this.notify(
-            `📤 LIVE EXIT ${symbol}\nReason: ${reason}\nExit Price: ${resolvedExitPrice.toFixed(4)}\nExit Order ID: ${exitOrder.orderId}`,
+            `📤 LIVE EXIT ${symbol}\nReason: ${reason}\nExit Price: ${resolvedExitPrice.toFixed(4)}\nExit Order ID: ${execution.orderId}${execution.requiresReconciliation ? '\n⚠️ Reconciliation required before final closure' : ''}`,
             userId,
         );
 
         await db.logError({
             level: 'INFO',
             source: 'realTradingEngine.executeExit',
-            message: `LIVE exit confirmed ${symbol} exit=${resolvedExitPrice.toFixed(6)} qty=${quantity} reason=${reason}`,
+            message: execution.requiresReconciliation
+                ? `LIVE exit quarantined for reconciliation ${symbol} orderId=${execution.orderId}`
+                : `LIVE exit recorded ${symbol} exit=${resolvedExitPrice.toFixed(6)} qty=${execution.executedQuantity} reason=${reason}`,
             userId,
             symbol,
             metadata: {
                 tradeId: trade.id,
-                exitOrderId: exitOrder.orderId,
+                exitOrderId: execution.orderId,
                 exitPrice: resolvedExitPrice,
                 reason,
+                status: execution.status,
+                requiresReconciliation: execution.requiresReconciliation,
             },
         });
 
         return {
             tradeId: trade.id,
-            exitOrderId: exitOrder.orderId,
+            exitOrderId: execution.orderId,
             exitPrice: resolvedExitPrice,
             reason,
         };
+    }
+
+    private resolveUsdtSpotInstrument(symbol: string): TradingInstrument {
+        const normalized = symbol.trim().toUpperCase();
+        if (!normalized.endsWith('USDT') || normalized.length <= 4) {
+            throw new InvalidExecutionCommandError(
+                `Production RealTradingEngine currently supports explicit Binance Spot USDT pairs only. Received ${symbol}.`,
+            );
+        }
+
+        return {
+            symbol: normalized,
+            baseAsset: normalized.slice(0, -4),
+            quoteAsset: 'USDT',
+        };
+    }
+
+    private assertSpotExecutionFill(
+        fill: ExecutionFill,
+        expectedSide: 'BUY' | 'SELL',
+        expectedSymbol: string,
+    ): void {
+        if (fill.product !== 'SPOT') {
+            throw new InvalidExecutionCommandError(
+                `ExecutionRouter returned unexpected product=${fill.product} for Spot live trading.`,
+            );
+        }
+        if (fill.side !== expectedSide) {
+            throw new InvalidExecutionCommandError(
+                `ExecutionRouter returned unexpected side=${fill.side}; expected ${expectedSide}.`,
+            );
+        }
+        if (fill.symbol.toUpperCase() !== expectedSymbol.toUpperCase()) {
+            throw new InvalidExecutionCommandError(
+                `ExecutionRouter returned unexpected symbol=${fill.symbol}; expected ${expectedSymbol}.`,
+            );
+        }
     }
 
     private findUsdtBalance(balances: Array<{ asset: string; free: string; locked: string }>): number {

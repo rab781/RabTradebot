@@ -84,9 +84,19 @@ describe('F1-35: full live flow', () => {
             minNotional: 5,
             tickSize: 0.01,
         });
-        (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
-            { asset: 'USDT', free: '1000', locked: '0' },
-        ]);
+        (binanceOrderService.getAccountBalance as jest.Mock)
+            .mockResolvedValueOnce([
+                // Before Spot LONG OPEN
+                { asset: 'USDT', free: '1000', locked: '0' },
+                { asset: 'BTC', free: '0', locked: '0' },
+            ])
+            .mockResolvedValue([
+                // Stable post-entry account state for RiskMonitor + Spot LONG CLOSE.
+                // Use a default response instead of another mockResolvedValueOnce()
+                // because several live components may query account balances.
+                { asset: 'USDT', free: '500', locked: '0' },
+                { asset: 'BTC', free: '0.01', locked: '0' },
+            ]);
         (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(0);
         (binanceOrderService.getCurrentPrice as jest.Mock)
             .mockResolvedValueOnce(50000)

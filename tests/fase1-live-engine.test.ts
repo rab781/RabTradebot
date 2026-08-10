@@ -67,6 +67,7 @@ describe('F1: RealTradingEngine', () => {
         });
         (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
             { asset: 'USDT', free: '1000', locked: '0' },
+            { asset: 'BTC', free: '1', locked: '0' },
         ]);
         (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(0);
         (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(50000);
@@ -131,6 +132,7 @@ describe('F1: RealTradingEngine', () => {
         });
         (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
             { asset: 'USDT', free: '1000', locked: '0' },
+            { asset: 'BTC', free: '1', locked: '0' },
         ]);
         (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(3);
         (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(50000);
@@ -175,6 +177,7 @@ describe('F1: RealTradingEngine', () => {
         });
         (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
             { asset: 'USDT', free: '1000', locked: '0' },
+            { asset: 'BTC', free: '1', locked: '0' },
         ]);
         (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(0);
         (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(50000);
@@ -258,6 +261,9 @@ describe('F1: RealTradingEngine', () => {
             quantity: 0.01,
             tags: JSON.stringify({ protectiveOrderIds: [11, 12] }),
         });
+        (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
+            { asset: 'BTC', free: '1', locked: '0' },
+        ]);
         (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(50500);
         (binanceOrderService.getSymbolInfo as jest.Mock).mockResolvedValue({
             minQty: 0.001,

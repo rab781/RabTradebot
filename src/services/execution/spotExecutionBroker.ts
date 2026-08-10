@@ -137,7 +137,9 @@ export class SpotExecutionBroker {
         // blindly retrying could duplicate a live order.
         const status = String(order.status || 'UNKNOWN').toUpperCase();
         const executionKnown = executedQuantity > 0 && averageFillPrice !== undefined;
-        const terminalOrPartiallyFilled = status === 'FILLED' || status === 'PARTIALLY_FILLED';
+        const quantityTolerance = Math.max(1e-12, command.quantity * 1e-12);
+        const fullyExecuted = executedQuantity + quantityTolerance >= command.quantity;
+        const fullyFilled = status === 'FILLED' && fullyExecuted;
 
         return {
             product: 'SPOT',
@@ -150,7 +152,7 @@ export class SpotExecutionBroker {
             executedQuantity,
             cumulativeQuoteQuantity,
             averageFillPrice,
-            requiresReconciliation: !executionKnown || !terminalOrPartiallyFilled,
+            requiresReconciliation: !executionKnown || !fullyFilled,
         };
     }
 
