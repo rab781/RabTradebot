@@ -19,6 +19,7 @@ async function advancedTraining() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 1000);
         
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
@@ -100,7 +101,8 @@ async function advancedTraining() {
         console.log('Testing on most recent data (unseen during training)...\n');
 
         const validationSize = 50;
-        const validationFeatures = allFeatures.slice(-validationSize);
+
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const validationResults: any[] = [];
 
         for (let i = 0; i < validationSize; i++) {

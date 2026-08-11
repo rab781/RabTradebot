@@ -19,6 +19,7 @@ async function extensiveTest() {
         const cryptoService = new PublicCryptoService();
         const rawCandles = await cryptoService.getCandlestickData('BTCUSDT', '1h', 600);
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
             timestamp: c[0],
             open: parseFloat(c[1]),
@@ -76,6 +77,7 @@ async function extensiveTest() {
         console.log('\n📊 Step 5: Testing Predictions (30 tests)');
         console.log('='.repeat(80));
 
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const testResults: any[] = [];
         const testCount = Math.min(30, testFeatures.length - 20);
 
