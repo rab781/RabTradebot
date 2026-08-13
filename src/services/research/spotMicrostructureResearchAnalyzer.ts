@@ -168,14 +168,20 @@ export function pearsonCorrelation(xs: number[], ys: number[]): number {
 }
 
 function rank(values: number[]): number[] {
-    const indexed = values.map((value, index) => ({ value, index })).sort((a, b) => a.value - b.value);
-    const ranks = new Array<number>(values.length);
+    const len = values.length;
+    // ⚡ Bolt Optimization: Use Int32Array for indices and sort directly to avoid O(N) object allocations
+    const indices = new Int32Array(len);
+    for (let i = 0; i < len; i++) indices[i] = i;
+
+    indices.sort((a, b) => values[a] - values[b]);
+
+    const ranks = new Array<number>(len);
     let i = 0;
-    while (i < indexed.length) {
+    while (i < len) {
         let j = i + 1;
-        while (j < indexed.length && indexed[j].value === indexed[i].value) j += 1;
+        while (j < len && values[indices[j]] === values[indices[i]]) j += 1;
         const averageRank = (i + j - 1) / 2 + 1;
-        for (let k = i; k < j; k += 1) ranks[indexed[k].index] = averageRank;
+        for (let k = i; k < j; k += 1) ranks[indices[k]] = averageRank;
         i = j;
     }
     return ranks;
