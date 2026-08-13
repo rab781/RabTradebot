@@ -517,6 +517,15 @@ bot.action('coin:prompt', async (ctx) => {
 });
 
 bot.action(/^run:(.+)$/, async (ctx) => {
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  const sensitiveActions = ['orders', 'liveportfolio', 'livestart', 'livestart_confirm', 'livestop'];
+  if (sensitiveActions.includes(ctx.match![1])) {
+    if (!adminChat || requesterChat !== adminChat) {
+      await ctx.answerCbQuery('❌ Unauthorized. Aksi ini khusus admin.', { show_alert: true });
+      return;
+    }
+  }
   const action = ctx.match![1];
   const user = await ensureUserFromCallback(ctx);
   if (!user) {
@@ -3231,6 +3240,11 @@ bot.command('logs', async (ctx) => {
 
 bot.command('orders', async (ctx) => {
   try {
+    const adminChat = process.env.ADMIN_CHAT_ID;
+    const requesterChat = String(ctx.chat?.id || '');
+    if (!adminChat || requesterChat !== adminChat) {
+      return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+    }
     if (!binanceOrderService.isConfigured()) {
       return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
     }
@@ -3272,6 +3286,11 @@ bot.command('orders', async (ctx) => {
 
 bot.command('cancelorder', async (ctx) => {
   try {
+    const adminChat = process.env.ADMIN_CHAT_ID;
+    const requesterChat = String(ctx.chat?.id || '');
+    if (!adminChat || requesterChat !== adminChat) {
+      return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+    }
     if (!binanceOrderService.isConfigured()) {
       return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
     }
@@ -3388,6 +3407,11 @@ bot.command('unsubscribe', async (ctx) => {
 
 bot.command('liveportfolio', async (ctx) => {
   try {
+    const adminChat = process.env.ADMIN_CHAT_ID;
+    const requesterChat = String(ctx.chat?.id || '');
+    if (!adminChat || requesterChat !== adminChat) {
+      return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+    }
     if (!binanceOrderService.isConfigured()) {
       return ctx.reply('❌ Binance API key/secret belum diset. Isi BINANCE_API_KEY dan BINANCE_API_SECRET dulu.');
     }
@@ -3430,6 +3454,11 @@ bot.command('liveportfolio', async (ctx) => {
 });
 
 bot.command('livetrade', async (ctx) => {
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
   const args = ctx.message.text.split(' ').slice(1);
   const action = (args[0] || '').toLowerCase();
   const session = getUserSession(ctx.message.from.id);
