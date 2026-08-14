@@ -194,21 +194,31 @@ export function spearmanCorrelation(xs: number[], ys: number[]): number {
 
 function quantileBuckets(feature: number[], returnsBps: number[], bucketCount: number): QuantileBucket[] {
     if (feature.length !== returnsBps.length || feature.length === 0) return [];
-    const rows = feature
-        .map((value, index) => ({ value, returnBps: returnsBps[index] }))
-        .sort((a, b) => a.value - b.value);
+    const len = feature.length;
+    // ⚡ Bolt Optimization: Use Int32Array for indices and sort directly to avoid O(N) object allocations
+    const indices = new Int32Array(len);
+    for (let i = 0; i < len; i++) indices[i] = i;
+
+    indices.sort((a, b) => feature[a] - feature[b]);
+
     const buckets: QuantileBucket[] = [];
     for (let bucket = 0; bucket < bucketCount; bucket += 1) {
-        const start = Math.floor((bucket * rows.length) / bucketCount);
-        const end = Math.floor(((bucket + 1) * rows.length) / bucketCount);
-        const slice = rows.slice(start, Math.max(start + 1, end));
-        if (slice.length === 0) continue;
+        const start = Math.floor((bucket * len) / bucketCount);
+        const end = Math.floor(((bucket + 1) * len) / bucketCount);
+        const count = Math.max(start + 1, end) - start;
+        if (count <= 0) continue;
+
+        let sum = 0;
+        for (let i = start; i < start + count; i++) {
+            sum += returnsBps[indices[i]];
+        }
+
         buckets.push({
             bucket: bucket + 1,
-            count: slice.length,
-            minFeature: slice[0].value,
-            maxFeature: slice[slice.length - 1].value,
-            meanForwardReturnBps: mean(slice.map((row) => row.returnBps)),
+            count,
+            minFeature: feature[indices[start]],
+            maxFeature: feature[indices[start + count - 1]],
+            meanForwardReturnBps: sum / count,
         });
     }
     return buckets;
