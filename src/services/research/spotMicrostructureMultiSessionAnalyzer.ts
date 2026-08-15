@@ -111,7 +111,7 @@ function arraysEqual<T>(left: T[], right: T[]): boolean {
     return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function structuralQaPass(report: SpotMicrostructureResearchReport): boolean {
+export function structuralQaPass(report: SpotMicrostructureResearchReport): boolean {
     const qa = report.qa;
     return qa.duplicateFeatureIds === 0
         && qa.duplicateOutcomeKeys === 0
@@ -121,7 +121,7 @@ function structuralQaPass(report: SpotMicrostructureResearchReport): boolean {
         && qa.featureNameMismatches === 0;
 }
 
-function timingQaPass(report: StabilityResearchReport): boolean {
+export function timingQaPass(report: StabilityResearchReport): boolean {
     const timing = report.timingQa;
     return timing.duplicateSlots === 0
         && timing.gridPhaseChanges === 0
