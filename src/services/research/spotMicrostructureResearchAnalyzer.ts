@@ -382,10 +382,19 @@ export class SpotMicrostructureResearchAnalyzer {
             && feature.featureValues.every(Number.isFinite),
         );
         const pairs: RedundantFeaturePair[] = [];
+        // Pre-allocate column arrays to avoid O(N * C^2) repeated map overhead
+        const cols = manifest.featureNames.map((_, colIndex) => {
+            const col = new Array(valid.length);
+            for (let i = 0; i < valid.length; i++) {
+                col[i] = valid[i].featureValues[colIndex];
+            }
+            return col;
+        });
+
         for (let i = 0; i < manifest.featureNames.length; i += 1) {
-            const xi = valid.map((row) => row.featureValues[i]);
+            const xi = cols[i];
             for (let j = i + 1; j < manifest.featureNames.length; j += 1) {
-                const xj = valid.map((row) => row.featureValues[j]);
+                const xj = cols[j];
                 const correlation = pearsonCorrelation(xi, xj);
                 if (Math.abs(correlation) >= this.options.redundancyThreshold) {
                     pairs.push({
