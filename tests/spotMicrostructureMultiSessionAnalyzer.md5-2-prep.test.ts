@@ -142,6 +142,46 @@ describe('MD5 multi-session evidence analyzer', () => {
             .toThrow(/datasetVersion mismatch/i);
     });
 
+    test('fails closed on schema-version mismatch', () => {
+        const bad = input('bad');
+        bad.research.manifest.schemaVersion = 'wrong-schema-version' as any;
+
+        expect(() => new SpotMicrostructureMultiSessionAnalyzer().analyze([
+            input('good'),
+            bad,
+        ])).toThrow(/schemaVersion mismatch/i);
+    });
+
+    test('fails closed on symbol mismatch', () => {
+        const bad = input('bad');
+        bad.research.manifest.symbol = 'ETHUSDT';
+
+        expect(() => new SpotMicrostructureMultiSessionAnalyzer().analyze([
+            input('good'),
+            bad,
+        ])).toThrow(/symbol mismatch/i);
+    });
+
+    test('fails closed on sample-interval mismatch', () => {
+        const bad = input('bad');
+        bad.research.manifest.sampleIntervalMs = 500;
+
+        expect(() => new SpotMicrostructureMultiSessionAnalyzer().analyze([
+            input('good'),
+            bad,
+        ])).toThrow(/sampleIntervalMs mismatch/i);
+    });
+
+    test('fails closed on horizon mismatch', () => {
+        const bad = input('bad');
+        bad.research.manifest.horizonsMs = [5000];
+
+        expect(() => new SpotMicrostructureMultiSessionAnalyzer().analyze([
+            input('good'),
+            bad,
+        ])).toThrow(/horizonsMs mismatch/i);
+    });
+
     test('fails closed on feature-order mismatch', () => {
         const bad = input('bad');
         bad.research.manifest.featureNames = ['f2', 'f1'];
