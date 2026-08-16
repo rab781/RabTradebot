@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 describe(
-    'WEB2-C2 canonical read-only dashboard',
+    'WEB3-A2 canonical research dashboard',
     () => {
         const root =
             path.resolve(
@@ -359,6 +359,97 @@ describe(
                     .toContain(
                         'const REQUEST_TIMEOUT_MS = 5000;',
                     );
+            },
+        );
+
+        test(
+            'consumes only WEB3-A1 GET research endpoints',
+            () => {
+                expect(js()).toContain("'/api/research/sessions'");
+                expect(js()).toContain("'/api/research/acceptance'");
+                expect(js()).toContain('getJson(API.researchSessions)');
+                expect(js()).toContain('getJson(API.researchAcceptance)');
+                expect(js()).not.toMatch(/method:\s*['"](POST|PUT|PATCH|DELETE)['"]/);
+            },
+        );
+
+        test(
+            'research transport is isolated from canonical trading freshness',
+            () => {
+                const source = js();
+                const refreshAll = source.match(
+                    /async function refreshAll\(\) {[\s\S]*?\n}\n\nasync function refreshResearch/,
+                )?.[0] || '';
+                const researchStale = source.match(
+                    /function markResearchDataStale\(error\) {[\s\S]*?\n}\n\nfunction updateResearchFreshnessIndicator/,
+                )?.[0] || '';
+
+                expect(refreshAll).toContain('const [system, trading, history] =');
+                expect(refreshAll).not.toContain('API.researchSessions');
+                expect(refreshAll).not.toContain('API.researchAcceptance');
+                expect(researchStale).not.toContain('entryBadge');
+                expect(researchStale).not.toContain('coreGate');
+                expect(researchStale).not.toContain('freshnessBadge');
+            },
+        );
+
+        test(
+            'research stale state invalidates only displayed research gate',
+            () => {
+                expect(js()).toContain('const RESEARCH_STALE_AFTER_MS = 90000;');
+                expect(js()).toContain("setBadge(el.researchGateBadge, 'MD5.2 STALE', 'warn')");
+                expect(js()).toContain("setText(el.researchTransportState, 'STALE')");
+                expect(html()).toContain('id="researchFreshnessBadge"');
+            },
+        );
+
+        test(
+            'renders canonical session compatibility and persisted file evidence without recomputing schema rules',
+            () => {
+                [
+                    'session.region',
+                    'session.sessionId',
+                    'session.datasetVersion',
+                    'session.schemaVersion',
+                    'session.featureCount',
+                    'session.sampleIntervalMs',
+                    'session.horizonsMs',
+                    'session.files',
+                    'session.compatibleWithCurrentResearchSchema',
+                ].forEach((field) => expect(js()).toContain(field));
+
+                expect(js()).not.toContain('spot-microstructure-dataset-v2');
+                expect(js()).not.toContain('spot-microstructure-v1');
+                expect(js()).not.toContain('104 ===');
+            },
+        );
+
+        test(
+            'renders backend md52 gate directly and does not recreate acceptance blockers in browser',
+            () => {
+                expect(js()).toContain('acceptance?.md52Gate?.allowed');
+                expect(js()).toContain('acceptance?.md52Gate?.blockers');
+                expect(js()).toContain('acceptance?.comparators?.preUs');
+                expect(js()).toContain('acceptance?.comparators?.finalThreeSession');
+                expect(js()).not.toContain('EUROPE_ACCEPTANCE_NOT_PROVEN');
+                expect(js()).not.toContain('ASIA_ACCEPTANCE_NOT_PROVEN');
+                expect(js()).not.toContain('US_ACCEPTANCE_NOT_PROVEN');
+                expect(js()).not.toContain('FINAL_THREE_SESSION_COMPARATOR_NOT_PASS');
+            },
+        );
+
+        test(
+            'served research dashboard remains read-only and explicitly isolated from live trading state',
+            () => {
+                expect(html()).toContain('Session &amp; Acceptance Status');
+                expect(html()).toContain('do not submit orders or mutate live trading state');
+                expect(html()).not.toMatch(
+                    /<button[^>]*>\s*(BUY|SELL|PAUSE|STOP|CLOSE|TRAIN|CAPTURE|COMPARE)/i,
+                );
+                expect(js()).not.toContain('/api/trades');
+                expect(js()).not.toContain('submitOrder');
+                expect(js()).not.toContain('executeEntry');
+                expect(js()).not.toContain('executeExit');
             },
         );
     },

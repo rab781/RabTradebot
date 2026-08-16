@@ -386,3 +386,82 @@ footer {
   margin: -4px 0 14px;
   max-width: 1000px;
 }
+
+
+/* WEB3-A2 research observability */
+.research-block {
+  margin-bottom: 12px;
+  padding: 16px 0 0;
+  border-top: 1px solid var(--border);
+}
+
+.research-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.research-heading h2,
+.research-note {
+  margin-bottom: 0;
+}
+
+.research-note {
+  margin: 0 0 12px;
+  max-width: 1050px;
+}
+
+.research-columns {
+  align-items: start;
+}
+
+.research-region-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+  margin-top: 13px;
+}
+
+.research-region-card {
+  min-width: 0;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  background: var(--panel-soft);
+}
+
+.research-region-card .title-row {
+  margin-bottom: 7px;
+}
+
+.research-region-card small {
+  display: block;
+  margin-top: 5px;
+  overflow-wrap: anywhere;
+}
+
+.research-updated {
+  margin: -2px 2px 12px;
+  font-size: 0.72rem;
+}
+
+#researchFreshnessBadge,
+#researchGateBadge {
+  min-width: 92px;
+  justify-content: center;
+}
+
+@media (max-width: 1000px) {
+  .research-region-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 720px) {
+  .research-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+}

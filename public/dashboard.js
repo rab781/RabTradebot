@@ -3,11 +3,15 @@
 const POLL_MS = 3000;
 const REQUEST_TIMEOUT_MS = 5000;
 const STALE_AFTER_MS = 10000;
+const RESEARCH_POLL_MS = 30000;
+const RESEARCH_STALE_AFTER_MS = 90000;
 
 const API = Object.freeze({
   system: '/api/system/status',
   trading: '/api/trading/state',
   history: '/api/trading/history?limit=50',
+  researchSessions: '/api/research/sessions',
+  researchAcceptance: '/api/research/acceptance',
 
   microstructure: (symbol) =>
     '/api/trading/microstructure/' +
@@ -19,6 +23,10 @@ let selectedSymbol = 'BTCUSDT';
 let pollTimer = null;
 let freshnessTimer = null;
 let lastSuccessfulRefreshAt = null;
+let researchRefreshing = false;
+let researchPollTimer = null;
+let researchFreshnessTimer = null;
+let researchLastSuccessfulRefreshAt = null;
 
 const el = {};
 
@@ -58,6 +66,17 @@ document.addEventListener(
       'pendingBody',
       'historyCount',
       'historyBody',
+      'researchFreshnessBadge',
+      'researchSessionCount',
+      'researchSessionsBody',
+      'researchGateBadge',
+      'researchRegistryState',
+      'preUsComparator',
+      'finalComparator',
+      'researchTransportState',
+      'researchRegions',
+      'researchBlockers',
+      'researchLastUpdated',
       'runtimeCount',
       'runtimeCards',
       'lastUpdated',
@@ -68,7 +87,10 @@ document.addEventListener(
 
     el.refreshButton.addEventListener(
       'click',
-      () => void refreshAll(),
+      () => {
+        void refreshAll();
+        void refreshResearch();
+      },
     );
 
     el.inspectButton.addEventListener(
@@ -94,6 +116,7 @@ document.addEventListener(
     );
 
     void refreshAll();
+    void refreshResearch();
 
     pollTimer = window.setInterval(
       () => void refreshAll(),
@@ -102,6 +125,16 @@ document.addEventListener(
 
     freshnessTimer = window.setInterval(
       updateFreshnessIndicator,
+      1000,
+    );
+
+    researchPollTimer = window.setInterval(
+      () => void refreshResearch(),
+      RESEARCH_POLL_MS,
+    );
+
+    researchFreshnessTimer = window.setInterval(
+      updateResearchFreshnessIndicator,
       1000,
     );
   },
@@ -116,6 +149,14 @@ window.addEventListener(
 
     if (freshnessTimer !== null) {
       window.clearInterval(freshnessTimer);
+    }
+
+    if (researchPollTimer !== null) {
+      window.clearInterval(researchPollTimer);
+    }
+
+    if (researchFreshnessTimer !== null) {
+      window.clearInterval(researchFreshnessTimer);
     }
   },
 );
@@ -214,6 +255,36 @@ async function refreshAll() {
   } finally {
     refreshing = false;
     el.refreshButton.disabled = false;
+  }
+}
+
+async function refreshResearch() {
+  if (researchRefreshing) {
+    return;
+  }
+
+  researchRefreshing = true;
+
+  try {
+    const [sessions, acceptance] =
+      await Promise.all([
+        getJson(API.researchSessions),
+        getJson(API.researchAcceptance),
+      ]);
+
+    renderResearchSessions(sessions);
+    renderResearchAcceptance(acceptance);
+
+    researchLastSuccessfulRefreshAt = Date.now();
+    updateResearchFreshnessIndicator();
+    setText(el.researchTransportState, 'FRESH');
+    el.researchLastUpdated.textContent =
+      'Research last successful refresh: ' +
+      new Date(researchLastSuccessfulRefreshAt).toLocaleString();
+  } catch (error) {
+    markResearchDataStale(error);
+  } finally {
+    researchRefreshing = false;
   }
 }
 
@@ -454,6 +525,180 @@ function renderTrading(trading) {
   );
 
   renderRuntimes(runtimes);
+}
+
+function renderResearchSessions(view) {
+  const sessions = asArray(view?.sessions);
+
+  setBadge(
+    el.researchSessionCount,
+    String(sessions.length),
+    view?.rootAvailable === false
+      ? 'warn'
+      : 'neutral',
+  );
+
+  clear(el.researchSessionsBody);
+
+  if (!sessions.length) {
+    addEmptyRow(
+      el.researchSessionsBody,
+      9,
+      'No research sessions discovered by canonical read model.',
+    );
+    return;
+  }
+
+  sessions.forEach((session) => {
+    addRow(
+      el.researchSessionsBody,
+      [
+        session.region,
+        session.sessionId,
+        session.symbol,
+        display(session.datasetVersion) +
+          ' / ' +
+          display(session.schemaVersion),
+        formatNumber(session.featureCount),
+        formatNumber(session.sampleIntervalMs) + ' ms',
+        formatResearchHorizons(session.horizonsMs),
+        formatResearchFiles(session.files),
+        canonicalBoolean(session.compatibleWithCurrentResearchSchema),
+      ],
+    );
+  });
+}
+
+function renderResearchAcceptance(acceptance) {
+  const allowed =
+    acceptance?.md52Gate?.allowed;
+
+  setBadge(
+    el.researchGateBadge,
+    allowed === true
+      ? 'MD5.2 ALLOWED'
+      : allowed === false
+        ? 'MD5.2 BLOCKED'
+        : 'MD5.2 UNKNOWN',
+    allowed === true
+      ? 'good'
+      : allowed === false
+        ? 'warn'
+        : 'neutral',
+  );
+
+  const source = acceptance?.source || {};
+  setText(
+    el.researchRegistryState,
+    source.valid === true
+      ? display(source.version)
+      : source.error || 'INVALID / UNKNOWN',
+  );
+
+  setText(
+    el.preUsComparator,
+    acceptance?.comparators?.preUs,
+  );
+  setText(
+    el.finalComparator,
+    acceptance?.comparators?.finalThreeSession,
+  );
+
+  renderList(
+    el.researchBlockers,
+    asArray(acceptance?.md52Gate?.blockers),
+    allowed === true
+      ? 'No canonical research blockers.'
+      : 'No blocker details reported.',
+  );
+
+  renderResearchRegions(
+    asArray(acceptance?.regions),
+  );
+}
+
+function renderResearchRegions(regions) {
+  clear(el.researchRegions);
+
+  if (!regions.length) {
+    const empty = document.createElement('div');
+    empty.className = 'empty';
+    empty.textContent = 'No canonical region acceptance state reported.';
+    el.researchRegions.appendChild(empty);
+    return;
+  }
+
+  regions.forEach((region) => {
+    const card = document.createElement('article');
+    card.className = 'research-region-card';
+
+    const head = document.createElement('div');
+    head.className = 'title-row';
+
+    const name = document.createElement('strong');
+    name.textContent = display(region.region);
+
+    const badge = document.createElement('span');
+    badge.className = 'badge';
+    setBadge(
+      badge,
+      display(region.state),
+      researchStateTone(region.state),
+    );
+
+    head.append(name, badge);
+
+    const session = document.createElement('small');
+    session.textContent =
+      'Session: ' + display(region.sessionId);
+
+    const evidence = document.createElement('small');
+    evidence.textContent =
+      'Evidence: ' + display(region.evidence);
+
+    card.append(head, session, evidence);
+    el.researchRegions.appendChild(card);
+  });
+}
+
+function formatResearchHorizons(value) {
+  const horizons = asArray(value);
+  return horizons.length
+    ? horizons.map((item) => formatNumber(item)).join(', ') + ' ms'
+    : '—';
+}
+
+function formatResearchFiles(files) {
+  if (!files) return '—';
+
+  return (
+    'features:' + canonicalPresence(files.features?.present) +
+    ' / outcomes:' + canonicalPresence(files.outcomes?.present)
+  );
+}
+
+function canonicalPresence(value) {
+  return value === true
+    ? 'PRESENT'
+    : value === false
+      ? 'MISSING'
+      : 'UNKNOWN';
+}
+
+function canonicalBoolean(value) {
+  return value === true
+    ? 'YES'
+    : value === false
+      ? 'NO'
+      : 'UNKNOWN';
+}
+
+function researchStateTone(value) {
+  const state = String(value || '').toUpperCase();
+  if (state === 'ACCEPTED' || state === 'PASS') return 'good';
+  if (state === 'REJECTED' || state === 'FAIL') return 'bad';
+  if (state === 'PENDING' || state === 'NOT_CAPTURED') return 'warn';
+  return 'neutral';
 }
 
 function renderMicrostructure(view) {
@@ -907,6 +1152,41 @@ function updateFreshnessIndicator() {
   }
 
   setBadge(el.freshnessBadge, 'FRESH', 'good');
+}
+
+function markResearchDataStale(error) {
+  setBadge(el.researchFreshnessBadge, 'STALE', 'warn');
+  setBadge(el.researchGateBadge, 'MD5.2 STALE', 'warn');
+  setText(el.researchTransportState, 'STALE');
+
+  if (error) {
+    const last = researchLastSuccessfulRefreshAt === null
+      ? 'no successful research refresh yet'
+      : 'last success ' +
+        new Date(researchLastSuccessfulRefreshAt).toLocaleString();
+
+    el.researchLastUpdated.textContent =
+      'Research refresh failed: ' +
+      errorMessage(error) +
+      ' · ' + last;
+  }
+}
+
+function updateResearchFreshnessIndicator() {
+  if (researchLastSuccessfulRefreshAt === null) {
+    setBadge(el.researchFreshnessBadge, 'WAITING', 'neutral');
+    return;
+  }
+
+  if (
+    Date.now() - researchLastSuccessfulRefreshAt >
+    RESEARCH_STALE_AFTER_MS
+  ) {
+    markResearchDataStale();
+    return;
+  }
+
+  setBadge(el.researchFreshnessBadge, 'FRESH', 'good');
 }
 
 function setBadge(
