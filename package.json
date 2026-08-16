@@ -54,7 +54,6 @@
     "@libsql/client": "^0.17.0",
     "@prisma/adapter-libsql": "^7.3.0",
     "@prisma/client": "^7.3.0",
-    "@tensorflow/tfjs-node": "^4.22.0",
     "@tensorflow/tfjs": "^4.22.0",
     "@types/cheerio": "^0.22.35",
     "@types/cors": "^2.8.19",

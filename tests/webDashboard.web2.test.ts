@@ -1,0 +1,239 @@
+import fs from 'fs';
+import path from 'path';
+
+describe(
+    'WEB2-A canonical read-only dashboard',
+    () => {
+        const root =
+            path.resolve(
+                __dirname,
+                '..',
+            );
+
+        const html = () =>
+            fs.readFileSync(
+                path.join(
+                    root,
+                    'public',
+                    'index.html',
+                ),
+                'utf8',
+            );
+
+        const js = () =>
+            fs.readFileSync(
+                path.join(
+                    root,
+                    'public',
+                    'dashboard.js',
+                ),
+                'utf8',
+            );
+
+        test(
+            'preserves the audited legacy dashboard outside the served public root',
+            () => {
+                const legacyPath =
+                    path.join(
+                        root,
+                        'docs',
+                        'web-legacy',
+                        'index.pre-WEB2A.html',
+                    );
+
+                expect(
+                    fs.existsSync(
+                        legacyPath,
+                    ),
+                ).toBe(true);
+
+                const legacy =
+                    fs.readFileSync(
+                        legacyPath,
+                        'utf8',
+                    );
+
+                expect(legacy)
+                    .toContain(
+                        '<title>RabTradebot | Pro Interface</title>',
+                    );
+
+                expect(legacy)
+                    .toContain(
+                        "loadData('/api/dashboard', updateDashboard);",
+                    );
+            },
+        );
+
+        test(
+            'canonical dashboard assets exist and browser JavaScript parses',
+            () => {
+                expect(
+                    fs.existsSync(
+                        path.join(
+                            root,
+                            'public',
+                            'index.html',
+                        ),
+                    ),
+                ).toBe(true);
+
+                expect(
+                    fs.existsSync(
+                        path.join(
+                            root,
+                            'public',
+                            'dashboard.css',
+                        ),
+                    ),
+                ).toBe(true);
+
+                expect(
+                    fs.existsSync(
+                        path.join(
+                            root,
+                            'public',
+                            'dashboard.js',
+                        ),
+                    ),
+                ).toBe(true);
+
+                expect(
+                    () =>
+                        new Function(
+                            js(),
+                        ),
+                ).not.toThrow();
+            },
+        );
+
+        test(
+            'consumes only canonical WEB1 read endpoints',
+            () => {
+                expect(js())
+                    .toContain(
+                        "'/api/system/status'",
+                    );
+
+                expect(js())
+                    .toContain(
+                        "'/api/trading/state'",
+                    );
+
+                expect(js())
+                    .toContain(
+                        "'/api/trading/microstructure/'",
+                    );
+
+                [
+                    '/api/dashboard',
+                    '/api/trades',
+                    '/api/portfolio',
+                    '/api/signals',
+                    '/api/stats',
+                ].forEach(
+                    (legacyEndpoint) => {
+                        expect(js())
+                            .not.toContain(
+                                legacyEndpoint,
+                            );
+                    },
+                );
+            },
+        );
+
+        test(
+            'all dashboard HTTP calls are explicit GET-only reads',
+            () => {
+                expect(js())
+                    .toContain(
+                        "method: 'GET'",
+                    );
+
+                [
+                    "method: 'POST'",
+                    "method: 'PUT'",
+                    "method: 'PATCH'",
+                    "method: 'DELETE'",
+                ].forEach(
+                    (mutableMethod) => {
+                        expect(js())
+                            .not.toContain(
+                                mutableMethod,
+                            );
+                    },
+                );
+            },
+        );
+
+        test(
+            'served operator dashboard does not subscribe to legacy Socket.IO state',
+            () => {
+                expect(html())
+                    .not.toContain(
+                        'socket.io',
+                    );
+
+                expect(js())
+                    .not.toContain(
+                        'socket.io',
+                    );
+
+                expect(js())
+                    .not.toContain(
+                        'io(',
+                    );
+            },
+        );
+
+        test(
+            'UI explicitly remains read-only with no trading mutation controls',
+            () => {
+                expect(html())
+                    .toContain(
+                        'READ ONLY',
+                    );
+
+                expect(html())
+                    .toContain(
+                        'Inspection only',
+                    );
+
+                expect(html())
+                    .not.toMatch(
+                        /<button[^>]*>\s*(BUY|SELL|PAUSE|STOP|CLOSE|EMERGENCY)/i,
+                    );
+            },
+        );
+
+        test(
+            'renders canonical execution exposure reconciliation and microstructure sections',
+            () => {
+                expect(html())
+                    .toContain(
+                        'System Status',
+                    );
+
+                expect(html())
+                    .toContain(
+                        'Open Exposure',
+                    );
+
+                expect(html())
+                    .toContain(
+                        'Pending Reconciliation',
+                    );
+
+                expect(html())
+                    .toContain(
+                        'Microstructure Gate',
+                    );
+
+                expect(html())
+                    .toContain(
+                        'Active Microstructure Runtimes',
+                    );
+            },
+        );
+    },
+);
