@@ -38,6 +38,11 @@ function makeDependencies(
             })) as TradingApplicationDependencies['health']['getSnapshot'],
         },
 
+        database: {
+            getOpenLiveTrades: async () => [],
+            getPendingLiveTrades: async () => [],
+        },
+
         ...overrides,
     };
 }

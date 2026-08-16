@@ -193,6 +193,22 @@ app.get('/api/system/status', (req: Request, res: Response) => {
     }
 });
 
+// WEB1-B: canonical persisted live Spot exposure/reconciliation read model.
+app.get('/api/trading/state', async (req: Request, res: Response) => {
+    try {
+        res.json(
+            await tradingApplicationService.getTradingState(),
+        );
+    } catch (error: any) {
+        withLogContext({ service: 'webServer' }).error(
+            `Trading state API error: ${error.message}`,
+        );
+        res.status(500).json({
+            error: 'An internal server error occurred',
+        });
+    }
+});
+
 // Health check
 app.get('/api/health', (req: Request, res: Response) => {
     res.json({
