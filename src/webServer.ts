@@ -12,6 +12,7 @@ import os from 'os';
 import BotStateManager from './services/botStateManager';
 import { healthMonitor } from './services/healthMonitor';
 import { withLogContext } from './utils/logger';
+import { tradingApplicationService } from './services/tradingApplicationService';
 
 const PORT = Number(process.env.WEB_PORT || 3000);
 const HOST = process.env.WEB_HOST || '0.0.0.0';
@@ -174,6 +175,21 @@ app.get('/api/stats', (req: Request, res: Response) => {
     } catch (error: any) {
         withLogContext({ service: 'webServer' }).error(`Stats API error: ${error.message}`);
         res.status(500).json({ error: 'An internal server error occurred' });
+    }
+});
+
+// WEB1-A: canonical shared, read-only application status.
+// This intentionally exposes no mutable trading controls.
+app.get('/api/system/status', (req: Request, res: Response) => {
+    try {
+        res.json(tradingApplicationService.getStatus());
+    } catch (error: any) {
+        withLogContext({ service: 'webServer' }).error(
+            `System status API error: ${error.message}`,
+        );
+        res.status(500).json({
+            error: 'An internal server error occurred',
+        });
     }
 });
 
