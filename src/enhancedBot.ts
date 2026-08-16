@@ -25,6 +25,7 @@ import { binanceOrderService } from './services/binanceOrderService';
 import { realTradingEngine, RiskParams } from './services/realTradingEngine';
 import { riskMonitorLoop } from './services/riskMonitorLoop';
 import { connectionManager } from './services/connectionManager';
+import { spotMicrostructureRuntimeRegistry } from './services/marketData/spotMicrostructureRuntimeService';
 import { OHLCVCandle } from './types/dataframe';
 
 import { ImageChartService } from './services/imageChartService';
@@ -317,6 +318,10 @@ function stopLiveTradingSession(session: {
     clearInterval(session.timer);
     session.timer = undefined;
   }
+
+  // WEB1-C1: release this session's reference to the shared
+  // per-symbol Spot market/depth/feature runtime.
+  spotMicrostructureRuntimeRegistry.release(session.symbol);
 }
 
 const notifyByDbUserId = async (message: string, dbUserId?: number): Promise<void> => {
@@ -345,6 +350,28 @@ riskMonitorLoop.setNotifier(async (message, dbUserId) => {
 async function executeLiveSignal(userDbId: number, symbol: string, strategyToUse: IStrategy): Promise<void> {
   const openTrades = await db.getOpenLiveTrades(userDbId, symbol);
   if (openTrades.length > 0) {
+    return;
+  }
+
+  // WEB1-C1 permanent safety invariant:
+  // unhealthy/unavailable canonical market + depth + feature input
+  // => NO NEW SPOT TRADE.
+  const microstructureGate =
+    spotMicrostructureRuntimeRegistry.getEntryGate(symbol);
+
+  if (!microstructureGate.allowed) {
+    await db.logError({
+      level: 'WARN',
+      source: 'executeLiveSignal',
+      message:
+        `WEB1-C1 blocked new Spot entry for ${symbol}; canonical microstructure input is unhealthy/unavailable`,
+      userId: userDbId,
+      symbol,
+      metadata: {
+        blockers: microstructureGate.blockers,
+        quality: microstructureGate.quality,
+      },
+    });
     return;
   }
 
@@ -876,8 +903,37 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       if (!binanceOrderService.isConfigured()) { await ctx.reply('❌ Binance API keys not configured.'); break; }
       const strategyToUse = openClawStrategy;
       const intervalMs = parseInt(process.env.LIVE_SIGNAL_INTERVAL_MS || '300000', 10);
-      liveSession.liveTrading = { active: true, symbol, strategy: strategyToUse, userDbId: dbUserId, startedAt: new Date() };
-      await riskMonitorLoop.start();
+
+      let microstructureRuntimeAcquired = false;
+
+      try {
+        await spotMicrostructureRuntimeRegistry.acquireHealthy(symbol);
+        microstructureRuntimeAcquired = true;
+
+        await riskMonitorLoop.start();
+
+        liveSession.liveTrading = {
+          active: true,
+          symbol,
+          strategy: strategyToUse,
+          userDbId: dbUserId,
+          startedAt: new Date(),
+        };
+
+        // Ownership transferred to the active session.
+        // stopLiveTradingSession() will release it.
+        microstructureRuntimeAcquired = false;
+      } catch (error) {
+        if (microstructureRuntimeAcquired) {
+          spotMicrostructureRuntimeRegistry.release(symbol);
+        }
+
+        await ctx.reply(
+          `❌ Live trading tidak dimulai untuk ${symbol}: ${(error as Error).message}`,
+        );
+        break;
+      }
+
       const runSig = async () => {
         if (!liveSession.liveTrading?.active) return;
         try { await executeLiveSignal(dbUserId, symbol, strategyToUse); } catch (_) { /* logged by callee */ }
@@ -3504,6 +3560,8 @@ bot.command('livetrade', async (ctx) => {
     return ctx.reply(`❌ Live trading sudah aktif untuk ${session.liveTrading.symbol}. Gunakan /livetrade stop dulu.`);
   }
 
+  let microstructureRuntimeAcquired = false;
+
   try {
     const user = await ensureUser(ctx);
     if (!user) {
@@ -3516,6 +3574,11 @@ bot.command('livetrade', async (ctx) => {
     const strategyToUse = openClawStrategy;
     const signalIntervalMs = parseInt(process.env.LIVE_SIGNAL_INTERVAL_MS || '300000', 10);
 
+    await spotMicrostructureRuntimeRegistry.acquireHealthy(symbol);
+    microstructureRuntimeAcquired = true;
+
+    await riskMonitorLoop.start();
+
     session.liveTrading = {
       active: true,
       symbol,
@@ -3524,7 +3587,9 @@ bot.command('livetrade', async (ctx) => {
       startedAt: new Date(),
     };
 
-    await riskMonitorLoop.start();
+    // Ownership transferred to the active session.
+    // stopLiveTradingSession() will release it.
+    microstructureRuntimeAcquired = false;
 
     const runSignal = async () => {
       if (!session.liveTrading || !session.liveTrading.active) {
@@ -3563,6 +3628,10 @@ bot.command('livetrade', async (ctx) => {
         `Gunakan /livetrade stop untuk menghentikan.`
     );
   } catch (error) {
+    if (microstructureRuntimeAcquired) {
+      spotMicrostructureRuntimeRegistry.release(symbol);
+    }
+
     logger.error({ err: error }, 'livetrade start error:');
     await db.logError({
       level: 'ERROR',
