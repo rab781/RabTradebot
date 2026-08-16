@@ -1,0 +1,15 @@
+{
+  "version": "research-acceptance-v1",
+  "sessions": {
+    "btcusdt-v2-europe-morning-20260810-1427WIB": {
+      "status": "ACCEPTED"
+    },
+    "btcusdt-v2-asia-20260814-0746": {
+      "status": "ACCEPTED"
+    }
+  },
+  "comparators": {
+    "preUs": "PASS",
+    "finalThreeSession": "PENDING"
+  }
+}

@@ -1,3 +1,4 @@
+import { researchReadService } from './services/researchReadService';
 /**
  * Web Server untuk Trading Bot Dashboard
  * Menyediakan REST API dan WebSocket untuk real-time updates
@@ -211,6 +212,24 @@ app.get('/api/trading/state', async (req: Request, res: Response) => {
 
 // WEB2-C1: canonical persisted live Spot lifecycle history.
 // Read-only. SELL in this projection is a LONG exit; it is never a Spot short.
+
+// WEB3-A1: read-only research catalog / acceptance evidence.
+app.get('/api/research/sessions', (_req: Request, res: Response) => {
+    try {
+        res.json(researchReadService.getSessions());
+    } catch {
+        res.status(503).json({ error: 'RESEARCH_SESSIONS_UNAVAILABLE' });
+    }
+});
+
+app.get('/api/research/acceptance', (_req: Request, res: Response) => {
+    try {
+        res.json(researchReadService.getAcceptance());
+    } catch {
+        res.status(503).json({ error: 'RESEARCH_ACCEPTANCE_UNAVAILABLE' });
+    }
+});
+
 app.get('/api/trading/history', async (req: Request, res: Response) => {
     try {
         let limit = 50;
