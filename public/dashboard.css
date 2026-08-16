@@ -375,3 +375,14 @@ footer {
 
 /* WEB2-B freshness / transport safety */
 #freshnessBadge { min-width: 82px; justify-content: center; }
+
+
+/* WEB2-C2 canonical execution history */
+.history-card {
+  margin-bottom: 12px;
+}
+
+.history-note {
+  margin: -4px 0 14px;
+  max-width: 1000px;
+}

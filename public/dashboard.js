@@ -7,6 +7,7 @@ const STALE_AFTER_MS = 10000;
 const API = Object.freeze({
   system: '/api/system/status',
   trading: '/api/trading/state',
+  history: '/api/trading/history?limit=50',
 
   microstructure: (symbol) =>
     '/api/trading/microstructure/' +
@@ -55,6 +56,8 @@ document.addEventListener(
       'positionsBody',
       'pendingCount',
       'pendingBody',
+      'historyCount',
+      'historyBody',
       'runtimeCount',
       'runtimeCards',
       'lastUpdated',
@@ -165,14 +168,16 @@ async function refreshAll() {
   el.refreshButton.disabled = true;
 
   try {
-    const [system, trading] =
+    const [system, trading, history] =
       await Promise.all([
         getJson(API.system),
         getJson(API.trading),
+        getJson(API.history),
       ]);
 
     renderSystem(system);
     renderTrading(trading);
+    renderHistory(history);
 
     selectedSymbol =
       chooseSymbol(trading) ||
@@ -542,6 +547,74 @@ function renderPositions(items) {
       ],
     );
   });
+}
+
+function renderHistory(history) {
+  const items =
+    asArray(history?.items);
+
+  setBadge(
+    el.historyCount,
+    String(items.length),
+    'neutral',
+  );
+
+  clear(el.historyBody);
+
+  if (!items.length) {
+    addEmptyRow(
+      el.historyBody,
+      9,
+      'No canonical live Spot lifecycle history.',
+    );
+    return;
+  }
+
+  items.forEach((item) => {
+    addRow(
+      el.historyBody,
+      [
+        item.symbol,
+        item.lifecycleState,
+        item.positionIntent,
+        item.exposureState,
+        formatNumber(
+          item.quantity,
+        ),
+        formatExecutionLeg(
+          item.entry,
+        ),
+        formatExecutionLeg(
+          item.exit,
+        ),
+        formatNumber(
+          item.pnl?.profitPct,
+        ),
+        formatOrderIds(item),
+      ],
+    );
+  });
+}
+
+function formatExecutionLeg(leg) {
+  if (!leg || !leg.side) {
+    return '—';
+  }
+
+  return (
+    display(leg.side) +
+    ' @ ' +
+    formatNumber(leg.price)
+  );
+}
+
+function formatOrderIds(item) {
+  return (
+    'E:' +
+    display(item?.entry?.orderId) +
+    ' / X:' +
+    display(item?.exit?.orderId)
+  );
 }
 
 function renderPending(items) {

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 describe(
-    'WEB2-B canonical read-only dashboard',
+    'WEB2-C2 canonical read-only dashboard',
     () => {
         const root =
             path.resolve(
@@ -253,6 +253,112 @@ describe(
                 expect(js()).toContain("setBadge(el.entryBadge, 'STALE', 'warn')");
                 expect(js()).toContain('const STALE_AFTER_MS = 10000;');
                 expect(html()).toContain('id="freshnessBadge"');
+            },
+        );
+
+        test(
+            'consumes WEB2-C1 canonical lifecycle history and never the legacy trades endpoint',
+            () => {
+                expect(js())
+                    .toContain(
+                        "'/api/trading/history?limit=50'",
+                    );
+
+                expect(js())
+                    .toContain(
+                        'getJson(API.history)',
+                    );
+
+                expect(js())
+                    .not.toContain(
+                        '/api/trades',
+                    );
+            },
+        );
+
+        test(
+            'renders lifecycle history from backend-projected Spot semantics',
+            () => {
+                expect(html())
+                    .toContain(
+                        'Execution Lifecycle History',
+                    );
+
+                expect(html())
+                    .toContain(
+                        'id="historyBody"',
+                    );
+
+                expect(js())
+                    .toContain(
+                        'function renderHistory(history)',
+                    );
+
+                [
+                    'item.lifecycleState',
+                    'item.positionIntent',
+                    'item.exposureState',
+                    'item.entry',
+                    'item.exit',
+                    'item.pnl?.profitPct',
+                ].forEach(
+                    (canonicalField) => {
+                        expect(js())
+                            .toContain(
+                                canonicalField,
+                            );
+                    },
+                );
+            },
+        );
+
+        test(
+            'browser does not reinterpret SELL as SHORT or derive position intent from raw side',
+            () => {
+                expect(js())
+                    .not.toContain(
+                        "'SHORT'",
+                    );
+
+                expect(js())
+                    .not.toContain(
+                        '"SHORT"',
+                    );
+
+                expect(js())
+                    .not.toMatch(
+                        /rawSide\s*(===|!==|==|!=)/,
+                    );
+
+                expect(html())
+                    .toContain(
+                        'SELL is displayed only as an exit',
+                    );
+            },
+        );
+
+        test(
+            'history participates in the same timeout and stale canonical refresh path',
+            () => {
+                expect(js())
+                    .toContain(
+                        'const [system, trading, history] =',
+                    );
+
+                expect(js())
+                    .toContain(
+                        'getJson(API.history)',
+                    );
+
+                expect(js())
+                    .toContain(
+                        'markCanonicalDataStale();',
+                    );
+
+                expect(js())
+                    .toContain(
+                        'const REQUEST_TIMEOUT_MS = 5000;',
+                    );
             },
         );
     },
