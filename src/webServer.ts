@@ -380,6 +380,19 @@ io.on('connection', (socket) => {
 
 // Start server
 export function startWebServer() {
+    httpServer.once('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EADDRINUSE') {
+            withLogContext({ service: 'webServer', data: { port: PORT, host: HOST } }).warn(
+                `Web dashboard not started because ${HOST}:${PORT} is already in use.`
+            );
+            return;
+        }
+
+        withLogContext({ service: 'webServer', data: { port: PORT, host: HOST } }).error(
+            `Web server failed to start: ${error.message}`
+        );
+    });
+
     httpServer.listen(PORT, HOST, () => {
         const interfaces = os.networkInterfaces();
         const lanIp = Object.values(interfaces)
