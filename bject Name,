@@ -1,0 +1,12 @@
+[35mpackage-lock.json[m[36m:[m[32m16[m[36m:[m        "[1;31m@tensorflow/tfjs-node[m": "^4.22.0",
+[35mpackage-lock.json[m[36m:[m[32m2436[m[36m:[m    "node_modules/[1;31m@tensorflow/tfjs-node[m": {
+[35mpackage-lock.json[m[36m:[m[32m2438[m[36m:[m      "resolved": "https://registry.npmjs.org/[1;31m@tensorflow/tfjs-node[m/-/tfjs-node-4.22.0.tgz",
+[35mpackage-lock.json[m[36m:[m[32m2456[m[36m:[m    "node_modules/[1;31m@tensorflow/tfjs-node[m/node_modules/agent-base": {
+[35mpackage-lock.json[m[36m:[m[32m2468[m[36m:[m    "node_modules/[1;31m@tensorflow/tfjs-node[m/node_modules/debug": {
+[35mpackage-lock.json[m[36m:[m[32m2477[m[36m:[m    "node_modules/[1;31m@tensorflow/tfjs-node[m/node_modules/https-proxy-agent": {
+[35mpackage-lock.json[m[36m:[m[32m2490[m[36m:[m    "node_modules/[1;31m@tensorflow/tfjs-node[m/node_modules/rimraf": {
+[35mpackage.json[m[36m:[m[32m57[m[36m:[m    "[1;31m@tensorflow/tfjs-node[m": "^4.22.0",
+[35mscripts/train-model.ts[m[36m:[m[32m103[m[36m:[m            console.warn('⚠️  Model save skipped (requires [1;31m@tensorflow/tfjs-node[m)');
+[35mscripts/train-model.ts[m[36m:[m[32m106[m[36m:[m            console.warn('📝 To enable: install Visual Studio + [1;31m@tensorflow/tfjs-node[m');
+[35msrc/ml/lstmModel.ts[m[36m:[m[32m283[m[36m:[m     * Save model to disk (requires [1;31m@tensorflow/tfjs-node[m)
+[35msrc/ml/lstmModel.ts[m[36m:[m[32m286[m[36m:[m        throw new Error('Model saving requires [1;31m@tensorflow/tfjs-node[m which needs Visual Studio Build Tools. Model is trained and can be used in-memory.');

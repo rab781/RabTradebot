@@ -1,6 +1,8 @@
 'use strict';
 
 const POLL_MS = 3000;
+const REQUEST_TIMEOUT_MS = 5000;
+const STALE_AFTER_MS = 10000;
 
 const API = Object.freeze({
   system: '/api/system/status',
@@ -14,6 +16,8 @@ const API = Object.freeze({
 let refreshing = false;
 let selectedSymbol = 'BTCUSDT';
 let pollTimer = null;
+let freshnessTimer = null;
+let lastSuccessfulRefreshAt = null;
 
 const el = {};
 
@@ -54,6 +58,7 @@ document.addEventListener(
       'runtimeCount',
       'runtimeCards',
       'lastUpdated',
+      'freshnessBadge',
     ].forEach((id) => {
       el[id] = document.getElementById(id);
     });
@@ -91,6 +96,11 @@ document.addEventListener(
       () => void refreshAll(),
       POLL_MS,
     );
+
+    freshnessTimer = window.setInterval(
+      updateFreshnessIndicator,
+      1000,
+    );
   },
 );
 
@@ -100,40 +110,50 @@ window.addEventListener(
     if (pollTimer !== null) {
       window.clearInterval(pollTimer);
     }
+
+    if (freshnessTimer !== null) {
+      window.clearInterval(freshnessTimer);
+    }
   },
 );
 
 async function getJson(url) {
-  const response = await fetch(
-    url,
-    {
-      method: 'GET',
-      headers: {
-        Accept: 'application/json',
-      },
-      cache: 'no-store',
-    },
+  const controller = new AbortController();
+  const timeout = window.setTimeout(
+    () => controller.abort(),
+    REQUEST_TIMEOUT_MS,
   );
 
-  let payload = null;
-
   try {
-    payload = await response.json();
-  } catch {
-    payload = null;
-  }
-
-  if (!response.ok) {
-    throw new Error(
-      payload?.error ||
-      'HTTP ' +
-        response.status +
-        ' from ' +
-        url,
+    const response = await fetch(
+      url,
+      {
+        method: 'GET',
+        headers: { Accept: 'application/json' },
+        cache: 'no-store',
+        signal: controller.signal,
+      },
     );
-  }
 
-  return payload;
+    let payload = null;
+    try { payload = await response.json(); } catch { payload = null; }
+
+    if (!response.ok) {
+      throw new Error(
+        payload?.error ||
+        'HTTP ' + response.status + ' from ' + url,
+      );
+    }
+
+    return payload;
+  } catch (error) {
+    if (error instanceof DOMException && error.name === 'AbortError') {
+      throw new Error('Request timeout from ' + url);
+    }
+    throw error;
+  } finally {
+    window.clearTimeout(timeout);
+  }
 }
 
 async function refreshAll() {
@@ -165,6 +185,9 @@ async function refreshAll() {
       selectedSymbol,
     );
 
+    lastSuccessfulRefreshAt = Date.now();
+    updateFreshnessIndicator();
+
     setBanner(
       'Canonical application state loaded. ' +
       'Dashboard remains read only.',
@@ -173,9 +196,11 @@ async function refreshAll() {
     );
 
     el.lastUpdated.textContent =
-      'Last update: ' +
-      new Date().toLocaleString();
+      'Last successful refresh: ' +
+      new Date(lastSuccessfulRefreshAt).toLocaleString();
   } catch (error) {
+    markCanonicalDataStale();
+
     setBanner(
       'Dashboard refresh failed: ' +
       errorMessage(error),
@@ -789,6 +814,26 @@ function addEmptyRow(
 
   row.appendChild(cell);
   body.appendChild(row);
+}
+
+function markCanonicalDataStale() {
+  setBadge(el.freshnessBadge, 'STALE', 'warn');
+  setBadge(el.entryBadge, 'STALE', 'warn');
+  setText(el.coreGate, 'STALE');
+}
+
+function updateFreshnessIndicator() {
+  if (lastSuccessfulRefreshAt === null) {
+    setBadge(el.freshnessBadge, 'WAITING', 'neutral');
+    return;
+  }
+
+  if (Date.now() - lastSuccessfulRefreshAt > STALE_AFTER_MS) {
+    markCanonicalDataStale();
+    return;
+  }
+
+  setBadge(el.freshnessBadge, 'FRESH', 'good');
 }
 
 function setBadge(

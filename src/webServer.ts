@@ -215,7 +215,7 @@ app.get('/api/trading/microstructure/:symbol', (req: Request, res: Response) => 
     try {
         res.json(
             tradingApplicationService.getMicrostructureState(
-                req.params.symbol,
+                req.params.symbol as string
             ),
         );
     } catch (error: any) {

@@ -2,7 +2,7 @@ import fs from 'fs';
 import path from 'path';
 
 describe(
-    'WEB2-A canonical read-only dashboard',
+    'WEB2-B canonical read-only dashboard',
     () => {
         const root =
             path.resolve(
@@ -233,6 +233,26 @@ describe(
                     .toContain(
                         'Active Microstructure Runtimes',
                     );
+            },
+        );
+
+        test(
+            'canonical GET requests have an explicit transport timeout',
+            () => {
+                expect(js()).toContain('const REQUEST_TIMEOUT_MS = 5000;');
+                expect(js()).toContain('new AbortController()');
+                expect(js()).toContain('signal: controller.signal');
+                expect(js()).toContain('Request timeout from ');
+            },
+        );
+
+        test(
+            'stale transport state cannot leave NEW ENTRY displayed as ALLOWED',
+            () => {
+                expect(js()).toContain('function markCanonicalDataStale()');
+                expect(js()).toContain("setBadge(el.entryBadge, 'STALE', 'warn')");
+                expect(js()).toContain('const STALE_AFTER_MS = 10000;');
+                expect(html()).toContain('id="freshnessBadge"');
             },
         );
     },

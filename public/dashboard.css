@@ -371,3 +371,7 @@ footer {
     padding-top: 18px;
   }
 }
+
+
+/* WEB2-B freshness / transport safety */
+#freshnessBadge { min-width: 82px; justify-content: center; }
