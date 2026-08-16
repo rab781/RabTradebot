@@ -601,15 +601,21 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       const loading = await ctx.reply(`🦅 Running OpenClaw for ${symbol}...`);
       const candles = await publicCryptoService.getCandlestickData(symbol, '1h', 200);
       if (candles.length < 100) { await ctx.reply('❌ Insufficient data'); break; }
-      const ocCandles: OHLCVCandle[] = candles.map((c: any) => ({
-        timestamp: c[0], open: parseFloat(c[1]), high: parseFloat(c[2]),
-        low: parseFloat(c[3]), close: parseFloat(c[4]), volume: parseFloat(c[5]), date: new Date(c[0]),
-      }));
+      const len = candles.length;
+      const ocCandles: OHLCVCandle[] = new Array(len);
       const df: any = {
-        open: ocCandles.map(c => c.open), high: ocCandles.map(c => c.high),
-        low: ocCandles.map(c => c.low), close: ocCandles.map(c => c.close),
-        volume: ocCandles.map(c => c.volume), date: ocCandles.map(c => c.date),
+        open: new Array(len), high: new Array(len), low: new Array(len),
+        close: new Array(len), volume: new Array(len), date: new Array(len)
       };
+      for (let i = 0; i < len; i++) {
+        const c = candles[i];
+        const open = parseFloat(c[1]), high = parseFloat(c[2]);
+        const low = parseFloat(c[3]), close = parseFloat(c[4]);
+        const volume = parseFloat(c[5]), date = new Date(c[0]);
+        ocCandles[i] = { timestamp: c[0], open, high, low, close, volume, date };
+        df.open[i] = open; df.high[i] = high; df.low[i] = low;
+        df.close[i] = close; df.volume[i] = volume; df.date[i] = date;
+      }
       const meta = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
       openClawStrategy.populateIndicators(df, meta);
       openClawStrategy.populateEntryTrend(df, meta);
@@ -2175,26 +2181,22 @@ bot.command('openclaw', async (ctx) => {
       return ctx.reply('❌ Insufficient data for analysis');
     }
 
-    // Convert to OHLCV format
-    const ohlcvCandles: OHLCVCandle[] = candles.map((c: any) => ({
-      timestamp: c[0],
-      open: parseFloat(c[1]),
-      high: parseFloat(c[2]),
-      low: parseFloat(c[3]),
-      close: parseFloat(c[4]),
-      volume: parseFloat(c[5]),
-      date: new Date(c[0]),
-    }));
-
-    // Create DataFrame and populate indicators
+    // Convert to OHLCV format and DataFrame in a single pass to avoid O(N*C) overhead
+    const len = candles.length;
+    const ohlcvCandles: OHLCVCandle[] = new Array(len);
     const dataframe = {
-      open: ohlcvCandles.map((c) => c.open),
-      high: ohlcvCandles.map((c) => c.high),
-      low: ohlcvCandles.map((c) => c.low),
-      close: ohlcvCandles.map((c) => c.close),
-      volume: ohlcvCandles.map((c) => c.volume),
-      date: ohlcvCandles.map((c) => c.date),
+      open: new Array(len), high: new Array(len), low: new Array(len),
+      close: new Array(len), volume: new Array(len), date: new Array(len),
     };
+    for (let i = 0; i < len; i++) {
+      const c = candles[i];
+      const open = parseFloat(c[1]), high = parseFloat(c[2]);
+      const low = parseFloat(c[3]), close = parseFloat(c[4]);
+      const volume = parseFloat(c[5]), date = new Date(c[0]);
+      ohlcvCandles[i] = { timestamp: c[0], open, high, low, close, volume, date };
+      dataframe.open[i] = open; dataframe.high[i] = high; dataframe.low[i] = low;
+      dataframe.close[i] = close; dataframe.volume[i] = volume; dataframe.date[i] = date;
+    }
 
     const metadata = { pair: symbol, timeframe: '1h', stake_currency: 'USDT' };
     openClawStrategy.populateIndicators(dataframe, metadata);
