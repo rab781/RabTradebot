@@ -94,6 +94,70 @@ export interface SpotMicrostructureRuntimeView {
     };
 }
 
+export type SpotTradeLifecycleState =
+    | 'ENTRY_PENDING'
+    | 'OPEN'
+    | 'EXIT_PENDING'
+    | 'CLOSED'
+    | 'CANCELLED'
+    | 'UNKNOWN';
+
+export type SpotTradeHistoryExposureState =
+    | 'LONG'
+    | 'FLAT'
+    | 'NONE'
+    | 'INVALID'
+    | 'UNKNOWN';
+
+export interface SpotTradeHistoryItem {
+    tradeId: string;
+    userId: number;
+    symbol: string;
+    product: 'SPOT';
+
+    rawSide: string;
+    positionIntent: 'LONG' | 'INVALID';
+    lifecycleState: SpotTradeLifecycleState;
+    exposureState: SpotTradeHistoryExposureState;
+    status: string;
+    quantity: number | null;
+
+    entry: {
+        side: 'BUY' | 'INVALID';
+        price: number | null;
+        time: string | null;
+        orderId: number | null;
+    };
+
+    exit: {
+        side: 'SELL' | null;
+        price: number | null;
+        time: string | null;
+        orderId: number | null;
+    };
+
+    pnl: {
+        profit: number | null;
+        profitPct: number | null;
+        fees: number | null;
+    };
+
+    provenance: {
+        metadataValid: true;
+        live: true;
+        product: 'SPOT';
+        semanticsValid: boolean;
+    };
+}
+
+export interface TradingHistoryReadState {
+    generatedAt: string;
+    product: 'SPOT';
+    positionMode: 'LONG_FLAT';
+    count: number;
+    items: SpotTradeHistoryItem[];
+}
+
 export interface TradingReadState {
     generatedAt: string;
     product: 'SPOT';
@@ -156,6 +220,10 @@ export interface TradingApplicationDependencies {
         ): Promise<any[]>;
 
         getPendingLiveTrades(): Promise<any[]>;
+
+        getRecentLiveSpotTrades(
+            limit?: number,
+        ): Promise<any[]>;
     };
 
     microstructure: {
@@ -311,6 +379,61 @@ export class TradingApplicationService {
         };
     }
 
+    async getTradingHistory(
+        limit: number = 50,
+    ): Promise<TradingHistoryReadState> {
+        if (
+            !Number.isInteger(limit) ||
+            limit < 1 ||
+            limit > 200
+        ) {
+            throw new Error(
+                'Invalid trading history limit: expected integer 1..200.',
+            );
+        }
+
+        const trades =
+            await this.dependencies.database
+                .getRecentLiveSpotTrades(limit);
+
+        const items: SpotTradeHistoryItem[] = [];
+
+        for (const trade of trades) {
+            const parsed =
+                this.parseMetadata(trade.tags);
+
+            // Defense in depth: even if a database adapter accidentally returns
+            // paper/legacy data, it cannot enter canonical live Spot history.
+            if (
+                !parsed.valid ||
+                parsed.metadata?.live !== true ||
+                parsed.metadata?.product !== 'SPOT'
+            ) {
+                continue;
+            }
+
+            items.push(
+                this.toTradeHistoryView(
+                    trade,
+                    parsed.metadata,
+                ),
+            );
+
+            if (items.length >= limit) {
+                break;
+            }
+        }
+
+        return {
+            generatedAt:
+                new Date().toISOString(),
+            product: 'SPOT',
+            positionMode: 'LONG_FLAT',
+            count: items.length,
+            items,
+        };
+    }
+
     getMicrostructureState(
         rawSymbol: string,
     ): SpotMicrostructureRuntimeView {
@@ -367,6 +490,335 @@ export class TradingApplicationService {
                 ],
             },
         };
+    }
+
+    private toTradeHistoryView(
+        trade: any,
+        metadata: Record<string, unknown>,
+    ): SpotTradeHistoryItem {
+        const rawSide =
+            String(trade.side).toUpperCase();
+
+        const persistedPosition =
+            this.resolvePersistedPosition(
+                trade.side,
+            );
+
+        const metadataIntent =
+            String(
+                metadata.positionIntent ?? '',
+            ).toUpperCase();
+
+        const metadataEffect =
+            String(
+                metadata.positionEffect ?? '',
+            ).toUpperCase();
+
+        const semanticsValid =
+            persistedPosition === 'LONG' &&
+            metadataIntent === 'LONG' &&
+            metadataEffect === 'OPEN';
+
+        const lifecycleState =
+            this.resolveTradeHistoryLifecycleState(
+                trade.status,
+            );
+
+        const quantity =
+            this.nonNegativeNumberOrNull(
+                trade.quantity,
+            );
+
+        const exposureState =
+            this.resolveTradeHistoryExposureState(
+                semanticsValid,
+                lifecycleState,
+                quantity,
+            );
+
+        const exitOrderId =
+            this.resolveTradeHistoryExitOrderId(
+                metadata,
+                trade.notes,
+            );
+
+        const exitEvidence =
+            semanticsValid &&
+            (
+                lifecycleState === 'EXIT_PENDING' ||
+                lifecycleState === 'CLOSED' ||
+                exitOrderId !== null ||
+                this.positiveNumberOrNull(
+                    trade.exitPrice,
+                ) !== null ||
+                this.isoDateOrNull(
+                    trade.exitTime,
+                ) !== null
+            );
+
+        return {
+            tradeId: String(trade.id),
+            userId: Number(trade.userId),
+            symbol:
+                String(trade.symbol)
+                    .toUpperCase(),
+            product: 'SPOT',
+
+            rawSide,
+            positionIntent:
+                semanticsValid
+                    ? 'LONG'
+                    : 'INVALID',
+            lifecycleState,
+            exposureState,
+            status: String(trade.status),
+            quantity,
+
+            entry: {
+                side:
+                    semanticsValid
+                        ? 'BUY'
+                        : 'INVALID',
+                price:
+                    this.positiveNumberOrNull(
+                        trade.entryPrice,
+                    ),
+                time:
+                    this.isoDateOrNull(
+                        trade.entryTime,
+                    ),
+                orderId:
+                    this.positiveIntegerOrNull(
+                        metadata.entryOrderId,
+                    ),
+            },
+
+            exit: {
+                side:
+                    exitEvidence
+                        ? 'SELL'
+                        : null,
+                price:
+                    this.positiveNumberOrNull(
+                        trade.exitPrice,
+                    ),
+                time:
+                    this.isoDateOrNull(
+                        trade.exitTime,
+                    ),
+                orderId:
+                    exitEvidence
+                        ? exitOrderId
+                        : null,
+            },
+
+            pnl: {
+                profit:
+                    this.finiteNumberOrNull(
+                        trade.profit,
+                    ),
+                profitPct:
+                    this.finiteNumberOrNull(
+                        trade.profitPct,
+                    ),
+                fees:
+                    this.nonNegativeNumberOrNull(
+                        trade.fees,
+                    ),
+            },
+
+            provenance: {
+                metadataValid: true,
+                live: true,
+                product: 'SPOT',
+                semanticsValid,
+            },
+        };
+    }
+
+    private resolveTradeHistoryLifecycleState(
+        rawStatus: unknown,
+    ): SpotTradeLifecycleState {
+        const status =
+            String(rawStatus).toUpperCase();
+
+        if (
+            status ===
+            'LIVE_ENTRY_PENDING_RECONCILIATION'
+        ) {
+            return 'ENTRY_PENDING';
+        }
+
+        if (
+            status === 'LIVE_OPEN' ||
+            status === 'OPEN'
+        ) {
+            return 'OPEN';
+        }
+
+        if (
+            status ===
+            'LIVE_EXIT_PENDING_RECONCILIATION'
+        ) {
+            return 'EXIT_PENDING';
+        }
+
+        if (status === 'CLOSED') {
+            return 'CLOSED';
+        }
+
+        if (status === 'CANCELLED') {
+            return 'CANCELLED';
+        }
+
+        return 'UNKNOWN';
+    }
+
+    private resolveTradeHistoryExposureState(
+        semanticsValid: boolean,
+        lifecycleState: SpotTradeLifecycleState,
+        quantity: number | null,
+    ): SpotTradeHistoryExposureState {
+        if (!semanticsValid) {
+            return 'INVALID';
+        }
+
+        if (lifecycleState === 'CLOSED') {
+            return 'FLAT';
+        }
+
+        if (
+            lifecycleState === 'ENTRY_PENDING'
+        ) {
+            return (quantity ?? 0) > 0
+                ? 'LONG'
+                : 'NONE';
+        }
+
+        if (
+            lifecycleState === 'OPEN' ||
+            lifecycleState === 'EXIT_PENDING'
+        ) {
+            return (quantity ?? 0) > 0
+                ? 'LONG'
+                : 'UNKNOWN';
+        }
+
+        if (lifecycleState === 'CANCELLED') {
+            return (quantity ?? 0) === 0
+                ? 'NONE'
+                : 'UNKNOWN';
+        }
+
+        return 'UNKNOWN';
+    }
+
+    private resolveTradeHistoryExitOrderId(
+        metadata: Record<string, unknown>,
+        rawNotes: unknown,
+    ): number | null {
+        const metadataCandidates = [
+            metadata.exitOrderId,
+            metadata.lastTerminalExitOrderId,
+        ];
+
+        for (
+            const candidate
+            of metadataCandidates
+        ) {
+            const orderId =
+                this.positiveIntegerOrNull(
+                    candidate,
+                );
+
+            if (orderId !== null) {
+                return orderId;
+            }
+        }
+
+        const notes =
+            typeof rawNotes === 'string'
+                ? rawNotes
+                : '';
+
+        const match =
+            /^LIVE_EXIT(?:_[A-Z_]+)?:([0-9]+)(?::|$)/
+                .exec(notes);
+
+        if (!match) {
+            return null;
+        }
+
+        return this.positiveIntegerOrNull(
+            match[1],
+        );
+    }
+
+    private finiteNumberOrNull(
+        raw: unknown,
+    ): number | null {
+        const value = Number(raw);
+        return Number.isFinite(value)
+            ? value
+            : null;
+    }
+
+    private nonNegativeNumberOrNull(
+        raw: unknown,
+    ): number | null {
+        const value =
+            this.finiteNumberOrNull(raw);
+
+        return value !== null && value >= 0
+            ? value
+            : null;
+    }
+
+    private positiveNumberOrNull(
+        raw: unknown,
+    ): number | null {
+        const value =
+            this.finiteNumberOrNull(raw);
+
+        return value !== null && value > 0
+            ? value
+            : null;
+    }
+
+    private positiveIntegerOrNull(
+        raw: unknown,
+    ): number | null {
+        const value = Number(raw);
+
+        return (
+            Number.isInteger(value) &&
+            value > 0
+        )
+            ? value
+            : null;
+    }
+
+    private isoDateOrNull(
+        raw: unknown,
+    ): string | null {
+        if (
+            raw === null ||
+            raw === undefined ||
+            raw === ''
+        ) {
+            return null;
+        }
+
+        const date =
+            raw instanceof Date
+                ? raw
+                : new Date(String(raw));
+
+        return Number.isFinite(
+            date.getTime(),
+        )
+            ? date.toISOString()
+            : null;
     }
 
     private toExposureView(trade: any): LiveExposureView {

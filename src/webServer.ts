@@ -209,6 +209,63 @@ app.get('/api/trading/state', async (req: Request, res: Response) => {
     }
 });
 
+// WEB2-C1: canonical persisted live Spot lifecycle history.
+// Read-only. SELL in this projection is a LONG exit; it is never a Spot short.
+app.get('/api/trading/history', async (req: Request, res: Response) => {
+    try {
+        let limit = 50;
+        const rawLimit = req.query.limit;
+
+        if (rawLimit !== undefined) {
+            if (
+                typeof rawLimit !== 'string' ||
+                !/^[0-9]+$/.test(rawLimit)
+            ) {
+                res.status(400).json({
+                    error:
+                        'Invalid history limit: expected integer 1..200',
+                });
+                return;
+            }
+
+            limit = Number(rawLimit);
+
+            if (
+                !Number.isInteger(limit) ||
+                limit < 1 ||
+                limit > 200
+            ) {
+                res.status(400).json({
+                    error:
+                        'Invalid history limit: expected integer 1..200',
+                });
+                return;
+            }
+        }
+
+        res.json(
+            await tradingApplicationService
+                .getTradingHistory(limit),
+        );
+    } catch (error: any) {
+        const message =
+            error instanceof Error
+                ? error.message
+                : String(error);
+
+        withLogContext({
+            service: 'webServer',
+        }).error(
+            `Trading history API error: ${message}`,
+        );
+
+        res.status(500).json({
+            error:
+                'An internal server error occurred',
+        });
+    }
+});
+
 // WEB1-C2: canonical per-symbol Spot microstructure runtime status.
 // Read-only: this endpoint does not start/stop runtimes or mutate trading state.
 app.get('/api/trading/microstructure/:symbol', (req: Request, res: Response) => {

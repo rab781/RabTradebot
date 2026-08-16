@@ -48,6 +48,7 @@ function dependencies(
         database: {
             getOpenLiveTrades: async () => [],
             getPendingLiveTrades: async () => [],
+            getRecentLiveSpotTrades: async () => [],
         },
 
         microstructure: {

@@ -298,6 +298,99 @@ export class DatabaseService {
     }
 
     /**
+     * Return recent RealTradingEngine Spot lifecycle rows only.
+     *
+     * Provenance is established from persisted JSON metadata written by the
+     * production live engine:
+     *
+     *   tags.live === true
+     *   tags.product === 'SPOT'
+     *
+     * Status alone is deliberately insufficient because CLOSED can also be
+     * produced by paper/legacy flows.
+     *
+     * Filtering stays application-side after a generic tags-not-null query so
+     * SQLite/PostgreSQL do not need JSON-specific operators.
+     */
+    async getRecentLiveSpotTrades(limit: number = 50) {
+        if (
+            !Number.isInteger(limit) ||
+            limit < 1 ||
+            limit > 200
+        ) {
+            throw new Error(
+                'Invalid live Spot history limit: expected integer 1..200.',
+            );
+        }
+
+        const pageSize = Math.min(
+            200,
+            Math.max(50, limit * 2),
+        );
+
+        const results: any[] = [];
+        let skip = 0;
+
+        while (results.length < limit) {
+            const candidates =
+                await this.prisma.trade.findMany({
+                    where: {
+                        tags: {
+                            not: null,
+                        },
+                    },
+                    orderBy: {
+                        entryTime: 'desc',
+                    },
+                    take: pageSize,
+                    skip,
+                });
+
+            if (candidates.length === 0) {
+                break;
+            }
+
+            for (const trade of candidates) {
+                if (!trade.tags) {
+                    continue;
+                }
+
+                try {
+                    const metadata =
+                        JSON.parse(trade.tags);
+
+                    if (
+                        metadata !== null &&
+                        typeof metadata === 'object' &&
+                        !Array.isArray(metadata) &&
+                        metadata.live === true &&
+                        metadata.product === 'SPOT'
+                    ) {
+                        results.push(trade);
+
+                        if (
+                            results.length >= limit
+                        ) {
+                            break;
+                        }
+                    }
+                } catch {
+                    // Malformed metadata cannot prove live Spot provenance.
+                    // Fail closed by excluding the row from canonical history.
+                }
+            }
+
+            skip += candidates.length;
+
+            if (candidates.length < pageSize) {
+                break;
+            }
+        }
+
+        return results.slice(0, limit);
+    }
+
+    /**
      * Find a pending live trade by the persisted Binance order id.
      * Order ids are stored in JSON tags; filtering the small pending set in
      * application code keeps this compatible with both SQLite and PostgreSQL.

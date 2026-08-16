@@ -41,6 +41,7 @@ function makeDependencies(
         database: {
             getOpenLiveTrades: async () => [],
             getPendingLiveTrades: async () => [],
+            getRecentLiveSpotTrades: async () => [],
         },
 
         microstructure: {

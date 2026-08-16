@@ -47,6 +47,8 @@ function dependencies(
 
             getPendingLiveTrades: async () =>
                 options.pendingTrades ?? [],
+
+            getRecentLiveSpotTrades: async () => [],
         },
 
         microstructure: {
