@@ -209,6 +209,43 @@ app.get('/api/trading/state', async (req: Request, res: Response) => {
     }
 });
 
+// WEB1-C2: canonical per-symbol Spot microstructure runtime status.
+// Read-only: this endpoint does not start/stop runtimes or mutate trading state.
+app.get('/api/trading/microstructure/:symbol', (req: Request, res: Response) => {
+    try {
+        res.json(
+            tradingApplicationService.getMicrostructureState(
+                req.params.symbol,
+            ),
+        );
+    } catch (error: any) {
+        const message =
+            error instanceof Error
+                ? error.message
+                : String(error);
+
+        const invalidSymbol =
+            message.startsWith(
+                'Invalid Spot microstructure symbol:',
+            );
+
+        if (invalidSymbol) {
+            res.status(400).json({
+                error: message,
+            });
+            return;
+        }
+
+        withLogContext({ service: 'webServer' }).error(
+            `Microstructure state API error: ${message}`,
+        );
+
+        res.status(500).json({
+            error: 'An internal server error occurred',
+        });
+    }
+});
+
 // Health check
 app.get('/api/health', (req: Request, res: Response) => {
     res.json({

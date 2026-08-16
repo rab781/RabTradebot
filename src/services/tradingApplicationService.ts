@@ -4,6 +4,8 @@ import { db } from './databaseService';
 import { healthMonitor } from './healthMonitor';
 import { realTradingEngine } from './realTradingEngine';
 import { riskMonitorLoop } from './riskMonitorLoop';
+import { spotMicrostructureRuntimeRegistry } from './marketData/spotMicrostructureRuntimeService';
+import type { SpotMicrostructureEntryGate, SpotMicrostructureRuntimeStatus } from './marketData/spotMicrostructureRuntimeService';
 
 type ConnectionStatus = ReturnType<typeof connectionManager.getStatus>;
 type HealthSnapshot = ReturnType<typeof healthMonitor.getSnapshot>;
@@ -40,13 +42,13 @@ export interface TradingApplicationStatus {
         mutableControlsEnabled: false;
 
         /**
-         * Intentionally false until canonical live market/feature quality
-         * is wired into this shared application layer.
+         * The canonical permission is now exposed per symbol from the
+         * same Spot microstructure runtime used by live-entry gating.
          *
-         * coreExecutionGate === READY must NOT be interpreted as
-         * NEW ENTRY ALLOWED.
+         * This flag means "Web can read the canonical gate"; it is NOT
+         * itself a global permission to trade.
          */
-        newEntryPermissionExposed: false;
+        newEntryPermissionExposed: true;
     };
 }
 
@@ -77,6 +79,21 @@ export interface PendingReconciliationView {
     metadataValid: boolean;
 }
 
+export interface SpotMicrostructureRuntimeView {
+    symbol: string;
+    available: boolean;
+    runtimeState: string;
+    marketStatus: string | null;
+    depthStatus: string | null;
+    featureHealthy: boolean | null;
+    qualityReasons: string[];
+
+    newEntry: {
+        allowed: boolean;
+        blockers: string[];
+    };
+}
+
 export interface TradingReadState {
     generatedAt: string;
     product: 'SPOT';
@@ -95,10 +112,19 @@ export interface TradingReadState {
         pendingOrders: PendingReconciliationView[];
     };
 
+    microstructure: {
+        activeSymbols: string[];
+        runtimes: SpotMicrostructureRuntimeView[];
+    };
+
+    /**
+     * New-entry permission is intentionally not collapsed into one
+     * global boolean because the canonical gate is symbol-scoped.
+     */
     newEntryPermission: {
-        exposed: false;
+        exposed: true;
         allowed: null;
-        reason: 'MARKET_FEATURE_HEALTH_NOT_WIRED';
+        reason: 'PER_SYMBOL_MICROSTRUCTURE_GATE';
     };
 }
 
@@ -131,6 +157,20 @@ export interface TradingApplicationDependencies {
 
         getPendingLiveTrades(): Promise<any[]>;
     };
+
+    microstructure: {
+        getActiveSymbols(): string[];
+
+        getEntryGate(
+            symbol: string,
+            now?: number,
+        ): SpotMicrostructureEntryGate;
+
+        getStatus(
+            symbol: string,
+            now?: number,
+        ): SpotMicrostructureRuntimeStatus | undefined;
+    };
 }
 
 const defaultDependencies: TradingApplicationDependencies = {
@@ -140,6 +180,8 @@ const defaultDependencies: TradingApplicationDependencies = {
     connection: connectionManager,
     health: healthMonitor,
     database: db,
+    microstructure:
+        spotMicrostructureRuntimeRegistry,
 };
 
 export class TradingApplicationService {
@@ -190,7 +232,7 @@ export class TradingApplicationService {
             web: {
                 controlMode: 'READ_ONLY',
                 mutableControlsEnabled: false,
-                newEntryPermissionExposed: false,
+                newEntryPermissionExposed: true,
             },
         };
     }
@@ -220,6 +262,18 @@ export class TradingApplicationService {
             this.toPendingView(trade),
         );
 
+        const activeMicrostructureSymbols =
+            this.dependencies.microstructure
+                .getActiveSymbols();
+
+        const microstructureRuntimes =
+            activeMicrostructureSymbols.map(
+                (symbol) =>
+                    this.getMicrostructureState(
+                        symbol,
+                    ),
+            );
+
         return {
             generatedAt: new Date().toISOString(),
             product: 'SPOT',
@@ -241,10 +295,76 @@ export class TradingApplicationService {
                 pendingOrders,
             },
 
+            microstructure: {
+                activeSymbols:
+                    activeMicrostructureSymbols,
+                runtimes:
+                    microstructureRuntimes,
+            },
+
             newEntryPermission: {
-                exposed: false,
+                exposed: true,
                 allowed: null,
-                reason: 'MARKET_FEATURE_HEALTH_NOT_WIRED',
+                reason:
+                    'PER_SYMBOL_MICROSTRUCTURE_GATE',
+            },
+        };
+    }
+
+    getMicrostructureState(
+        rawSymbol: string,
+    ): SpotMicrostructureRuntimeView {
+        const gate =
+            this.dependencies.microstructure
+                .getEntryGate(rawSymbol);
+
+        const status =
+            this.dependencies.microstructure
+                .getStatus(gate.symbol);
+
+        return this.toMicrostructureView(
+            gate,
+            status,
+        );
+    }
+
+    private toMicrostructureView(
+        gate: SpotMicrostructureEntryGate,
+        status:
+            | SpotMicrostructureRuntimeStatus
+            | undefined,
+    ): SpotMicrostructureRuntimeView {
+        return {
+            symbol: gate.symbol,
+            available: status !== undefined,
+            runtimeState:
+                status?.state ??
+                'NOT_STARTED',
+            marketStatus:
+                status?.market?.status ??
+                null,
+            depthStatus:
+                status?.depth?.status ??
+                null,
+            featureHealthy:
+                status?.quality?.healthy ??
+                null,
+            qualityReasons:
+                status?.quality?.reasons
+                    ? [
+                        ...status
+                            .quality
+                            .reasons,
+                    ]
+                    : [],
+
+            // Do not recompute health thresholds here.
+            // This is the exact canonical gate used by live entry.
+            newEntry: {
+                allowed: gate.allowed,
+                blockers: [
+                    ...gate.blockers,
+                ],
             },
         };
     }

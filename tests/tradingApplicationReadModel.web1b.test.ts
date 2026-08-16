@@ -48,6 +48,18 @@ function dependencies(
             getPendingLiveTrades: async () =>
                 options.pendingTrades ?? [],
         },
+
+        microstructure: {
+            getActiveSymbols: () => [],
+            getEntryGate: ((symbol: string) => ({
+                symbol: symbol.toUpperCase(),
+                allowed: false,
+                blockers: [
+                    'MICROSTRUCTURE_RUNTIME_NOT_STARTED',
+                ],
+            })) as TradingApplicationDependencies['microstructure']['getEntryGate'],
+            getStatus: () => undefined,
+        },
     };
 }
 
@@ -253,7 +265,7 @@ describe('WEB1-B canonical live trading read model', () => {
         });
     });
 
-    test('does not expose NEW ENTRY permission before market/feature health is wired', async () => {
+    test('exposes NEW ENTRY capability as symbol-scoped without inventing a global permission', async () => {
         const service =
             new TradingApplicationService(
                 dependencies(),
@@ -262,12 +274,18 @@ describe('WEB1-B canonical live trading read model', () => {
         const state =
             await service.getTradingState();
 
+        expect(state.microstructure)
+            .toEqual({
+                activeSymbols: [],
+                runtimes: [],
+            });
+
         expect(state.newEntryPermission)
             .toEqual({
-                exposed: false,
+                exposed: true,
                 allowed: null,
                 reason:
-                    'MARKET_FEATURE_HEALTH_NOT_WIRED',
+                    'PER_SYMBOL_MICROSTRUCTURE_GATE',
             });
     });
 });
