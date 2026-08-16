@@ -6,7 +6,8 @@
   "scripts": {
     "start": "node dist/enhancedBot.js",
     "dev": "nodemon --exec ts-node src/enhancedBot.ts",
-    "build": "tsc",
+    "build": "npm run prisma:generate && tsc",
+    "prisma:generate": "prisma generate",
     "pm2:start": "npx pm2 start ecosystem.config.js --env production",
     "pm2:restart": "npx pm2 restart rabtradebot --update-env",
     "pm2:stop": "npx pm2 stop rabtradebot",
