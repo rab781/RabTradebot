@@ -310,32 +310,50 @@ describe('HealthMonitor Service', () => {
       const alertCallback = jest.fn();
       monitor.setAlertCallback(alertCallback);
 
-      await monitor.checkBotProcess();
-      const status = monitor.getComponentStatus('botProcess');
+      // Do not depend on the Jest worker's real heap usage. A full regression
+      // run can legitimately push the test process above the production
+      // threshold and make this unit test order/environment dependent.
+      const memoryUsageSpy = jest.spyOn(process, 'memoryUsage').mockReturnValue({
+        rss: 350 * 1024 * 1024,
+        heapTotal: 320 * 1024 * 1024,
+        heapUsed: 300 * 1024 * 1024,
+        external: 0,
+        arrayBuffers: 0,
+      });
 
-      expect(status?.status).toBe('ok');
-      expect(status?.details?.memory).toBeLessThan(500);
-      expect(alertCallback).not.toHaveBeenCalled();
+      try {
+        await monitor.checkBotProcess();
+        const status = monitor.getComponentStatus('botProcess');
+
+        expect(status?.status).toBe('ok');
+        expect(status?.details?.memory).toBeCloseTo(300, 6);
+        expect(alertCallback).not.toHaveBeenCalled();
+      } finally {
+        memoryUsageSpy.mockRestore();
+      }
     });
 
     it('should report degraded when memory usage is high', async () => {
       const alertCallback = jest.fn();
       monitor.setAlertCallback(alertCallback);
 
-      // Mock high memory usage
-      const originalMemory = process.memoryUsage;
-      (process as any).memoryUsage = () => ({
-        heapUsed: 700 * 1024 * 1024, // 700 MB
+      const memoryUsageSpy = jest.spyOn(process, 'memoryUsage').mockReturnValue({
+        rss: 750 * 1024 * 1024,
+        heapTotal: 720 * 1024 * 1024,
+        heapUsed: 700 * 1024 * 1024,
+        external: 0,
+        arrayBuffers: 0,
       });
 
-      await monitor.checkBotProcess();
-      const status = monitor.getComponentStatus('botProcess');
+      try {
+        await monitor.checkBotProcess();
+        const status = monitor.getComponentStatus('botProcess');
 
-      expect(status?.status).toBe('degraded');
-      expect(status?.details?.memory).toBeGreaterThan(500);
-
-      // Restore
-      (process as any).memoryUsage = originalMemory;
+        expect(status?.status).toBe('degraded');
+        expect(status?.details?.memory).toBeCloseTo(700, 6);
+      } finally {
+        memoryUsageSpy.mockRestore();
+      }
     });
   });
 

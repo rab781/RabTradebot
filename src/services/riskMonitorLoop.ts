@@ -239,12 +239,33 @@ export class RiskMonitorLoop {
     async start(): Promise<void> {
         if (this.isRunning) return;
         this.isRunning = true;
-        await this.tick();
+
+        // A transient REST failure on the first tick must not permanently disable
+        // monitoring. Keep the loop active and schedule subsequent retries; an
+        // existing LONG must remain risk-visible/manageable when connectivity
+        // recovers.
+        try {
+            await this.tick();
+        } catch (error) {
+            withLogContext({ service: 'riskMonitorLoop' }).error(
+                { err: error },
+                'Initial risk monitor tick failed; polling remains scheduled',
+            );
+        }
+
+        // stop() may have been called while the initial tick was in flight.
+        if (!this.isRunning) return;
+
         this.timer = setInterval(() => {
             this.tick().catch((error) => {
                 withLogContext({ service: 'riskMonitorLoop' }).error({ err: error }, 'Risk monitor tick error');
             });
         }, this.config.pollIntervalMs);
+
+        withLogContext({ service: 'riskMonitorLoop' }).info(
+            { pollIntervalMs: this.config.pollIntervalMs },
+            'Risk monitor polling scheduled',
+        );
     }
 
     stop(): void {

@@ -39,6 +39,7 @@ import { predictionVerifier } from './services/predictionVerifier';
 import { healthMonitor } from './services/healthMonitor';
 import { rateLimiter } from './services/rateLimiter';
 import { logger, withLogContext } from './utils/logger';
+import { TelegramRuntime, resolveBooleanEnv, resolveTelegramBotToken } from './services/telegramRuntime';
 
 // Web Dashboard
 import { startWebServer, stateManager } from './webServer';
@@ -48,10 +49,18 @@ import { getPrisma } from './services/databaseService';
 // Load environment variables
 config();
 
-// Initialize bot and existing services with extended timeout
-const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN!, {
+// DEV1-A: Telegram is an optional interface transport. Production compatibility is
+// preserved by defaulting TELEGRAM_ENABLED to true when the variable is undefined.
+const telegramEnabled = resolveBooleanEnv(process.env.TELEGRAM_ENABLED, true);
+const telegramBotToken = resolveTelegramBotToken(process.env.TELEGRAM_BOT_TOKEN, telegramEnabled);
+
+// Initialize bot and existing services with extended timeout. In disabled mode a
+// non-routable placeholder token is used only so command registration can remain
+// intact; polling and outbound notifications are guarded by TelegramRuntime.
+const bot = new Telegraf(telegramBotToken, {
   handlerTimeout: 600000, // 10 minutes timeout for long-running operations
 });
+const telegramRuntime = new TelegramRuntime(bot, telegramEnabled);
 const technicalAnalyzer = new TechnicalAnalyzer();
 const newsAnalyzer = new NewsAnalyzer(); // Keep for backwards compatibility
 const priceAlertManager = new PriceAlertManager();
@@ -325,10 +334,12 @@ function stopLiveTradingSession(session: {
 }
 
 const notifyByDbUserId = async (message: string, dbUserId?: number): Promise<void> => {
-  if (!dbUserId) return;
+  // DEV1-A: Telegram transport failure/disablement must never affect execution,
+  // reconciliation, or risk-management paths.
+  if (!telegramRuntime.canSend() || !dbUserId) return;
   const user = await db.getUserById(dbUserId);
   if (!user) return;
-  await bot.telegram.sendMessage(Number(user.telegramId), message);
+  await telegramRuntime.sendMessage(Number(user.telegramId), message);
 };
 
 realTradingEngine.setNotifier(async (message, dbUserId) => {
@@ -3415,7 +3426,7 @@ bot.command('subscribe', async (ctx) => {
       const emoji = action === 'BUY' ? '🟢' : '🔴';
       const confPct = (confidence * 100).toFixed(0);
       try {
-        await bot.telegram.sendMessage(
+        await telegramRuntime.sendMessage(
           ctx.chat.id,
           `${emoji} **AUTO-SIGNAL — ${sym}**\n\n` +
           `Action: **${action}**\n` +
@@ -4134,9 +4145,16 @@ bot.catch((err, ctx) => {
   ctx.reply('❌ An unexpected error occurred. Please try again later.');
 });
 
-// Launch bot
-withLogContext({ service: 'enhancedBot' }).info('Starting Telegram Bot');
-withLogContext({ service: 'enhancedBot' }).info('Bot initialization complete. Waiting for messages');
+// Runtime startup visibility
+withLogContext({ service: 'enhancedBot' }).info(
+  { telegramEnabled },
+  'Starting RabTradebot runtime',
+);
+if (telegramEnabled) {
+  withLogContext({ service: 'enhancedBot' }).info('Telegram interface enabled; polling will be started independently');
+} else {
+  withLogContext({ service: 'enhancedBot' }).warn('Telegram interface disabled; core runtime will continue without polling');
+}
 
 // Configure health monitor integrations.
 healthMonitor.setServices({
@@ -4161,9 +4179,12 @@ healthMonitor.setServices({
 });
 
 healthMonitor.setAlertCallback(async (message: string) => {
+  // DEV1-A: health alerts use the same guarded Telegram transport as live/risk
+  // notifications. Core health checks continue even when Telegram is unavailable.
+  if (!telegramRuntime.canSend()) return;
   const adminChat = process.env.ADMIN_CHAT_ID;
   if (!adminChat) return;
-  await bot.telegram.sendMessage(Number(adminChat), message);
+  await telegramRuntime.sendMessage(Number(adminChat), message);
 });
 
 // Start web server first
@@ -4208,68 +4229,93 @@ if (binanceOrderService.isConfigured()) {
   realTradingEngine.requireStartupRecovery();
 }
 
-bot
-  .launch({ dropPendingUpdates: true })
-  .then(async () => {
-    withLogContext({ service: 'enhancedBot' }).info('Bot started successfully');
-    withLogContext({ service: 'enhancedBot' }).info('Ready to receive commands');
-    withLogContext({ service: 'enhancedBot' }).info('Send /start to see available commands');
-    withLogContext({ service: 'enhancedBot' }).info('Prediction verification service active');
-
-    // B4.2-R: recover persisted live orders before normal risk actions resume.
-    if (binanceOrderService.isConfigured()) {
-      try {
-        const recovery = await realTradingEngine.reconcilePendingOrders();
-        if (recovery.failed === 0) {
-          realTradingEngine.markStartupRecoveryComplete();
-          withLogContext({ service: 'enhancedBot' }).info(
-            { recovery },
-            'Live Spot order reconciliation startup sweep complete; execution gate opened',
-          );
-        } else {
-          withLogContext({ service: 'enhancedBot' }).error(
-            { recovery },
-            'Live Spot startup reconciliation has unresolved failures; execution remains fail-closed',
-          );
-        }
-      } catch (error) {
-        withLogContext({ service: 'enhancedBot' }).error(
-          { err: error },
-          'Initial live Spot order reconciliation sweep failed',
-        );
-      }
-
-      try {
-        connectionManager.startUserDataStreamV2({
-          onExecutionReport: (data) => {
-            riskMonitorLoop.handleOrderExecutionReport(data).catch((error) => {
-              withLogContext({ service: 'enhancedBot', symbol: data.symbol }).error(
-                { err: error, orderId: data.orderId, status: data.status },
-                'WebSocket API execution reconciliation failed',
-              );
-            });
-          },
-        });
+// DEV1-A: core execution safety/recovery must not depend on Telegram polling.
+// This function intentionally owns B4.2-R recovery, user-data reconciliation,
+// and the risk monitor. Telegram launch is started separately below.
+async function startCoreRuntime(): Promise<void> {
+  // B4.2-R: recover persisted live orders before normal risk actions resume.
+  if (binanceOrderService.isConfigured()) {
+    try {
+      const recovery = await realTradingEngine.reconcilePendingOrders();
+      if (recovery.failed === 0) {
+        realTradingEngine.markStartupRecoveryComplete();
         withLogContext({ service: 'enhancedBot' }).info(
-          'Binance WebSocket API User Data Stream reconciliation active',
+          { recovery },
+          'Live Spot order reconciliation startup sweep complete; execution gate opened',
         );
-      } catch (error) {
-        // REST reconciliation sweep in RiskMonitorLoop remains the fail-safe.
+      } else {
         withLogContext({ service: 'enhancedBot' }).error(
-          { err: error },
-          'Failed to start modern Binance User Data Stream; REST reconciliation fallback remains active',
+          { recovery },
+          'Live Spot startup reconciliation has unresolved failures; execution remains fail-closed',
         );
       }
+    } catch (error) {
+      withLogContext({ service: 'enhancedBot' }).error(
+        { err: error },
+        'Initial live Spot order reconciliation sweep failed',
+      );
     }
 
-    riskMonitorLoop.start().catch((error) => {
-      withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start risk monitor loop');
-    });
-  })
-  .catch((error) => {
-    withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start bot');
-    process.exit(1);
+    try {
+      connectionManager.startUserDataStreamV2({
+        onExecutionReport: (data) => {
+          riskMonitorLoop.handleOrderExecutionReport(data).catch((error) => {
+            withLogContext({ service: 'enhancedBot', symbol: data.symbol }).error(
+              { err: error, orderId: data.orderId, status: data.status },
+              'WebSocket API execution reconciliation failed',
+            );
+          });
+        },
+      });
+      withLogContext({ service: 'enhancedBot' }).info(
+        'Binance WebSocket API User Data Stream reconciliation active',
+      );
+    } catch (error) {
+      // REST reconciliation sweep in RiskMonitorLoop remains the fail-safe.
+      withLogContext({ service: 'enhancedBot' }).error(
+        { err: error },
+        'Failed to start modern Binance User Data Stream; REST reconciliation fallback remains active',
+      );
+    }
+  }
+
+  riskMonitorLoop.start().catch((error) => {
+    withLogContext({ service: 'enhancedBot' }).error({ err: error }, 'Failed to start risk monitor loop');
   });
+}
+
+// Start the safety-critical/core runtime regardless of Telegram state.
+void startCoreRuntime();
+
+// DEV1-A: Telegram is an optional interface. A disabled transport skips getUpdates;
+// a polling conflict (including HTTP 409) is contained and leaves the core alive.
+void telegramRuntime.launch(
+  { dropPendingUpdates: true },
+  () => {
+    withLogContext({ service: 'enhancedBot' }).info('Telegram polling started successfully');
+    withLogContext({ service: 'enhancedBot' }).info('Ready to receive Telegram commands');
+    withLogContext({ service: 'enhancedBot' }).info('Send /start to see available commands');
+  },
+).then((result) => {
+  if (result.skipped) {
+    withLogContext({ service: 'enhancedBot' }).warn(
+      'Telegram transport disabled by TELEGRAM_ENABLED; polling and Telegram notifications skipped',
+    );
+    return;
+  }
+
+  if (result.error) {
+    withLogContext({ service: 'enhancedBot' }).error(
+      { err: result.error, hadStarted: result.started },
+      'Telegram polling failed; core Web/API/reconciliation/risk runtime remains active',
+    );
+    return;
+  }
+
+  if (result.started) {
+    withLogContext({ service: 'enhancedBot' }).warn('Telegram polling stopped; core runtime remains active');
+  }
+});
 
 // Enable graceful stop
 process.once('SIGINT', () => {
@@ -4282,7 +4328,7 @@ process.once('SIGINT', () => {
   riskMonitorLoop.stop();
   connectionManager.shutdown();
   predictionVerifier.stop();
-  bot.stop('SIGINT');
+  telegramRuntime.stop('SIGINT');
   db.disconnect();
   process.exit(0);
 });
@@ -4297,7 +4343,7 @@ process.once('SIGTERM', () => {
   riskMonitorLoop.stop();
   connectionManager.shutdown();
   predictionVerifier.stop();
-  bot.stop('SIGTERM');
+  telegramRuntime.stop('SIGTERM');
   db.disconnect();
   process.exit(0);
 });

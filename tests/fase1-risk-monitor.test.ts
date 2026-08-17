@@ -52,6 +52,48 @@ describe('F1: RiskMonitorLoop', () => {
         expect(executeExit).toHaveBeenCalledWith('t1', 'stop_loss_triggered');
     });
 
+    it('keeps polling active when the initial Binance price request fails transiently', async () => {
+        jest.useFakeTimers();
+
+        const executeExit = jest.fn().mockResolvedValue({});
+        const loop = new RiskMonitorLoop({ executeExit } as any, {
+            pollIntervalMs: 1000,
+            trailingStopPositive: 0.01,
+            circuitBreakerDrawdownPct: 0.5,
+        });
+
+        (db.getOpenLiveTrades as jest.Mock).mockResolvedValue([
+            {
+                id: 't-retry',
+                userId: 1,
+                symbol: 'BTCUSDT',
+                side: 'BUY',
+                entryPrice: 50000,
+                stopLoss: 49000,
+                takeProfit: 52000,
+            },
+        ]);
+        (binanceOrderService.getCurrentPrice as jest.Mock)
+            .mockRejectedValueOnce(new Error('read ECONNRESET'))
+            .mockResolvedValueOnce(50000);
+        (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
+            { asset: 'USDT', free: '1000', locked: '0' },
+        ]);
+
+        await expect(loop.start()).resolves.toBeUndefined();
+        expect(loop.isActive()).toBe(true);
+        expect(binanceOrderService.getCurrentPrice).toHaveBeenCalledTimes(1);
+
+        await jest.advanceTimersByTimeAsync(1000);
+
+        expect(binanceOrderService.getCurrentPrice).toHaveBeenCalledTimes(2);
+        expect(loop.isActive()).toBe(true);
+
+        loop.stop();
+        expect(loop.isActive()).toBe(false);
+        jest.useRealTimers();
+    });
+
     it('updates trailing stop when price moves favorably for long trade', async () => {
         const executeExit = jest.fn().mockResolvedValue({});
         const loop = new RiskMonitorLoop({ executeExit } as any, {
