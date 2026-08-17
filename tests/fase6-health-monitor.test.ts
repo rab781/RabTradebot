@@ -1,9 +1,12 @@
 import { HealthMonitor, HealthStatus } from '../src/services/healthMonitor';
+import { BinanceRestOperationalState } from '../src/services/binanceRestOperationalState';
 
 describe('HealthMonitor Service', () => {
   let monitor: HealthMonitor;
+  let restOperationalState: BinanceRestOperationalState;
 
   beforeEach(() => {
+    restOperationalState = new BinanceRestOperationalState();
     monitor = new HealthMonitor({
       binanceRestTimeoutMs: 5000,
       wsDisconnectWindow: 10000, // 10 seconds for testing
@@ -11,7 +14,7 @@ describe('HealthMonitor Service', () => {
       modelAccuracyMin: 0.5,
       drawdownThresholdPct: 10,
       minAccountBalance: 50,
-    });
+    }, restOperationalState);
   });
 
   describe('Initialization', () => {
@@ -105,6 +108,94 @@ describe('HealthMonitor Service', () => {
 
       expect(status?.status).toBe('degraded');
       expect(status?.message).toContain('not configured');
+    });
+
+    it('should not treat never-synced rate limiter data as healthy', async () => {
+      monitor.setServices({
+        rateLimiter: {
+          getSnapshot: () => ({
+            lastSyncTime: 0,
+            rest: { used: 0, capacity: 1200 },
+          }),
+        },
+      });
+
+      await monitor.checkBinanceRest();
+
+      expect(monitor.getComponentStatus('binanceRest')).toMatchObject({
+        status: 'degraded',
+        message: 'No successful Binance REST response observed yet',
+      });
+      expect(restOperationalState.getEntryGate()).toMatchObject({
+        allowed: false,
+        blockers: ['BINANCE_REST_HEALTH_UNKNOWN'],
+      });
+    });
+
+    it('should prefer an explicit public REST probe and mark operational health healthy', async () => {
+      monitor.setServices({
+        binanceRestProbe: {
+          checkPublicHealth: async () => ({
+            reachable: true,
+            latencyMs: 120,
+          }),
+        },
+      });
+
+      await monitor.checkBinanceRest();
+
+      expect(monitor.getComponentStatus('binanceRest')).toMatchObject({
+        status: 'ok',
+      });
+      expect(restOperationalState.getSnapshot()).toMatchObject({
+        status: 'HEALTHY',
+        latencyMs: 120,
+        source: 'PUBLIC_REST_PROBE',
+      });
+      expect(restOperationalState.getEntryGate().allowed).toBe(true);
+    });
+
+    it('should fail closed for NEW entry when the explicit probe is reachable but too slow', async () => {
+      monitor.setServices({
+        binanceRestProbe: {
+          checkPublicHealth: async () => ({
+            reachable: true,
+            latencyMs: 6000,
+          }),
+        },
+      });
+
+      await monitor.checkBinanceRest();
+
+      expect(monitor.getComponentStatus('binanceRest')).toMatchObject({
+        status: 'degraded',
+      });
+      expect(restOperationalState.getEntryGate()).toMatchObject({
+        allowed: false,
+        blockers: ['BINANCE_REST_DEGRADED'],
+      });
+    });
+
+    it('should mark REST unavailable when the explicit probe reports a transport failure', async () => {
+      monitor.setServices({
+        binanceRestProbe: {
+          checkPublicHealth: async () => ({
+            reachable: false,
+            latencyMs: 240,
+            error: 'read ECONNRESET',
+          }),
+        },
+      });
+
+      await monitor.checkBinanceRest();
+
+      expect(monitor.getComponentStatus('binanceRest')).toMatchObject({
+        status: 'down',
+      });
+      expect(restOperationalState.getEntryGate()).toMatchObject({
+        allowed: false,
+        blockers: ['BINANCE_REST_UNAVAILABLE'],
+      });
     });
   });
 

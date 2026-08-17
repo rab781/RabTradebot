@@ -41,6 +41,12 @@ export interface BinanceBalance {
     locked: string;
 }
 
+export interface BinanceRestHealthProbeResult {
+    reachable: boolean;
+    latencyMs: number;
+    error?: string;
+}
+
 export type SymbolTradeRules = LegacySpotMarketTradeRules;
 
 type RateLimitBucket = 'rest' | 'order';
@@ -80,6 +86,36 @@ export class BinanceOrderService {
 
     getRateLimiterSnapshot(): RateLimiterSnapshot {
         return rateLimiter.getSnapshot();
+    }
+
+    /**
+     * DEV1-B read-only reachability probe using the exact same Spot base URL,
+     * proxy configuration, timeout, and rate-limiter path as live execution.
+     * This method never submits or mutates an exchange order.
+     */
+    async checkPublicHealth(): Promise<BinanceRestHealthProbeResult> {
+        const startedAt = Date.now();
+
+        try {
+            await this.publicRequest<Record<string, never>>(
+                '/api/v3/ping',
+                undefined,
+                1,
+            );
+
+            return {
+                reachable: true,
+                latencyMs: Date.now() - startedAt,
+            };
+        } catch (error) {
+            return {
+                reachable: false,
+                latencyMs: Date.now() - startedAt,
+                error: error instanceof Error
+                    ? error.message
+                    : String(error),
+            };
+        }
     }
 
     roundToStepSize(quantity: number, stepSize: number): number {

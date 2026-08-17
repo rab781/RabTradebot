@@ -26,6 +26,7 @@ import { realTradingEngine, RiskParams } from './services/realTradingEngine';
 import { riskMonitorLoop } from './services/riskMonitorLoop';
 import { connectionManager } from './services/connectionManager';
 import { spotMicrostructureRuntimeRegistry } from './services/marketData/spotMicrostructureRuntimeService';
+import { spotLiveEntryGateService } from './services/spotLiveEntryGateService';
 import { OHLCVCandle } from './types/dataframe';
 
 import { ImageChartService } from './services/imageChartService';
@@ -364,23 +365,24 @@ async function executeLiveSignal(userDbId: number, symbol: string, strategyToUse
     return;
   }
 
-  // WEB1-C1 permanent safety invariant:
-  // unhealthy/unavailable canonical market + depth + feature input
-  // => NO NEW SPOT TRADE.
-  const microstructureGate =
-    spotMicrostructureRuntimeRegistry.getEntryGate(symbol);
+  // WEB1-C1 + DEV1-B permanent safety invariant:
+  // NEW Spot entry requires both healthy symbol-scoped microstructure and
+  // fresh Binance REST operational readiness. Existing LONG management is
+  // intentionally not blocked by this NEW-entry gate.
+  const liveEntryGate =
+    spotLiveEntryGateService.getEntryGate(symbol);
 
-  if (!microstructureGate.allowed) {
+  if (!liveEntryGate.allowed) {
     await db.logError({
       level: 'WARN',
       source: 'executeLiveSignal',
       message:
-        `WEB1-C1 blocked new Spot entry for ${symbol}; canonical microstructure input is unhealthy/unavailable`,
+        `Canonical Spot live-entry gate blocked new entry for ${symbol}`,
       userId: userDbId,
       symbol,
       metadata: {
-        blockers: microstructureGate.blockers,
-        quality: microstructureGate.quality,
+        blockers: liveEntryGate.blockers,
+        quality: liveEntryGate.quality,
       },
     });
     return;
@@ -926,6 +928,13 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
       try {
         await spotMicrostructureRuntimeRegistry.acquireHealthy(symbol);
         microstructureRuntimeAcquired = true;
+
+        const liveEntryGate = spotLiveEntryGateService.getEntryGate(symbol);
+        if (!liveEntryGate.allowed) {
+          throw new Error(
+            `Canonical Spot live-entry gate blocked ${symbol}: ${liveEntryGate.blockers.join(', ')}`,
+          );
+        }
 
         await riskMonitorLoop.start();
 
@@ -3590,6 +3599,13 @@ bot.command('livetrade', async (ctx) => {
     await spotMicrostructureRuntimeRegistry.acquireHealthy(symbol);
     microstructureRuntimeAcquired = true;
 
+    const liveEntryGate = spotLiveEntryGateService.getEntryGate(symbol);
+    if (!liveEntryGate.allowed) {
+      throw new Error(
+        `Canonical Spot live-entry gate blocked ${symbol}: ${liveEntryGate.blockers.join(', ')}`,
+      );
+    }
+
     await riskMonitorLoop.start();
 
     session.liveTrading = {
@@ -4159,6 +4175,7 @@ if (telegramEnabled) {
 // Configure health monitor integrations.
 healthMonitor.setServices({
   rateLimiter,
+  binanceRestProbe: binanceOrderService,
   wsService: {
     isHealthy: () => connectionManager.getActiveStreamCount() > 0,
     getStreamCount: () => connectionManager.getActiveStreamCount(),
@@ -4187,6 +4204,34 @@ healthMonitor.setAlertCallback(async (message: string) => {
   await telegramRuntime.sendMessage(Number(adminChat), message);
 });
 
+// DEV1-B: keep Binance REST operational truth fresh independently from the
+// slower full health cycle. NEW live entry remains fail-closed while this probe
+// is UNKNOWN, stale, or UNAVAILABLE; existing LONG management is not disabled.
+const configuredRestHealthIntervalMs = Number(
+  process.env.BINANCE_REST_HEALTH_INTERVAL_MS ?? '30000',
+);
+const binanceRestHealthIntervalMs =
+  Number.isFinite(configuredRestHealthIntervalMs) &&
+  configuredRestHealthIntervalMs >= 5000
+    ? configuredRestHealthIntervalMs
+    : 30000;
+
+const refreshBinanceRestHealth = async (): Promise<void> => {
+  try {
+    await healthMonitor.checkBinanceRest();
+  } catch (error) {
+    withLogContext({ service: 'enhancedBot' }).error(
+      { err: error },
+      'Binance REST operational health refresh failed',
+    );
+  }
+};
+
+void refreshBinanceRestHealth();
+const binanceRestHealthTimer = setInterval(() => {
+  void refreshBinanceRestHealth();
+}, binanceRestHealthIntervalMs);
+
 // Start web server first
 startWebServer();
 
@@ -4210,7 +4255,6 @@ setInterval(async () => {
       // keep previous value if no prediction stats yet
     }
 
-    await healthMonitor.checkBinanceRest();
     await healthMonitor.checkWebSocketHealth();
     await healthMonitor.checkModelAccuracy();
     if (binanceOrderService.isConfigured()) {
@@ -4328,6 +4372,7 @@ process.once('SIGINT', () => {
   riskMonitorLoop.stop();
   connectionManager.shutdown();
   predictionVerifier.stop();
+  clearInterval(binanceRestHealthTimer);
   telegramRuntime.stop('SIGINT');
   db.disconnect();
   process.exit(0);
@@ -4343,6 +4388,7 @@ process.once('SIGTERM', () => {
   riskMonitorLoop.stop();
   connectionManager.shutdown();
   predictionVerifier.stop();
+  clearInterval(binanceRestHealthTimer);
   telegramRuntime.stop('SIGTERM');
   db.disconnect();
   process.exit(0);

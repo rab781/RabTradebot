@@ -101,6 +101,41 @@ describe('F6: BinanceOrderService', () => {
         });
     });
 
+    // ─── DEV1-B REST Operational Probe ────────────────────────────────────────
+
+    describe('DEV1-B REST Operational Probe', () => {
+        it('should probe the same testnet base URL used by live execution', async () => {
+            (mockAxios as any).request.mockResolvedValueOnce({
+                data: {},
+                headers: { 'x-mbx-used-weight-1m': '1' },
+            });
+
+            const health = await service.checkPublicHealth();
+
+            expect(health.reachable).toBe(true);
+            expect(health.latencyMs).toBeGreaterThanOrEqual(0);
+            expect((mockAxios as any).request).toHaveBeenCalledWith(
+                expect.objectContaining({
+                    method: 'GET',
+                    url: 'https://testnet.binance.vision/api/v3/ping',
+                }),
+            );
+        });
+
+        it('should contain transport failure as an unavailable health result', async () => {
+            (mockAxios as any).request.mockRejectedValueOnce({
+                message: 'read ECONNRESET',
+                code: 'ECONNRESET',
+                isAxiosError: true,
+            });
+
+            const health = await service.checkPublicHealth();
+
+            expect(health.reachable).toBe(false);
+            expect(health.error).toMatch(/ECONNRESET/i);
+        });
+    });
+
     // ─── Rate Limiter Integration ──────────────────────────────────────────────
 
     describe('Rate Limiter Integration', () => {

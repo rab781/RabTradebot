@@ -116,4 +116,35 @@ describe('WEB1-A TradingApplicationService', () => {
         expect(status.execution.blockers).toEqual([]);
         expect(status.web.newEntryPermissionExposed).toBe(true);
     });
+
+    test('exposes Binance REST operational prerequisite without redefining coreExecutionGate as global entry permission', () => {
+        const service = new TradingApplicationService(
+            makeDependencies({
+                restOperational: {
+                    getSnapshot: () => ({
+                        status: 'UNAVAILABLE',
+                        checkedAt: 1000,
+                        lastSuccessAt: null,
+                        lastFailureAt: 1000,
+                        latencyMs: 250,
+                        error: 'read ECONNRESET',
+                        source: 'PUBLIC_REST_PROBE',
+                    }),
+                    getEntryGate: () => ({
+                        allowed: false,
+                        blockers: ['BINANCE_REST_UNAVAILABLE'],
+                    }),
+                },
+            }),
+        );
+
+        const status = service.getStatus();
+
+        expect(status.execution.coreExecutionGate).toBe('READY');
+        expect(status.transport.binanceRest).toMatchObject({
+            status: 'UNAVAILABLE',
+            newEntryReady: false,
+            blockers: ['BINANCE_REST_UNAVAILABLE'],
+        });
+    });
 });

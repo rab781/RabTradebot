@@ -10,6 +10,10 @@ import {
     resolveTradeProductFromMetadata,
 } from './execution/liveExecutionSemantics';
 import { spotOnlyExecutionRouter } from './execution/spotOnlyExecutionRouter';
+import {
+    binanceRestOperationalState,
+    BinanceRestOperationalStatePort,
+} from './binanceRestOperationalState';
 
 export interface RiskParams {
     riskPerTrade: number;     // 0.01 = 1%
@@ -57,6 +61,7 @@ export class RealTradingEngine {
     constructor(
         notifier?: LiveNotifier,
         private readonly executionRouter: Pick<ExecutionRouter, 'executeMarket'> = spotOnlyExecutionRouter,
+        private readonly entryOperationalState?: Pick<BinanceRestOperationalStatePort, 'getEntryGate'>,
     ) {
         this.notifier = notifier;
     }
@@ -107,6 +112,11 @@ export class RealTradingEngine {
         if (!position) {
             throw new Error('Signal is HOLD, no entry executed');
         }
+
+        // DEV1-B: NEW entries fail closed when Binance REST operational health is
+        // unknown, stale, or unavailable. Existing LONG exits deliberately do
+        // not consult this gate so they can keep retrying as connectivity recovers.
+        this.assertNewEntryOperationalReady();
 
         if (!binanceOrderService.isConfigured()) {
             throw new Error('Binance API key/secret belum diset');
@@ -946,6 +956,30 @@ export class RealTradingEngine {
         }
     }
 
+    private assertNewEntryOperationalReady(): void {
+        if (!this.entryOperationalState) {
+            return;
+        }
+
+        const configuredTtl = Number(
+            process.env.BINANCE_REST_ENTRY_HEALTH_TTL_MS ?? '60000',
+        );
+        const healthyTtlMs = Number.isFinite(configuredTtl) && configuredTtl >= 5_000
+            ? configuredTtl
+            : 60_000;
+
+        const gate = this.entryOperationalState.getEntryGate(
+            Date.now(),
+            healthyTtlMs,
+        );
+
+        if (!gate.allowed) {
+            throw new InvalidExecutionCommandError(
+                `Live Spot NEW entry blocked by Binance REST operational gate: ${gate.blockers.join(', ')}`,
+            );
+        }
+    }
+
     private resolveUsdtSpotInstrument(symbol: string): TradingInstrument {
         const normalized = symbol.trim().toUpperCase();
         if (!normalized.endsWith('USDT') || normalized.length <= 4) {
@@ -1050,4 +1084,8 @@ export class RealTradingEngine {
     }
 }
 
-export const realTradingEngine = new RealTradingEngine();
+export const realTradingEngine = new RealTradingEngine(
+    undefined,
+    spotOnlyExecutionRouter,
+    binanceRestOperationalState,
+);

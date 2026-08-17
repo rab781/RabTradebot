@@ -9,6 +9,10 @@
 
 import { performance } from 'perf_hooks';
 import { withLogContext } from '../utils/logger';
+import {
+  binanceRestOperationalState,
+  BinanceRestOperationalStatePort,
+} from './binanceRestOperationalState';
 
 // ─── Types ─────────────────────────────────────────────────────────────────────
 
@@ -69,11 +73,22 @@ export class HealthMonitor {
 
   // Optional external service references
   private rateLimiter?: any;
+  private binanceRestProbe?: {
+    checkPublicHealth(): Promise<{
+      reachable: boolean;
+      latencyMs: number;
+      error?: string;
+    }>;
+  };
   private wsService?: any;
   private tradingEngine?: any;
   private mlModel?: any;
 
-  constructor(thresholds?: Partial<HealthThresholds>) {
+  constructor(
+    thresholds?: Partial<HealthThresholds>,
+    private readonly restOperationalState: BinanceRestOperationalStatePort =
+      binanceRestOperationalState,
+  ) {
     this.thresholds = {
       binanceRestTimeoutMs: 5000,
       wsDisconnectWindow: 10 * 60 * 1000, // 10 minutes
@@ -114,14 +129,32 @@ export class HealthMonitor {
   /** Register external services for health checks */
   setServices(opts: {
     rateLimiter?: any;
+    binanceRestProbe?: {
+      checkPublicHealth(): Promise<{
+        reachable: boolean;
+        latencyMs: number;
+        error?: string;
+      }>;
+    };
     wsService?: any;
     tradingEngine?: any;
     mlModel?: any;
   }): void {
-    this.rateLimiter = opts.rateLimiter;
-    this.wsService = opts.wsService;
-    this.tradingEngine = opts.tradingEngine;
-    this.mlModel = opts.mlModel;
+    if (Object.prototype.hasOwnProperty.call(opts, 'rateLimiter')) {
+      this.rateLimiter = opts.rateLimiter;
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'binanceRestProbe')) {
+      this.binanceRestProbe = opts.binanceRestProbe;
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'wsService')) {
+      this.wsService = opts.wsService;
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'tradingEngine')) {
+      this.tradingEngine = opts.tradingEngine;
+    }
+    if (Object.prototype.hasOwnProperty.call(opts, 'mlModel')) {
+      this.mlModel = opts.mlModel;
+    }
   }
 
   /** Register alert callback (e.g., Telegram sender) */
@@ -131,39 +164,139 @@ export class HealthMonitor {
 
   // ─── Health Check Methods ─────────────────────────────────────────────────
 
-  /** Check Binance REST API health via rate limiter snapshot */
+  /**
+   * Check Binance REST API health.
+   *
+   * Production prefers an explicit public REST probe so transport failures such
+   * as ECONNRESET are reflected immediately. Rate-limiter header timestamps are
+   * retained only as a fallback for tests/legacy integrations.
+   */
   async checkBinanceRest(): Promise<void> {
     const component: HealthComponent = 'binanceRest';
     const now = Date.now();
 
     try {
+      if (this.binanceRestProbe) {
+        const probe = await this.binanceRestProbe.checkPublicHealth();
+
+        if (!probe.reachable) {
+          this.restOperationalState.markUnavailable({
+            checkedAt: now,
+            latencyMs: probe.latencyMs,
+            error: probe.error ?? 'Binance public REST probe failed',
+            source: 'PUBLIC_REST_PROBE',
+          });
+
+          this.setComponentStatus(
+            component,
+            'down',
+            `Binance public REST unreachable: ${probe.error ?? 'unknown transport error'}`,
+            {
+              reachable: false,
+              latencyMs: probe.latencyMs,
+              error: probe.error,
+            },
+          );
+          return;
+        }
+
+        if (probe.latencyMs <= this.thresholds.binanceRestTimeoutMs) {
+          this.restOperationalState.markHealthy({
+            checkedAt: now,
+            latencyMs: probe.latencyMs,
+            source: 'PUBLIC_REST_PROBE',
+          });
+          this.setComponentStatus(component, 'ok', 'API responding normally', {
+            reachable: true,
+            latencyMs: probe.latencyMs,
+          });
+        } else {
+          this.restOperationalState.markDegraded({
+            checkedAt: now,
+            latencyMs: probe.latencyMs,
+            error: `REST latency ${probe.latencyMs}ms exceeds ${this.thresholds.binanceRestTimeoutMs}ms`,
+            source: 'PUBLIC_REST_PROBE',
+          });
+          this.setComponentStatus(
+            component,
+            'degraded',
+            `API reachable but slow (${probe.latencyMs}ms)`,
+            {
+              reachable: true,
+              latencyMs: probe.latencyMs,
+              thresholdMs: this.thresholds.binanceRestTimeoutMs,
+            },
+          );
+        }
+        return;
+      }
+
       if (!this.rateLimiter) {
+        this.restOperationalState.markUnknown({
+          checkedAt: now,
+          error: 'Rate limiter not configured and no direct REST probe available',
+          source: 'RATE_LIMITER_FALLBACK',
+        });
         this.setComponentStatus(component, 'degraded', 'Rate limiter not configured', { reason: 'no_service' });
         return;
       }
 
-      // Get rate limiter snapshot to check if API is reachable
       const snapshot = this.rateLimiter.getSnapshot?.();
       if (!snapshot) {
+        this.restOperationalState.markUnknown({
+          checkedAt: now,
+          error: 'No rate limiter data available',
+          source: 'RATE_LIMITER_FALLBACK',
+        });
         this.setComponentStatus(component, 'degraded', 'No rate limiter data available', { reason: 'no_snapshot' });
         return;
       }
 
-      // If limiter has recent updates from API, REST API is healthy
-      const lastSyncAge = now - (snapshot.lastSyncTime || now);
+      const lastSyncTime = Number(snapshot.lastSyncTime);
+      if (!Number.isFinite(lastSyncTime) || lastSyncTime <= 0) {
+        this.restOperationalState.markUnknown({
+          checkedAt: now,
+          error: 'No successful Binance REST response observed yet',
+          source: 'RATE_LIMITER_FALLBACK',
+        });
+        this.setComponentStatus(
+          component,
+          'degraded',
+          'No successful Binance REST response observed yet',
+          { reason: 'never_synced' },
+        );
+        return;
+      }
+
+      const lastSyncAge = Math.max(0, now - lastSyncTime);
       if (lastSyncAge < this.thresholds.binanceRestTimeoutMs) {
+        this.restOperationalState.markHealthy({
+          checkedAt: lastSyncTime,
+          source: 'RATE_LIMITER_HEADERS',
+        });
         this.setComponentStatus(component, 'ok', 'API responding normally', {
           lastSync: lastSyncAge,
           restUsed: snapshot.rest?.used,
           restCapacity: snapshot.rest?.capacity,
         });
       } else {
+        this.restOperationalState.markUnknown({
+          checkedAt: now,
+          error: `Last successful Binance REST header sync is ${lastSyncAge}ms old`,
+          source: 'RATE_LIMITER_FALLBACK',
+        });
         this.setComponentStatus(component, 'degraded', `No API updates for ${lastSyncAge}ms`, {
           lastSync: lastSyncAge,
         });
       }
     } catch (error) {
-      this.setComponentStatus(component, 'down', `Health check failed: ${error}`, { error });
+      const message = error instanceof Error ? error.message : String(error);
+      this.restOperationalState.markUnavailable({
+        checkedAt: now,
+        error: message,
+        source: 'HEALTH_CHECK_EXCEPTION',
+      });
+      this.setComponentStatus(component, 'down', `Health check failed: ${message}`, { error });
     }
   }
 

@@ -5,6 +5,11 @@ import { healthMonitor } from './healthMonitor';
 import { realTradingEngine } from './realTradingEngine';
 import { riskMonitorLoop } from './riskMonitorLoop';
 import { spotMicrostructureRuntimeRegistry } from './marketData/spotMicrostructureRuntimeService';
+import { spotLiveEntryGateService } from './spotLiveEntryGateService';
+import {
+    binanceRestOperationalState,
+    BinanceRestOperationalSnapshot,
+} from './binanceRestOperationalState';
 import type { SpotMicrostructureEntryGate, SpotMicrostructureRuntimeStatus } from './marketData/spotMicrostructureRuntimeService';
 
 type ConnectionStatus = ReturnType<typeof connectionManager.getStatus>;
@@ -33,6 +38,10 @@ export interface TradingApplicationStatus {
 
     transport: {
         webSocket: ConnectionStatus;
+        binanceRest: BinanceRestOperationalSnapshot & {
+            newEntryReady: boolean;
+            blockers: string[];
+        };
     };
 
     health: HealthSnapshot;
@@ -213,6 +222,17 @@ export interface TradingApplicationDependencies {
         getSnapshot(): HealthSnapshot;
     };
 
+    restOperational?: {
+        getSnapshot(): BinanceRestOperationalSnapshot;
+        getEntryGate(
+            now?: number,
+            maxHealthyAgeMs?: number,
+        ): {
+            allowed: boolean;
+            blockers: string[];
+        };
+    };
+
     database: {
         getOpenLiveTrades(
             userId?: number,
@@ -247,9 +267,16 @@ const defaultDependencies: TradingApplicationDependencies = {
     riskMonitor: riskMonitorLoop,
     connection: connectionManager,
     health: healthMonitor,
+    restOperational: binanceRestOperationalState,
     database: db,
-    microstructure:
-        spotMicrostructureRuntimeRegistry,
+    microstructure: {
+        getActiveSymbols: () =>
+            spotMicrostructureRuntimeRegistry.getActiveSymbols(),
+        getEntryGate: (symbol: string, now?: number) =>
+            spotLiveEntryGateService.getEntryGate(symbol, now),
+        getStatus: (symbol: string, now?: number) =>
+            spotMicrostructureRuntimeRegistry.getStatus(symbol, now),
+    },
 };
 
 export class TradingApplicationService {
@@ -261,6 +288,17 @@ export class TradingApplicationService {
         const binanceConfigured = this.dependencies.orderService.isConfigured();
         const startupRecoveryReady =
             this.dependencies.executionEngine.isStartupRecoveryReady();
+
+        const restOperational =
+            this.dependencies.restOperational ??
+            binanceRestOperationalState;
+        const restSnapshot =
+            restOperational.getSnapshot();
+        const restEntryGate =
+            restOperational.getEntryGate(
+                Date.now(),
+                this.getRestHealthyTtlMs(),
+            );
 
         const blockers: string[] = [];
 
@@ -293,6 +331,13 @@ export class TradingApplicationService {
 
             transport: {
                 webSocket: this.dependencies.connection.getStatus(),
+                binanceRest: {
+                    ...restSnapshot,
+                    newEntryReady: restEntryGate.allowed,
+                    blockers: [
+                        ...restEntryGate.blockers,
+                    ],
+                },
             },
 
             health: this.dependencies.health.getSnapshot(),
@@ -303,6 +348,18 @@ export class TradingApplicationService {
                 newEntryPermissionExposed: true,
             },
         };
+    }
+
+    private getRestHealthyTtlMs(): number {
+        const raw = Number(
+            process.env
+                .BINANCE_REST_ENTRY_HEALTH_TTL_MS ??
+                '60000',
+        );
+
+        return Number.isFinite(raw) && raw >= 5_000
+            ? raw
+            : 60_000;
     }
 
     async getTradingState(): Promise<TradingReadState> {
