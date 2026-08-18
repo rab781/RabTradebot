@@ -528,11 +528,16 @@ export class FeatureEngineeringService {
         let kurtosis = 0;
 
         if (stdDev !== 0) {
+            const stdDev2 = stdDev * stdDev;
+            const stdDev3 = stdDev2 * stdDev;
+            const stdDev4 = stdDev2 * stdDev2;
+
             if (n > 2) {
-                skewness = (n / ((n - 1) * (n - 2))) * (sumCubedDiff / Math.pow(stdDev, 3));
+                skewness = (n / ((n - 1) * (n - 2))) * (sumCubedDiff / stdDev3);
             }
             if (n > 3) {
-                kurtosis = (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * (sumQuartDiff / Math.pow(stdDev, 4)) - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
+                const nMinus1 = n - 1;
+                kurtosis = (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * (sumQuartDiff / stdDev4) - (3 * nMinus1 * nMinus1) / ((n - 2) * (n - 3));
             }
         }
 
@@ -552,7 +557,8 @@ export class FeatureEngineeringService {
         }
 
         for (let i = startIndex; i < end; i++) {
-            denominator += Math.pow(values[i] - mean, 2);
+            const diff = values[i] - mean;
+            denominator += diff * diff;
         }
 
         return denominator !== 0 ? numerator / denominator : 0;
@@ -595,7 +601,8 @@ export class FeatureEngineeringService {
 
         let sumSquaredDiff = 0;
         for (let i = startIndex; i < end; i++) {
-            sumSquaredDiff += Math.pow(values[i] - mean, 2);
+            const diff = values[i] - mean;
+            sumSquaredDiff += diff * diff;
         }
 
         const variance = sumSquaredDiff / n;
@@ -617,7 +624,8 @@ export class FeatureEngineeringService {
 
         let acc = 0;
         for (let i = startIndex; i < end; i++) {
-            acc += Math.pow((values[i] - mean) / stdDev, 3);
+            const norm = (values[i] - mean) / stdDev;
+            acc += norm * norm * norm;
         }
         return (n / ((n - 1) * (n - 2))) * acc;
     }
@@ -637,9 +645,12 @@ export class FeatureEngineeringService {
 
         let acc = 0;
         for (let i = startIndex; i < end; i++) {
-            acc += Math.pow((values[i] - mean) / stdDev, 4);
+            const norm = (values[i] - mean) / stdDev;
+            const normSq = norm * norm;
+            acc += normSq * normSq;
         }
-        return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * acc - (3 * Math.pow(n - 1, 2)) / ((n - 2) * (n - 3));
+        const nMinus1 = n - 1;
+        return (n * (n + 1) / ((n - 1) * (n - 2) * (n - 3))) * acc - (3 * nMinus1 * nMinus1) / ((n - 2) * (n - 3));
     }
 
     private calculateAutocorrelation(values: number[], lag: number, startIndex: number = 0, length?: number): number {
@@ -659,7 +670,8 @@ export class FeatureEngineeringService {
         }
 
         for (let i = startIndex; i < end; i++) {
-            denominator += Math.pow(values[i] - mean, 2);
+            const diff = values[i] - mean;
+            denominator += diff * diff;
         }
 
         return denominator !== 0 ? numerator / denominator : 0;
