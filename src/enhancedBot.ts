@@ -559,7 +559,7 @@ bot.action('coin:prompt', async (ctx) => {
 bot.action(/^run:(.+)$/, async (ctx) => {
   const adminChat = process.env.ADMIN_CHAT_ID;
   const requesterChat = String(ctx.chat?.id || '');
-  const sensitiveActions = ['orders', 'liveportfolio', 'livestart', 'livestart_confirm', 'livestop'];
+  const sensitiveActions = ['orders', 'liveportfolio', 'livestart', 'livestart_confirm', 'livestop', 'livetrade', 'cancelorder'];
   if (sensitiveActions.includes(ctx.match![1])) {
     if (!adminChat || requesterChat !== adminChat) {
       await ctx.answerCbQuery('❌ Unauthorized. Aksi ini khusus admin.', { show_alert: true });
