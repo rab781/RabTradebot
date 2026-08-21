@@ -2155,6 +2155,12 @@ ${quality.issues.length > 0 ? `\n⚠️ ISSUES:\n${quality.issues.slice(0, 3).jo
 
 // Strategies list command
 bot.command('strategies', (ctx) => {
+  // 🛡️ Sentinel: Enforce admin authorization to prevent strategy information disclosure
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
   const message = `
 📚 AVAILABLE TRADING STRATEGIES
 
@@ -2596,6 +2602,12 @@ Stability: ✅ Fast & reliable
 
 // Update strategies command to include OpenClaw
 bot.command('strategies', (ctx) => {
+  // 🛡️ Sentinel: Enforce admin authorization to prevent strategy information disclosure
+  const adminChat = process.env.ADMIN_CHAT_ID;
+  const requesterChat = String(ctx.chat?.id || '');
+  if (!adminChat || requesterChat !== adminChat) {
+    return ctx.reply('❌ Unauthorized. Command ini khusus admin.');
+  }
   const message = `
 📚 AVAILABLE TRADING STRATEGIES
 
