@@ -273,32 +273,27 @@ export class TradingViewService {
             }
         });
 
-        interface BinanceKlineData {
-            date: Date;
-            open: number;
-            high: number;
-            low: number;
-            close: number;
-            volume: number;
+        // ⚡ Bolt Optimization: Replace multiple O(N) .map() calls with a single-pass pre-allocated loop
+        const klines = response.data;
+        const len = klines.length;
+        const date = new Array<Date>(len);
+        const open = new Array<number>(len);
+        const high = new Array<number>(len);
+        const low = new Array<number>(len);
+        const close = new Array<number>(len);
+        const volume = new Array<number>(len);
+
+        for (let i = 0; i < len; i++) {
+            const kline = klines[i];
+            date[i] = new Date(kline[0]);
+            open[i] = parseFloat(kline[1]);
+            high[i] = parseFloat(kline[2]);
+            low[i] = parseFloat(kline[3]);
+            close[i] = parseFloat(kline[4]);
+            volume[i] = parseFloat(kline[5]);
         }
 
-        const data: BinanceKlineData[] = response.data.map((kline: any[]) => ({
-            date: new Date(kline[0]),
-            open: parseFloat(kline[1]),
-            high: parseFloat(kline[2]),
-            low: parseFloat(kline[3]),
-            close: parseFloat(kline[4]),
-            volume: parseFloat(kline[5])
-        }));
-
-        return {
-            date: data.map((d: BinanceKlineData) => d.date),
-            open: data.map((d: BinanceKlineData) => d.open),
-            high: data.map((d: BinanceKlineData) => d.high),
-            low: data.map((d: BinanceKlineData) => d.low),
-            close: data.map((d: BinanceKlineData) => d.close),
-            volume: data.map((d: BinanceKlineData) => d.volume)
-        };
+        return { date, open, high, low, close, volume };
     }
 
     private convertToBinanceInterval(interval: string): string {

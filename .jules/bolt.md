@@ -7,3 +7,6 @@
 ## 2026-08-16 - [Optimize OHLCV array transformation]
 **Learning:** Using `.map` multiple times in a row for data restructuring when building columns (e.g., `open`, `high`, `low`, etc.) from an array of candlestick objects is extremely inefficient, because it forces multiple O(N) traversals of the array and allocates many intermediate arrays (and objects). In this codebase, creating dataframes from arrays is an extremely common operation across many files.
 **Action:** Replace multiple `.map` iterations over arrays with a pre-allocated typed arrays (e.g., `new Array(len)`) and populate them simultaneously within a single `for` loop to reduce array traversal overhead to O(N) and minimize object garbage collection.
+## 2024-08-21 - DataFrame Column Extraction Overhead
+**Learning:** Extracting separate column arrays (like open, high, low, close) from a list of candlestick objects to build a DataFrame using repeated `.map()` calls causes multiple O(C * N) traversal overheads and creates intermediate objects unnecessarily.
+**Action:** When building DataFrames, always pre-allocate the column arrays (e.g., using `new Array(len)`) and populate them within a single `for` loop to reduce iteration complexity to O(N) and minimize garbage collection.
