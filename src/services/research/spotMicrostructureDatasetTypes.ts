@@ -61,6 +61,7 @@ export interface SpotResearchDatasetStats {
     expiredOutcomes: number;
     pendingOutcomes: number;
     lastSampledAt?: number;
+    unhealthyReasons?: Record<string, number>;
 }
 
 export interface SpotResearchDatasetStore {

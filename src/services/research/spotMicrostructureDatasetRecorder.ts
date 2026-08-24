@@ -21,6 +21,7 @@ export interface SpotMicrostructureDatasetRecorderOptions {
     horizonsMs?: number[];
     maxObservationLagMs?: number;
     recordOnlyHealthy?: boolean;
+    unhealthyReasons?: Record<string, number>;
 }
 
 const DEFAULT_HORIZONS_MS = [1_000, 5_000, 15_000, 30_000, 60_000];
@@ -57,6 +58,7 @@ export class SpotMicrostructureDatasetRecorder {
     /** Fixed cadence anchor. Actual callback jitter must not shift future sample slots. */
     private nextSampleDueAt?: number;
     private pending: PendingOutcome[] = [];
+    private unhealthyReasonCounts = new Map<string, number>();
     private statsState: SpotResearchDatasetStats = {
         featureRecords: 0,
         outcomeRecords: 0,
@@ -146,6 +148,13 @@ export class SpotMicrostructureDatasetRecorder {
         this.statsState.lastSampledAt = now;
 
         if (this.recordOnlyHealthy && !snapshot.quality.healthy) {
+            for (const reason of snapshot.quality.reasons) {
+                this.unhealthyReasonCounts.set(
+                    reason,
+                    (this.unhealthyReasonCounts.get(reason) ?? 0) + 1,
+                );
+            }
+
             this.statsState.skippedUnhealthySamples += 1;
             this.statsState.pendingOutcomes = this.pending.length;
             return undefined;
@@ -207,7 +216,11 @@ export class SpotMicrostructureDatasetRecorder {
     }
 
     getStats(): SpotResearchDatasetStats {
-        return { ...this.statsState, pendingOutcomes: this.pending.length };
+        return {
+            ...this.statsState,
+            pendingOutcomes: this.pending.length,
+            unhealthyReasons: Object.fromEntries(this.unhealthyReasonCounts),
+        };
     }
 
     private async restoreCadenceAnchor(now: number): Promise<void> {
