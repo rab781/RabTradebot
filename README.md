@@ -50,12 +50,15 @@ npm install
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | - | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | - | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | - | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | - | Required for AI-powered news analysis and impact predictions |
+| `WEB_PORT` | `number` | `3000` | Port for the REST API and WebSocket server |
+| `WEB_HOST` | `string` | `0.0.0.0` | Host for the REST API and WebSocket server |
+| `CORS_ORIGIN` | `string` | `http://localhost:3000, http://127.0.0.1:3000` | Comma-separated list of allowed CORS origins |
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
@@ -131,6 +134,42 @@ The bot supports complex trading workflows, including simulated trading and stra
 /optimize ADAUSDT 60
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
+
+## API Reference
+
+The bot exposes a REST API for state management and monitoring.
+
+### Authentication
+
+By default, the REST API runs without authentication. Ensure your network configuration prevents unauthorized external access.
+
+### Rate Limiting
+
+Requests are limited to 100 requests per minute per IP address. Exceeding this limit will result in an HTTP `429 Too Many Requests` response. Rate limit headers are included in every response.
+
+### Pagination
+
+Endpoints returning lists support pagination via the `limit` query parameter:
+- Trades default limit: `50`
+- Signals and News default limit: `20`
+
+### Error Handling
+
+Failed requests return standard HTTP status codes (e.g., `400 Bad Request`, `429 Too Many Requests`, `500 Internal Server Error`) along with a JSON response detailing the error.
+
+### Endpoints
+
+- `GET /health` - Health check endpoint.
+- `GET /api/health` - Detailed health status.
+- `GET /api/dashboard` - Dashboard overview statistics.
+- `GET /api/trades` - List of historical trades.
+- `GET /api/trades/open` - List of currently open trades.
+- `GET /api/signals` - List of recent trading signals.
+- `GET /api/news` - List of recent news analysis.
+- `GET /api/portfolio` - Current portfolio balance and holdings.
+- `GET /api/stats` - Overall performance statistics.
+
+*Note: The Web Dashboard UI is currently pending (Phase 8 of the roadmap).*
 
 ## Telegram Command Reference
 
