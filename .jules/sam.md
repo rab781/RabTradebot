@@ -1,0 +1,3 @@
+## 2024-05-18 - [Docs improvement] API Reference and README Update
+**Learning:** Developers need clear configuration tables and detailed API references that explicitly cover authentication, rate limits, and pagination. Missing API docs cause confusion regarding available endpoints and their usage.
+**Action:** When updating README configuration options, use the strict markdown table format with `Option | Type | Default | Description`. Explicitly state `**Required.**` in the description and use `-` for missing defaults. When creating API references, always include Authentication, Rate Limiting, Pagination, and Error Handling sections.
