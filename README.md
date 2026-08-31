@@ -48,14 +48,14 @@ npm install
 
 ## Configuration
 
-Configure the bot by editing the `.env` file.
+You configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `-` | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | `-` | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | `-` | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | `-` | Required for AI-powered news analysis and impact predictions |
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
@@ -94,7 +94,7 @@ The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.n
 
 ## Usage
 
-Interact with the bot via Telegram commands.
+You interact with the bot via Telegram commands.
 
 ### Basic Example
 
@@ -118,7 +118,7 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 /papertrade ETHUSDT
 ```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+*Starts a virtual trading session with $1000 simulated balance using real market data. You track it using `/portfolio`.*
 
 **Backtest a Strategy:**
 ```
@@ -152,6 +152,12 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
+
+## API Reference
+
+The project includes a REST API for the Web Dashboard. By default, it runs without authentication, enforces rate limiting (100 requests/minute per IP), and supports pagination via the `limit` query parameter.
+
+See the full [API Reference](docs/API_REFERENCE.md).
 
 ## Architecture & Tech Stack
 
