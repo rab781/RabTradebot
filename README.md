@@ -132,6 +132,11 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
+## API Reference
+
+The Web Dashboard REST API allows you to access bot state, trading history, and market signals programmatically.
+See the [full API reference →](docs/API_REFERENCE.md) for details on endpoints, rate limiting, and examples.
+
 ## Telegram Command Reference
 
 ### Basic Analysis
