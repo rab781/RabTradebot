@@ -132,6 +132,12 @@ The bot supports complex trading workflows, including simulated trading and stra
 ```
 *Runs optimization over a 60-day period to find the best parameters for maximum profit.*
 
+## API Reference
+
+The project includes a REST API for state management, dashboard data, and health monitoring.
+
+See the [full API reference →](docs/API_REFERENCE.md)
+
 ## Telegram Command Reference
 
 ### Basic Analysis
