@@ -21,6 +21,10 @@ npm install
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
+# Setup the database
+npx prisma generate
+npx prisma migrate dev
+
 # Build the project (generates the dist/ directory)
 npm run build
 
@@ -44,6 +48,10 @@ cd RabTradebot
 
 # 2. Install dependencies
 npm install
+
+# 3. Setup the database
+npx prisma generate
+npx prisma migrate dev
 ```
 
 ## Configuration
@@ -57,7 +65,7 @@ Configure the bot by editing the `.env` file.
 | `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
 | `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
 
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+> **Note**: You can rely on the bot to automatically fall back to the public Binance API if you do not provide private credentials.
 
 ## Run With PM2 (Persistent)
 
