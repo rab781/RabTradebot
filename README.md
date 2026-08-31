@@ -10,7 +10,7 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+Set up the bot in under 2 minutes:
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
@@ -20,6 +20,9 @@ npm install
 # Copy the environment template and add your Telegram bot token
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
+
+# Generate Prisma Client
+npx prisma generate
 
 # Build the project (generates the dist/ directory)
 npm run build
@@ -44,24 +47,27 @@ cd RabTradebot
 
 # 2. Install dependencies
 npm install
+
+# 3. Generate Prisma Client
+npx prisma generate
 ```
 
 ## Configuration
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `-` | **Required.** Your Telegram bot token from @BotFather. |
+| `BINANCE_API_KEY` | `string` | `-` | API Key for live trading and better rate limits. |
+| `BINANCE_API_SECRET` | `string` | `-` | API Secret for live trading and better rate limits. |
+| `CHUTES_API_KEY` | `string` | `-` | API Key for AI-powered news analysis and impact predictions. |
 
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+> **Note**: The bot automatically falls back to the public Binance API if you do not provide private credentials.
 
 ## Run With PM2 (Persistent)
 
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+You use PM2 scripts and a bootstrap wrapper to run the bot persistently, so startup does not depend on a hardcoded nvm Node version path.
 
 ```bash
 # Build first
@@ -94,11 +100,11 @@ The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.n
 
 ## Usage
 
-Interact with the bot via Telegram commands.
+You interact with the bot via Telegram commands.
 
 ### Basic Example
 
-To get a complete market analysis for a specific pair:
+You get a complete market analysis for a specific pair by sending:
 
 ```
 /analyze BTCUSDT
@@ -112,13 +118,13 @@ To get a complete market analysis for a specific pair:
 
 ### Advanced Usage
 
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
+You execute complex trading workflows, including simulated trading and strategy optimization.
 
 **Start a Paper Trading Session:**
 ```
 /papertrade ETHUSDT
 ```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
+*Starts a virtual trading session with $1000 simulated balance using real market data. You track it using `/portfolio`.*
 
 **Backtest a Strategy:**
 ```
