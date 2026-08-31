@@ -1,0 +1,3 @@
+## 2024-10-27 - [Docs tracking in Gitignore]
+**Learning:** The `docs/` directory is ignored by default in the project's `.gitignore` file. To un-ignore specific files within it (like `docs/API_REFERENCE.md`), you must change the directory ignore rule from `docs/` to `docs/*` (to ignore contents rather than the folder itself) and append the specific exclusion (e.g., `!docs/API_REFERENCE.md`). Simply appending the exclusion without modifying the directory rule will fail to track the file.
+**Action:** When adding new documentation files, I will check `.gitignore` to ensure they are tracked properly and update the rules accurately if needed.
