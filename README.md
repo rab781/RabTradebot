@@ -153,6 +153,10 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
 
+## API Reference
+
+The bot includes a web dashboard API for programmatic access to bot state and performance statistics. See the [full API reference →](docs/API_REFERENCE.md).
+
 ## Architecture & Tech Stack
 
 - **Language**: TypeScript
