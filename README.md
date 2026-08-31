@@ -10,7 +10,7 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+You can get the bot up and running in under 2 minutes:
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
@@ -37,31 +37,94 @@ Open Telegram, find your bot, and send `/start`.
 - npm 9+
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
+First, clone the repository:
 ```bash
-# 1. Clone the repository
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
+```
 
-# 2. Install dependencies
+Next, install the dependencies:
+```bash
 npm install
 ```
 
+## Usage
+
+You interact with the bot via Telegram commands.
+
+### Basic Example
+
+To get a complete market analysis for a specific pair, send:
+
+```
+/analyze BTCUSDT
+```
+
+You receive:
+- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
+- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
+- **Backtesting Results**: 30-day strategy performance
+- **Recommendations**: Entry/exit levels with reasoning
+
+### Advanced Usage
+
+You can use the bot for complex trading workflows, including simulated trading and strategy optimization.
+
+**Start a Paper Trading Session:**
+```
+/papertrade ETHUSDT
+```
+*You start a virtual trading session with a $1000 simulated balance using real market data. You track it using `/portfolio`.*
+
+**Backtest a Strategy:**
+```
+/backtest SOLUSDT 30
+```
+*You test the default strategy's performance over the last 30 days and receive win rate, drawdown, and total profit.*
+
+**Optimize Strategy Parameters:**
+```
+/optimize ADAUSDT 60
+```
+*You run optimization over a 60-day period to find the best parameters for maximum profit.*
+
 ## Configuration
 
-Configure the bot by editing the `.env` file.
+You configure the bot by editing the `.env` file in the project root.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `""` | **Required.** Your Telegram bot token from @BotFather. |
+| `BINANCE_API_KEY` | `string` | `""` | Required for live trading and better rate limits. |
+| `BINANCE_API_SECRET` | `string` | `""` | Required for live trading and better rate limits. |
+| `CHUTES_API_KEY` | `string` | `""` | Required for AI-powered news analysis and impact predictions. |
 
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+> **Note**: The bot automatically falls back to the public Binance API if you do not provide private credentials.
+
+## Telegram Command Reference
+
+### Basic Analysis
+- `/signal [symbol]` - Trading signals
+- `/volume [symbol]` - Volume analysis
+- `/sr [symbol]` - Support/resistance levels
+- `/chart [symbol]` - Generate interactive charts
+
+### Advanced Trading
+- `/backtest [symbol] [days]` - Strategy backtesting
+- `/papertrade [symbol]` - Start paper trading simulation
+- `/portfolio` - View current positions and balance
+- `/performance` - Detailed performance metrics
+- `/optimize [symbol] [days]` - Optimize strategy parameters
+
+### Data & Status
+- `/download [symbol] [days]` - Download historical data
+- `/datainfo [symbol]` - Check data quality and summary
+- `/strategies` - List available trading strategies
+- `/apistatus` - Check Binance API connectivity
 
 ## Run With PM2 (Persistent)
 
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+This project includes PM2 scripts and a bootstrap wrapper so your startup does not depend on a hardcoded nvm Node version path.
 
 ```bash
 # Build first
@@ -92,67 +155,6 @@ npm run pm2:status
 
 The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
-## Usage
-
-Interact with the bot via Telegram commands.
-
-### Basic Example
-
-To get a complete market analysis for a specific pair:
-
-```
-/analyze BTCUSDT
-```
-
-**What you get:**
-- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
-- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
-- **Backtesting Results**: 30-day strategy performance
-- **Recommendations**: Entry/exit levels with reasoning
-
-### Advanced Usage
-
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
-
-**Start a Paper Trading Session:**
-```
-/papertrade ETHUSDT
-```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
-
-**Backtest a Strategy:**
-```
-/backtest SOLUSDT 30
-```
-*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
-
-**Optimize Strategy Parameters:**
-```
-/optimize ADAUSDT 60
-```
-*Runs optimization over a 60-day period to find the best parameters for maximum profit.*
-
-## Telegram Command Reference
-
-### Basic Analysis
-- `/signal [symbol]` - Trading signals
-- `/volume [symbol]` - Volume analysis
-- `/sr [symbol]` - Support/resistance levels
-- `/chart [symbol]` - Generate interactive charts
-
-### Advanced Trading
-- `/backtest [symbol] [days]` - Strategy backtesting
-- `/papertrade [symbol]` - Start paper trading simulation
-- `/portfolio` - View current positions and balance
-- `/performance` - Detailed performance metrics
-- `/optimize [symbol] [days]` - Optimize strategy parameters
-
-### Data & Status
-- `/download [symbol] [days]` - Download historical data
-- `/datainfo [symbol]` - Check data quality and summary
-- `/strategies` - List available trading strategies
-- `/apistatus` - Check Binance API connectivity
-
 ## Architecture & Tech Stack
 
 - **Language**: TypeScript
@@ -167,4 +169,4 @@ We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for deta
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+This project uses the MIT License - see the [LICENSE](LICENSE) file for details.
