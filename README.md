@@ -10,7 +10,7 @@ Retail traders often lack access to the institutional-grade tools necessary to m
 
 ## Quick Start
 
-Get the bot up and running in under 2 minutes:
+Get the bot up and running in under 2 minutes. We use a separate directory to keep things clean.
 
 ```bash
 git clone https://github.com/rab781/RabTradebot.git
@@ -32,73 +32,36 @@ Open Telegram, find your bot, and send `/start`.
 
 ## Installation
 
-**Prerequisites**:
-- Node.js 20.19+
-- npm 9+
-- A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
+**Prerequisites**: Node.js 20.19+, npm 9+, A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
+
+You install the package by cloning the repository and running npm install:
 
 ```bash
-# 1. Clone the repository
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
-
-# 2. Install dependencies
 npm install
 ```
 
 ## Configuration
 
-Configure the bot by editing the `.env` file.
+You configure the bot by editing the `.env` file in the root directory.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `-` | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | `-` | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | `-` | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | `-` | Required for AI-powered news analysis and impact predictions |
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
 
-## Run With PM2 (Persistent)
-
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
-
-```bash
-# Build first
-npm run build
-
-# Start/recover with PM2
-npm run pm2:bootstrap
-
-# Check status/logs
-npm run pm2:status
-npm run pm2:logs
-```
-
-### Auto Start On Reboot (systemd)
-
-```bash
-# 1) Install service file (adjust username/path if needed)
-sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
-
-# 2) Reload systemd and enable service
-sudo systemctl daemon-reload
-sudo systemctl enable --now rabtradebot.service
-
-# 3) Verify
-systemctl status rabtradebot.service
-npm run pm2:status
-```
-
-The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
-
 ## Usage
 
-Interact with the bot via Telegram commands.
+You interact with the bot via Telegram commands.
 
 ### Basic Example
 
-To get a complete market analysis for a specific pair:
+To get a complete market analysis for a specific pair, you send:
 
 ```
 /analyze BTCUSDT
@@ -112,7 +75,7 @@ To get a complete market analysis for a specific pair:
 
 ### Advanced Usage
 
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
+You can perform complex trading workflows, including simulated trading and strategy optimization.
 
 **Start a Paper Trading Session:**
 ```
@@ -153,6 +116,45 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
 
+## Run With PM2 (Persistent)
+
+This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+
+```bash
+# Build first
+npm run build
+
+# Start/recover with PM2
+npm run pm2:bootstrap
+
+# Check status/logs
+npm run pm2:status
+npm run pm2:logs
+```
+
+### Auto Start On Reboot (systemd)
+
+You configure the bot to start automatically on reboot by setting up a systemd service:
+
+```bash
+# 1) Install service file (adjust username/path if needed)
+sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
+
+# 2) Reload systemd and enable service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rabtradebot.service
+
+# 3) Verify
+systemctl status rabtradebot.service
+npm run pm2:status
+```
+
+The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
+
+## API Reference
+
+See [docs/API_REFERENCE.md](docs/API_REFERENCE.md) for the full REST API documentation.
+
 ## Architecture & Tech Stack
 
 - **Language**: TypeScript
@@ -163,7 +165,7 @@ The bot supports complex trading workflows, including simulated trading and stra
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 
