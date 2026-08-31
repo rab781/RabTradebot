@@ -16,25 +16,25 @@ let commandCount = 0;
 // Test all Perplexity commands
 try {
     // Test pnews command
-    testBot.command('pnews', (ctx) => {
+    testBot.command('pnews', () => {
         console.log('✅ /pnews command registered');
         commandCount++;
     });
 
     // Test impact command
-    testBot.command('impact', (ctx) => {
+    testBot.command('impact', () => {
         console.log('✅ /impact command registered');
         commandCount++;
     });
 
     // Test fullanalysis command
-    testBot.command('fullanalysis', (ctx) => {
+    testBot.command('fullanalysis', () => {
         console.log('✅ /fullanalysis command registered');
         commandCount++;
     });
 
     // Test pstatus command
-    testBot.command('pstatus', (ctx) => {
+    testBot.command('pstatus', () => {
         console.log('✅ /pstatus command registered');
         commandCount++;
     });

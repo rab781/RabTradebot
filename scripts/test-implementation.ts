@@ -67,7 +67,7 @@ async function testImplementation() {
             console.log(`   ✅ News search working!\n`);
         }
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.log(`   ❌ API Error: ${error.message}`);
         if (error.response?.status === 401) {
             console.log('   💡 Check your API key - might be invalid');

@@ -1,4 +1,6 @@
 #!/usr/bin/env node
+/* eslint-disable @typescript-eslint/no-var-requires */
+/* eslint-env node */
 
 /**
  * Script to clean up JavaScript files that were compiled in-place.

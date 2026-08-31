@@ -48,7 +48,7 @@ async function testChutesAPI() {
         console.log('\nFull Response Object:');
         console.log(JSON.stringify(response.data, null, 2));
 
-    } catch (error: any) {
+    } catch (error: unknown) {
         console.log('❌ ERROR:\n');
         if (error.response) {
             console.log('Status:', error.response.status);

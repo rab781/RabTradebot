@@ -14,7 +14,7 @@ async function debugStrategy() {
     const limit = Math.min(days * 24, 1000); // Max 1000 candles
     const rawCandles = await publicService.getCandlestickData(symbol, '1h', limit);
 
-    const candles: OHLCVCandle[] = rawCandles.map((c: any) => ({
+    const candles: OHLCVCandle[] = rawCandles.map((c: unknown) => ({
         timestamp: c[0],
         open: parseFloat(c[1]),
         high: parseFloat(c[2]),
