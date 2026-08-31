@@ -179,7 +179,7 @@ config/local.json
 config/production.json
 
 # Generated documentation
-docs/
+#docs/
 
 # Test coverage
 coverage/
