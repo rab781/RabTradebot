@@ -251,7 +251,7 @@ function buildCategoryMenuInline(symbol: string, category: string) {
       return Markup.inlineKeyboard([
         [
           Markup.button.callback('▶️ Start Paper', 'run:papertrade'),
-          Markup.button.callback('⏹ Stop Trading', 'run:stoptrading'),
+          Markup.button.callback('⏹️ Stop Trading', 'run:stoptrading'),
         ],
         [
           Markup.button.callback('💼 Portfolio', 'run:portfolio'),
@@ -973,7 +973,7 @@ async function handleInlineRun(ctx: any, action: string, symbol: string, chatId:
           );
         });
       }, intervalMs);
-      await ctx.reply(`✅ Live trading started — ${symbol}\nStrategy: ${strategyToUse.name}\nInterval: ${(intervalMs / 1000).toFixed(0)}s\n\nUse ⛔ Stop Live to stop.`);
+      await ctx.reply(`✅ Live trading started — ${symbol}\nStrategy: ${strategyToUse.name}\nInterval: ${(intervalMs / 1000).toFixed(0)}s\n\nUse ⏹️ Stop Live to stop.`);
       break;
     }
     case 'livestop': {
