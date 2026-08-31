@@ -4135,6 +4135,12 @@ Best Trade: $${latest.bestTrade.toFixed(2)}
 bot.command('leaderboard', async (ctx) => {
   try {
     // This would require aggregation queries - simplified version
+    try {
+      await ctx.deleteMessage(loadingMsg.message_id);
+    } catch (e) {
+      /* ignore */
+    }
+
     await ctx.reply(`
 🏆 PERFORMANCE LEADERBOARD
 
