@@ -17,14 +17,10 @@ git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
 npm install
 
-# Copy the environment template and add your Telegram bot token
 cp .env.example .env
 # Edit .env and set TELEGRAM_BOT_TOKEN=your_token_here
 
-# Build the project (generates the dist/ directory)
 npm run build
-
-# Start the bot
 npm start
 ```
 
@@ -37,12 +33,14 @@ Open Telegram, find your bot, and send `/start`.
 - npm 9+
 - A Telegram Bot Token (get it from [@BotFather](https://t.me/BotFather))
 
+1. Clone the repository:
 ```bash
-# 1. Clone the repository
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
+```
 
-# 2. Install dependencies
+2. Install dependencies:
+```bash
 npm install
 ```
 
@@ -50,14 +48,76 @@ npm install
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | `None` | **Required.** Your Telegram bot token from @BotFather. |
+| `DATABASE_URL` | `string` | `"file:./prisma/dev.db"` | Your SQLite or PostgreSQL database connection URL. |
+| `BINANCE_API_KEY` | `string` | `None` | Required for live trading and better rate limits. The bot automatically falls back to the public Binance API if private credentials are not provided. |
+| `BINANCE_API_SECRET` | `string` | `None` | Required for live trading and better rate limits. |
+| `BINANCE_TESTNET` | `boolean` | `true` | Enable Binance Spot Testnet (recommended for development). |
+| `CHUTES_API_KEY` | `string` | `None` | Required for AI-powered news analysis and impact predictions using GPT-4o-mini. |
+| `TWITTER_API_KEY` | `string` | `None` | Required for Twitter social media analysis. |
 
-> **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
+## Usage
+
+Interact with the bot via Telegram commands.
+
+### Basic Example
+
+To get a complete market analysis for a specific pair, send:
+
+```
+/analyze BTCUSDT
+```
+
+You receive a message containing:
+- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
+- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
+- **Backtesting Results**: 30-day strategy performance
+- **Recommendations**: Entry/exit levels with reasoning
+
+### Advanced Usage
+
+The bot supports complex trading workflows, including simulated trading and strategy optimization.
+
+**Start a Paper Trading Session:**
+```
+/papertrade ETHUSDT
+```
+Starts a virtual trading session with a $1000 simulated balance using real market data. You track it using `/portfolio`.
+
+**Backtest a Strategy:**
+```
+/backtest SOLUSDT 30
+```
+Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.
+
+**Optimize Strategy Parameters:**
+```
+/optimize ADAUSDT 60
+```
+Runs optimization over a 60-day period to find the best parameters for maximum profit.
+
+## Telegram Command Reference
+
+### Basic Analysis
+- `/signal [symbol]` - Get trading signals
+- `/volume [symbol]` - Get volume analysis
+- `/sr [symbol]` - Get support and resistance levels
+- `/chart [symbol]` - Generate interactive charts
+
+### Advanced Trading
+- `/backtest [symbol] [days]` - Run strategy backtesting
+- `/papertrade [symbol]` - Start paper trading simulation
+- `/portfolio` - View current positions and balance
+- `/performance` - View detailed performance metrics
+- `/optimize [symbol] [days]` - Optimize strategy parameters
+
+### Data & Status
+- `/download [symbol] [days]` - Download historical data
+- `/datainfo [symbol]` - Check data quality and summary
+- `/strategies` - List available trading strategies
+- `/apistatus` - Check Binance API connectivity
 
 ## Run With PM2 (Persistent)
 
@@ -77,81 +137,24 @@ npm run pm2:logs
 
 ### Auto Start On Reboot (systemd)
 
+1. Install service file (adjust username/path if needed):
 ```bash
-# 1) Install service file (adjust username/path if needed)
 sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
+```
 
-# 2) Reload systemd and enable service
+2. Reload systemd and enable service:
+```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now rabtradebot.service
+```
 
-# 3) Verify
+3. Verify:
+```bash
 systemctl status rabtradebot.service
 npm run pm2:status
 ```
 
 The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
-
-## Usage
-
-Interact with the bot via Telegram commands.
-
-### Basic Example
-
-To get a complete market analysis for a specific pair:
-
-```
-/analyze BTCUSDT
-```
-
-**What you get:**
-- **Technical Analysis**: RSI, MACD, Bollinger Bands, Moving Averages
-- **Multi-timeframe Analysis**: 1H, 4H, 1D trends
-- **Backtesting Results**: 30-day strategy performance
-- **Recommendations**: Entry/exit levels with reasoning
-
-### Advanced Usage
-
-The bot supports complex trading workflows, including simulated trading and strategy optimization.
-
-**Start a Paper Trading Session:**
-```
-/papertrade ETHUSDT
-```
-*Starts a virtual trading session with $1000 simulated balance using real market data. Track it using `/portfolio`.*
-
-**Backtest a Strategy:**
-```
-/backtest SOLUSDT 30
-```
-*Tests the default strategy's performance over the last 30 days and returns win rate, drawdown, and total profit.*
-
-**Optimize Strategy Parameters:**
-```
-/optimize ADAUSDT 60
-```
-*Runs optimization over a 60-day period to find the best parameters for maximum profit.*
-
-## Telegram Command Reference
-
-### Basic Analysis
-- `/signal [symbol]` - Trading signals
-- `/volume [symbol]` - Volume analysis
-- `/sr [symbol]` - Support/resistance levels
-- `/chart [symbol]` - Generate interactive charts
-
-### Advanced Trading
-- `/backtest [symbol] [days]` - Strategy backtesting
-- `/papertrade [symbol]` - Start paper trading simulation
-- `/portfolio` - View current positions and balance
-- `/performance` - Detailed performance metrics
-- `/optimize [symbol] [days]` - Optimize strategy parameters
-
-### Data & Status
-- `/download [symbol] [days]` - Download historical data
-- `/datainfo [symbol]` - Check data quality and summary
-- `/strategies` - List available trading strategies
-- `/apistatus` - Check Binance API connectivity
 
 ## Architecture & Tech Stack
 
@@ -163,7 +166,7 @@ The bot supports complex trading workflows, including simulated trading and stra
 
 ## Contributing
 
-We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
 ## License
 
