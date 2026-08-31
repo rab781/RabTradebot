@@ -16,6 +16,7 @@ Get the bot up and running in under 2 minutes:
 git clone https://github.com/rab781/RabTradebot.git
 cd RabTradebot
 npm install
+npx prisma generate
 
 # Copy the environment template and add your Telegram bot token
 cp .env.example .env
@@ -44,53 +45,21 @@ cd RabTradebot
 
 # 2. Install dependencies
 npm install
+npx prisma generate
 ```
 
 ## Configuration
 
 Configure the bot by editing the `.env` file.
 
-| Option | Type | Required | Description |
-|--------|------|----------|-------------|
-| `TELEGRAM_BOT_TOKEN` | `string` | **Yes** | Your Telegram bot token from @BotFather |
-| `BINANCE_API_KEY` | `string` | No | Required for live trading and better rate limits |
-| `BINANCE_API_SECRET` | `string` | No | Required for live trading and better rate limits |
-| `CHUTES_API_KEY` | `string` | No | Required for AI-powered news analysis and impact predictions |
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `TELEGRAM_BOT_TOKEN` | `string` | - | **Required.** Your Telegram bot token from @BotFather |
+| `BINANCE_API_KEY` | `string` | - | Required for live trading and better rate limits |
+| `BINANCE_API_SECRET` | `string` | - | Required for live trading and better rate limits |
+| `CHUTES_API_KEY` | `string` | - | Required for AI-powered news analysis and impact predictions |
 
 > **Note**: The bot automatically falls back to the public Binance API if private credentials are not provided.
-
-## Run With PM2 (Persistent)
-
-This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
-
-```bash
-# Build first
-npm run build
-
-# Start/recover with PM2
-npm run pm2:bootstrap
-
-# Check status/logs
-npm run pm2:status
-npm run pm2:logs
-```
-
-### Auto Start On Reboot (systemd)
-
-```bash
-# 1) Install service file (adjust username/path if needed)
-sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
-
-# 2) Reload systemd and enable service
-sudo systemctl daemon-reload
-sudo systemctl enable --now rabtradebot.service
-
-# 3) Verify
-systemctl status rabtradebot.service
-npm run pm2:status
-```
-
-The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
 ## Usage
 
@@ -152,6 +121,104 @@ The bot supports complex trading workflows, including simulated trading and stra
 - `/datainfo [symbol]` - Check data quality and summary
 - `/strategies` - List available trading strategies
 - `/apistatus` - Check Binance API connectivity
+
+## API Reference
+
+The Trading Bot Dashboard provides REST API endpoints to access real-time updates and bot state.
+
+### API Details
+- **Base URL**: `/api`
+- **Rate Limiting**: Requests are limited to 100 per minute per IP address. Rate limit violations return a `429 Too Many Requests` status code.
+- **Authentication**: No authentication is currently configured for these endpoints.
+- **Error Handling**: API errors generally return a `500 Internal Server Error` status code with an accompanying JSON error message.
+
+### Endpoints
+
+#### GET `/api/dashboard`
+Returns aggregated data for the dashboard.
+- **Responses**:
+  - `200 OK`: JSON dashboard data object.
+  - `500 Internal Server Error`: `{"error": "An internal server error occurred"}`
+
+#### GET `/api/trades`
+Retrieves a list of trades.
+- **Parameters**:
+  - `limit` (query, optional, default: `50`): Maximum number of trades to return.
+- **Responses**:
+  - `200 OK`: Array of trade objects.
+
+#### GET `/api/trades/open`
+Retrieves a list of currently open trades.
+- **Responses**:
+  - `200 OK`: Array of open trade objects.
+
+#### GET `/api/signals`
+Retrieves a list of trading signals.
+- **Parameters**:
+  - `limit` (query, optional, default: `20`): Maximum number of signals to return.
+- **Responses**:
+  - `200 OK`: Array of signal objects.
+
+#### GET `/api/news`
+Retrieves recent news articles.
+- **Parameters**:
+  - `limit` (query, optional, default: `20`): Maximum number of news items to return.
+- **Responses**:
+  - `200 OK`: Array of news objects.
+
+#### GET `/api/portfolio`
+Retrieves the current portfolio state.
+- **Responses**:
+  - `200 OK`: JSON portfolio object.
+
+#### GET `/api/stats`
+Retrieves current bot statistics.
+- **Responses**:
+  - `200 OK`: JSON stats object.
+
+#### GET `/api/health`
+Basic health check endpoint for the API itself.
+- **Responses**:
+  - `200 OK`: Returns API status and uptime. Example: `{"status":"OK","timestamp":"2023-10-27T10:00:00.000Z","uptime":123.45}`
+
+#### GET `/health`
+External monitoring endpoint for the entire bot infrastructure (Note: This is mapped outside the `/api` route).
+- **Responses**:
+  - `200 OK`: Returns an overall `up` status and snapshot of memory usage, request counts, and component statuses.
+  - `503 Service Unavailable`: Returns if the overall system health status is `down`.
+
+## Run With PM2 (Persistent)
+
+This project includes PM2 scripts and a bootstrap wrapper so startup does not depend on a hardcoded nvm Node version path.
+
+```bash
+# Build first
+npm run build
+
+# Start/recover with PM2
+npm run pm2:bootstrap
+
+# Check status/logs
+npm run pm2:status
+npm run pm2:logs
+```
+
+### Auto Start On Reboot (systemd)
+
+```bash
+# 1) Install service file (adjust username/path if needed)
+sudo cp deploy/rabtradebot.service /etc/systemd/system/rabtradebot.service
+
+# 2) Reload systemd and enable service
+sudo systemctl daemon-reload
+sudo systemctl enable --now rabtradebot.service
+
+# 3) Verify
+systemctl status rabtradebot.service
+npm run pm2:status
+```
+
+The service launches `scripts/pm2-startup-wrapper.sh`, which loads nvm, uses `.nvmrc`, and runs `pm2 resurrect` (or starts `ecosystem.config.js` if no dump is present).
 
 ## Architecture & Tech Stack
 
