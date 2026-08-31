@@ -1,4 +1,4 @@
-# Advanced Crypto Trading Bot
+# RabTradebot
 
 > A comprehensive Telegram bot that provides professional-grade cryptocurrency trading signals, market analysis, backtesting, and paper trading capabilities directly in your chat.
 
@@ -160,6 +160,262 @@ The bot supports complex trading workflows, including simulated trading and stra
 - **Database**: Prisma ORM with SQLite
 - **Market Data**: Binance REST & WebSocket APIs
 - **AI/ML**: TensorFlow.js (GRU models), Chutes AI (News Sentiment)
+
+
+
+## API Reference
+
+The RabTradebot includes a REST API providing real-time state management and data access via the built-in web server (default port 3000).
+
+### Authentication
+Currently, the REST API does not require authentication and is intended for local or trusted network access.
+
+### Rate Limiting
+Requests are rate-limited to 100 requests per minute per IP address. Exceeding this limit returns a `429 Too Many Requests` response.
+
+### Pagination
+Endpoints returning lists (`/api/trades`, `/api/signals`, `/api/news`) support pagination via the `limit` query parameter.
+*   `/api/trades` defaults to 50 items.
+*   `/api/signals` defaults to 20 items.
+*   `/api/news` defaults to 20 items.
+
+### Endpoints
+
+#### `GET /api/dashboard`
+Retrieve overall dashboard data.
+
+**Example Request:**
+```bash
+curl http://localhost:3000/api/dashboard
+```
+
+**Example Response:**
+```json
+{
+  "trades": [
+    {
+      "id": "1",
+      "symbol": "BTCUSDT",
+      "action": "BUY",
+      "price": 60000,
+      "quantity": 0.01,
+      "timestamp": "2023-10-27T10:00:00.000Z",
+      "status": "OPEN"
+    }
+  ],
+  "signals": [],
+  "news": [],
+  "portfolio": {
+    "totalValue": 10000,
+    "positions": [],
+    "performance": {
+      "totalPnl": 0,
+      "totalPnlPercentage": 0,
+      "winRate": 0,
+      "totalTrades": 0
+    }
+  },
+  "stats": {
+    "uptime": 3600,
+    "totalCommands": 150,
+    "activeUsers": 5,
+    "lastUpdate": "2023-10-27T10:00:00.000Z"
+  },
+  "openTrades": []
+}
+```
+
+#### `GET /api/trades`
+Retrieve a list of trades.
+*Query Parameters:*
+*   `limit` (optional): Number of trades to return (default: 50).
+
+**Example Request:**
+```bash
+curl "http://localhost:3000/api/trades?limit=2"
+```
+
+**Example Response:**
+```json
+[
+  {
+    "id": "1",
+    "symbol": "BTCUSDT",
+    "action": "BUY",
+    "price": 60000,
+    "quantity": 0.01,
+    "timestamp": "2023-10-27T10:00:00.000Z",
+    "profit": 150.0,
+    "status": "CLOSED"
+  }
+]
+```
+
+#### `GET /api/trades/open`
+Retrieve currently open trades.
+
+**Example Request:**
+```bash
+curl http://localhost:3000/api/trades/open
+```
+
+**Example Response:**
+```json
+[
+  {
+    "id": "2",
+    "symbol": "ETHUSDT",
+    "action": "SELL",
+    "price": 3000,
+    "quantity": 1.0,
+    "timestamp": "2023-10-27T10:00:00.000Z",
+    "status": "OPEN"
+  }
+]
+```
+
+#### `GET /api/signals`
+Retrieve trading signals.
+*Query Parameters:*
+*   `limit` (optional): Number of signals to return (default: 20).
+
+**Example Request:**
+```bash
+curl "http://localhost:3000/api/signals?limit=1"
+```
+
+**Example Response:**
+```json
+[
+  {
+    "symbol": "SOLUSDT",
+    "action": "BUY",
+    "price": 100,
+    "confidence": 0.85,
+    "timestamp": "2023-10-27T10:00:00.000Z",
+    "indicators": {
+      "rsi": 30
+    }
+  }
+]
+```
+
+#### `GET /api/news`
+Retrieve news items.
+*Query Parameters:*
+*   `limit` (optional): Number of news items to return (default: 20).
+
+**Example Request:**
+```bash
+curl "http://localhost:3000/api/news?limit=1"
+```
+
+**Example Response:**
+```json
+[
+  {
+    "symbol": "BTC",
+    "title": "Crypto Market Surges",
+    "sentiment": "BULLISH",
+    "impact": "HIGH",
+    "timestamp": "2023-10-27T10:00:00.000Z"
+  }
+]
+```
+
+#### `GET /api/portfolio`
+Retrieve portfolio information.
+
+**Example Request:**
+```bash
+curl http://localhost:3000/api/portfolio
+```
+
+**Example Response:**
+```json
+{
+  "totalValue": 10000,
+  "positions": [],
+  "performance": {
+    "totalPnl": 0,
+    "totalPnlPercentage": 0,
+    "winRate": 0,
+    "totalTrades": 0
+  }
+}
+```
+
+#### `GET /api/stats`
+Retrieve bot statistics.
+
+**Example Request:**
+```bash
+curl http://localhost:3000/api/stats
+```
+
+**Example Response:**
+```json
+{
+  "uptime": 3600,
+  "totalCommands": 150,
+  "activeUsers": 5,
+  "lastUpdate": "2023-10-27T10:00:00.000Z"
+}
+```
+
+#### `GET /api/health`
+Internal health check endpoint.
+
+**Example Request:**
+```bash
+curl http://localhost:3000/api/health
+```
+
+**Example Response:**
+```json
+{
+  "status": "OK",
+  "timestamp": "2023-10-27T10:00:00.000Z",
+  "uptime": 3600
+}
+```
+
+#### `GET /health`
+External monitoring health check.
+
+**Example Request:**
+```bash
+curl http://localhost:3000/health
+```
+
+**Example Response:**
+```json
+{
+  "status": "ok",
+  "timestamp": "2023-10-27T10:00:00.000Z",
+  "uptime": 3600,
+  "memoryUsageMb": 150.5,
+  "requestCount": 150,
+  "components": {
+     "database": "ok",
+     "binanceRest": "ok"
+  }
+}
+```
+
+#### Errors
+Example 429 Error Response (Rate Limit Exceeded):
+```json
+{
+  "error": "Too many requests, please try again later."
+}
+```
+Example 500 Error Response (Internal Server Error):
+```json
+{
+  "error": "An internal server error occurred"
+}
+```
 
 ## Contributing
 
