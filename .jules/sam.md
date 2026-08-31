@@ -1,0 +1,3 @@
+## 2025-01-20 - Preserving Context and Validating Payloads
+**Learning:** When refactoring README documentation, always strictly preserve critical project-specific sections like "Telegram Command Reference" and "Architecture & Tech Stack", as generic templates cannot replace them. When creating API documentation, always read backend types (like BotStateManager and Express routes) to map exact payload properties without hallucinating fields.
+**Action:** In future docs passes, I will explicitly diff the original README sections to carry over custom configuration guides and use cat or sed to verify TypeScript interfaces before constructing JSON examples.
