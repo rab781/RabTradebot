@@ -1,0 +1,3 @@
+## 2024-05-15 - Applied Technical Writer Template to README
+**Learning:** README and documentation files are critical for user adoption. Separating the API reference out of the main README into its own document allows for more structured, detailed explanations covering pagination, rate limits, and error handling without cluttering the initial "5-second test" of the README.
+**Action:** When updating existing READMEs, ensure project-specific custom sections (like the Telegram command reference) are meticulously preserved instead of being lost to boilerplate. Use chunked `sed` or `head`/`tail` commands to completely read long files in the sandbox.
