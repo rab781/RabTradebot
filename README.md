@@ -161,6 +161,11 @@ The bot supports complex trading workflows, including simulated trading and stra
 - **Market Data**: Binance REST & WebSocket APIs
 - **AI/ML**: TensorFlow.js (GRU models), Chutes AI (News Sentiment)
 
+## API Reference
+
+The project includes a built-in REST API for retrieving bot state and statistics.
+See the [API Reference](docs/API_REFERENCE.md) for full details.
+
 ## Contributing
 
 We welcome contributions! Please see [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.

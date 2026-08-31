@@ -1,0 +1,3 @@
+## 2024-05-25 - API Reference documentation
+**Learning:** When documenting JSON responses, it is vital to read the TypeScript interfaces and implementation accurately to ground the API responses in the reality of the codebase. Hallucinations can lead to confusing and error-prone docs. Also, \`.gitignore\` needs to be explicitly patched to unignore specific files like \`docs/API_REFERENCE.md\`.
+**Action:** Always verify API return types by reading source files (like \`src/webServer.ts\` and \`src/services/botStateManager.ts\`) before generating documentation. Update \`.gitignore\` with \`!docs/API_REFERENCE.md\` to make sure generated documentation is properly tracked.
