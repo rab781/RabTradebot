@@ -364,8 +364,17 @@ export class StrategyOptimizer {
         }
 
         // Generate summary
-        const avgScore = results.reduce((sum, r) => sum + r.score, 0) / results.length;
-        const scoreStd = Math.sqrt(results.reduce((sum, r) => sum + Math.pow(r.score - avgScore, 2), 0) / results.length);
+        // ⚡ Bolt Optimization: Consolidate statistical loops
+        let sumScore = 0;
+        let sumScoreSq = 0;
+        for (let i = 0; i < results.length; i++) {
+            const s = results[i].score;
+            sumScore += s;
+            sumScoreSq += s * s;
+        }
+        const avgScore = sumScore / results.length;
+        const variance = Math.max(0, (sumScoreSq / results.length) - (avgScore * avgScore));
+        const scoreStd = Math.sqrt(variance);
         
         const summary = `
 Optimization Analysis Summary:
@@ -520,11 +529,17 @@ ${Object.entries(parameterImportance)
         }
 
         // Find most stable parameters
-        const bestStableWindow = windows.reduce((prev, current) =>
-            current.stabilityRatio > prev.stabilityRatio ? current : prev
-        );
-
-        const avgStabilityRatio = windows.reduce((sum, w) => sum + w.stabilityRatio, 0) / windows.length;
+        // ⚡ Bolt Optimization: Consolidate loop
+        let bestStableWindow = windows[0];
+        let sumStabilityRatio = 0;
+        for (let i = 0; i < windows.length; i++) {
+            const w = windows[i];
+            sumStabilityRatio += w.stabilityRatio;
+            if (w.stabilityRatio > bestStableWindow.stabilityRatio) {
+                bestStableWindow = w;
+            }
+        }
+        const avgStabilityRatio = sumStabilityRatio / windows.length;
         const summary = this.formatWFOSummary({ windows, bestStableParams: bestStableWindow.bestParams, avgStabilityRatio, summary: '' });
 
         return {
@@ -687,8 +702,17 @@ ${frontierDetails}
 
 Trade-offs Identified:
 - Higher returns usually associated with higher drawdowns
-- Best for profit maximization: ${result.frontier.reduce((max, p) => p.objectives.returnPct > max.objectives.returnPct ? p : max).objectives.returnPct.toFixed(2)}% return
-- Best for risk minimization: ${result.frontier.reduce((min, p) => p.objectives.drawdownPct < min.objectives.drawdownPct ? p : min).objectives.drawdownPct.toFixed(1)}% maximum drawdown
+${(() => {
+    // ⚡ Bolt Optimization: Single loop for Pareto extremes
+    let maxReturn = result.frontier[0];
+    let minDrawdown = result.frontier[0];
+    for (let i = 1; i < result.frontier.length; i++) {
+        const p = result.frontier[i];
+        if (p.objectives.returnPct > maxReturn.objectives.returnPct) maxReturn = p;
+        if (p.objectives.drawdownPct < minDrawdown.objectives.drawdownPct) minDrawdown = p;
+    }
+    return `- Best for profit maximization: ${maxReturn.objectives.returnPct.toFixed(2)}% return\n- Best for risk minimization: ${minDrawdown.objectives.drawdownPct.toFixed(1)}% maximum drawdown`;
+})()}
         `;
     }
 

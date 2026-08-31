@@ -324,8 +324,20 @@ export class BayesianOptimizer {
         bayesianResults: StrategyOptimizationResult[],
         gridResults: StrategyOptimizationResult[]
     ): string {
-        const bayesianBest = bayesianResults.reduce((max, r) => r.score > max.score ? r : max);
-        const gridBest = gridResults.reduce((max, r) => r.score > max.score ? r : max);
+        // ⚡ Bolt Optimization: Consolidate extrema finding
+        let bayesianBest = bayesianResults[0];
+        for (let i = 1; i < bayesianResults.length; i++) {
+            if (bayesianResults[i].score > bayesianBest.score) {
+                bayesianBest = bayesianResults[i];
+            }
+        }
+
+        let gridBest = gridResults[0];
+        for (let i = 1; i < gridResults.length; i++) {
+            if (gridResults[i].score > gridBest.score) {
+                gridBest = gridResults[i];
+            }
+        }
 
         const bayesianImprovement = ((bayesianBest.score - gridBest.score) / Math.abs(gridBest.score)) * 100;
         const efficiencyGain = (gridResults.length / bayesianResults.length - 1) * 100;
