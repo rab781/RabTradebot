@@ -190,6 +190,40 @@ describe('MD4 SpotMicrostructureDatasetRecorder', () => {
         expect(store.outcomes).toHaveLength(0);
         expect(recorder.getStats().expiredOutcomes).toBe(1);
     });
+    test('expires pending labels by wall clock when depth observation time is frozen', async () => {
+        const s = source();
+        s.setDepthAge(0);
+
+        const store = new MemoryStore();
+        const recorder = new SpotMicrostructureDatasetRecorder(s, store, {
+            symbol: 'BTCUSDT',
+            horizonsMs: [1000],
+            sampleIntervalMs: 1000,
+            maxObservationLagMs: 100,
+        });
+
+        await recorder.initialize(1_000_000);
+        await recorder.sample(1_000_000);
+
+        expect(recorder.getStats().pendingOutcomes).toBe(1);
+
+        // Wall clock moves to 1,001,200, but latest depth observation
+        // remains frozen at 1,000,000.
+        //
+        // targetTime = 1,001,000
+        // expiresAt  = 1,001,100
+        // wall clock = 1,001,200 -> MUST expire
+        //
+        // observedAt = 1,001,200 - 1,200 = 1,000,000
+        s.setDepthAge(1_200);
+        s.setHealthy(false);
+
+        await recorder.sample(1_001_200);
+
+        expect(store.outcomes).toHaveLength(0);
+        expect(recorder.getStats().expiredOutcomes).toBe(1);
+        expect(recorder.getStats().pendingOutcomes).toBe(0);
+    });
 
     test('skips unhealthy feature snapshots by default', async () => {
         const s = source(); s.setHealthy(false); const store = new MemoryStore();

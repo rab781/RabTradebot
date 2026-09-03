@@ -275,12 +275,15 @@ export class SpotMicrostructureDatasetRecorder {
         const stillPending: PendingOutcome[] = [];
 
         for (const pending of this.pending) {
-            if (observedAt < pending.targetTime) {
-                stillPending.push(pending);
+            // Expiry is a wall-clock property. A frozen market observation must not
+            // keep labels pending forever after their settlement window has elapsed.
+            if (sampledAt > pending.expiresAt) {
+                this.statsState.expiredOutcomes += 1;
                 continue;
             }
-            if (observedAt > pending.expiresAt) {
-                this.statsState.expiredOutcomes += 1;
+
+            if (observedAt < pending.targetTime) {
+                stillPending.push(pending);
                 continue;
             }
 

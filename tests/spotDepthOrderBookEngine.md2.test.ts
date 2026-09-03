@@ -141,13 +141,60 @@ describe('SpotDepthOrderBookEngine MD2', () => {
         await engine.stop();
     });
 
-    it('marks a silent depth feed STALE and returns LIVE after data resumes', async () => {
-        const { engine, ws } = create();
+    it('actively recovers a silently stale depth feed', async () => {
+        const rest = new FakeRest();
+        const ws = new FakeWs();
+
+        rest.snapshots = [snap(100), snap(105)];
+
+        const { engine } = create(rest, ws);
         await engine.start();
-        const last = engine.getHealth().lastMessageAt!;
-        expect(engine.checkStaleness(last + 1_001)).toBe('STALE');
-        ws.emit(update(101, 101, last + 1_002));
-        expect(engine.getHealth().status).toBe('LIVE');
+
+        const closeSpy = jest.spyOn(ws, 'close');
+        const connectSpy = jest.spyOn(ws, 'connect');
+
+        const lastMessageAt = engine.getHealth().lastMessageAt!;
+        engine.checkStaleness(lastMessageAt + 1_001);
+
+        await flush();
+
+        expect(closeSpy).toHaveBeenCalledTimes(1);
+        expect(connectSpy).toHaveBeenCalledTimes(1);
+        expect(engine.getHealth().resyncCount).toBe(1);
+        expect(engine.getSnapshot().lastUpdateId).toBe(105);
+
+        await engine.stop();
+    });
+    it('does not recycle the depth socket again on the next stale check after reconnect resync', async () => {
+        const rest = new FakeRest();
+        const ws = new FakeWs();
+
+        rest.snapshots = [snap(100), snap(105), snap(110)];
+
+        const { engine } = create(rest, ws);
+        await engine.start();
+
+        const closeSpy = jest.spyOn(ws, 'close');
+        const connectSpy = jest.spyOn(ws, 'connect');
+
+        const lastMessageAt = engine.getHealth().lastMessageAt!;
+
+        engine.checkStaleness(lastMessageAt + 1_001);
+        await flush();
+
+        expect(closeSpy).toHaveBeenCalledTimes(1);
+        expect(connectSpy).toHaveBeenCalledTimes(1);
+        expect(engine.getHealth().resyncCount).toBe(1);
+
+        // Resync completed, but no fresh depth WS event has arrived.
+        // Do not recycle again immediately on the following monitor tick.
+        engine.checkStaleness(lastMessageAt + 1_002);
+        await flush();
+
+        expect(closeSpy).toHaveBeenCalledTimes(1);
+        expect(connectSpy).toHaveBeenCalledTimes(1);
+        expect(engine.getHealth().resyncCount).toBe(1);
+
         await engine.stop();
     });
 

@@ -37,6 +37,8 @@ export class SpotDepthOrderBookEngine extends EventEmitter {
     private staleTimer?: NodeJS.Timeout;
     private resyncPromise?: Promise<void>;
     private healthState: SpotDepthHealth;
+    private staleRecoveryPromise?: Promise<void>;
+    private lastStaleRecoveryAt?: number;
 
     constructor(
         private readonly rest: SpotDepthRestPort,
@@ -116,15 +118,38 @@ export class SpotDepthOrderBookEngine extends EventEmitter {
     }
 
     checkStaleness(now = Date.now()): SpotDepthStatus {
-        if (!this.running || ['STOPPED', 'BOOTSTRAPPING', 'RESYNCING'].includes(this.healthState.status)) {
+        if (
+            !this.running ||
+            ['STOPPED', 'BOOTSTRAPPING', 'RESYNCING'].includes(
+                this.healthState.status,
+            )
+        ) {
             return this.healthState.status;
         }
+
         const lastMessageAt = this.healthState.lastMessageAt;
-        if (lastMessageAt !== undefined && now - lastMessageAt > this.staleAfterMs) {
-            this.setStatus('STALE');
-        } else if (this.ws.isConnected() && this.healthState.status === 'STALE') {
-            this.setStatus('LIVE');
+
+        if (
+            lastMessageAt !== undefined &&
+            now - lastMessageAt > this.staleAfterMs
+        ) {
+            if (this.ws.isConnected()) {
+                this.buffering = true;
+                this.setStatus('RECONNECTING');
+
+                const recoveryDue =
+                    this.lastStaleRecoveryAt === undefined ||
+                    now - this.lastStaleRecoveryAt >= this.staleAfterMs;
+
+                if (recoveryDue) {
+                    this.lastStaleRecoveryAt = now;
+                    this.triggerStaleRecovery();
+                }
+            } else if (this.healthState.status !== 'RECONNECTING') {
+                this.setStatus('STALE');
+            }
         }
+
         return this.healthState.status;
     }
 
@@ -189,7 +214,10 @@ export class SpotDepthOrderBookEngine extends EventEmitter {
             this.healthState.ignoredWrongSymbolEvents += 1;
             return;
         }
+
         this.healthState.lastMessageAt = update.receivedAt;
+        this.lastStaleRecoveryAt = undefined;
+
         if (this.buffering) {
             this.buffer.push(update);
             return;
@@ -239,6 +267,35 @@ export class SpotDepthOrderBookEngine extends EventEmitter {
             this.healthState.lastError = event.error.message;
         }
         this.emit('lifecycle', event);
+    }
+
+    private triggerStaleRecovery(): void {
+        if (this.staleRecoveryPromise || !this.running) return;
+
+        this.staleRecoveryPromise = (async () => {
+            await this.ws.close();
+
+            if (!this.running) return;
+
+            await this.ws.connect(
+                this.symbol,
+                (event) => this.handleDepthEvent(event),
+                (event) => this.handleLifecycle(event),
+            );
+        })()
+            .catch((error) => {
+                this.healthState.lastError =
+                    error instanceof Error ? error.message : String(error);
+
+                this.setStatus('STALE');
+
+                if (this.listenerCount('error') > 0) {
+                    this.emit('error', error);
+                }
+            })
+            .finally(() => {
+                this.staleRecoveryPromise = undefined;
+            });
     }
 
     private triggerResync(reason: 'GAP' | 'RECONNECT'): void {

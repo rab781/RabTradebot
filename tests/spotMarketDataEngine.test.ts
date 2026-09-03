@@ -79,6 +79,11 @@ function createEngine(rest = new FakeRest(), ws = new FakeWs(), overrides: Recor
     return { engine, rest, ws };
 }
 
+async function flush(): Promise<void> {
+    await new Promise<void>((resolve) => setImmediate(resolve));
+    await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
 describe('SpotMarketDataEngine', () => {
     it('opens WebSocket before REST bootstrap', async () => {
         const { engine, rest, ws } = createEngine();
@@ -204,24 +209,71 @@ describe('SpotMarketDataEngine', () => {
         await engine.stop();
     });
 
-    it('marks a silent live feed stale and recovers on a new message', async () => {
+    it('actively recovers a silently stale market feed', async () => {
         const { engine, ws } = createEngine();
         await engine.start();
+
+        const closeSpy = jest.spyOn(ws, 'close');
+        const connectSpy = jest.spyOn(ws, 'connect');
+
         const lastMessageAt = engine.getHealth().lastMessageAt!;
-        expect(engine.checkStaleness(lastMessageAt + 1_001)).toBe('STALE');
-        ws.emit({ type: 'bookTicker', data: { ...ticker(11, lastMessageAt + 1_002), source: 'WS' } });
-        expect(engine.getHealth().status).toBe('LIVE');
+        engine.checkStaleness(lastMessageAt + 1_001);
+
+        await flush();
+
+        expect(closeSpy).toHaveBeenCalledTimes(1);
+        expect(connectSpy).toHaveBeenCalledTimes(1);
+        expect(engine.getHealth().status).toBe('RECONNECTING');
+
+        await engine.stop();
+    });
+    it('does not recycle the market socket again on the next stale check while awaiting fresh data', async () => {
+        const { engine, ws } = createEngine();
+        await engine.start();
+
+        const closeSpy = jest.spyOn(ws, 'close');
+        const connectSpy = jest.spyOn(ws, 'connect');
+
+        const lastMessageAt = engine.getHealth().lastMessageAt!;
+
+        engine.checkStaleness(lastMessageAt + 1_001);
+        await flush();
+
+        expect(closeSpy).toHaveBeenCalledTimes(1);
+        expect(connectSpy).toHaveBeenCalledTimes(1);
+
+        // No fresh market event has arrived yet.
+        // A following monitor tick must not immediately recycle again.
+        engine.checkStaleness(lastMessageAt + 1_002);
+        await flush();
+
+        expect(closeSpy).toHaveBeenCalledTimes(1);
+        expect(connectSpy).toHaveBeenCalledTimes(1);
+
         await engine.stop();
     });
 
-    it('tracks reconnect lifecycle without switching product/source', async () => {
+    it('does not mark a reconnected market feed LIVE before fresh data arrives', async () => {
         const { engine, ws } = createEngine();
         await engine.start();
+
         ws.lifecycle({ type: 'reconnecting', at: 100, attempt: 1, delayMs: 1_000 });
+
         expect(engine.getHealth().status).toBe('RECONNECTING');
         expect(engine.getHealth().reconnectCount).toBe(1);
+
         ws.lifecycle({ type: 'connected', at: 200 });
+
+        // Transport connectivity alone is not market-data freshness.
+        expect(engine.getHealth().status).toBe('RECONNECTING');
+
+        ws.emit({
+            type: 'bookTicker',
+            data: { ...ticker(11, 201), source: 'WS' },
+        });
+
         expect(engine.getHealth().status).toBe('LIVE');
+
         await engine.stop();
     });
 

@@ -58,6 +58,8 @@ export class SpotMarketDataEngine extends EventEmitter {
     private buffering = false;
     private staleTimer?: NodeJS.Timeout;
     private running = false;
+    private staleRecoveryPromise?: Promise<void>;
+    private lastStaleRecoveryAt?: number;
 
     private healthState: SpotMarketDataHealth;
 
@@ -169,16 +171,64 @@ export class SpotMarketDataEngine extends EventEmitter {
     }
 
     checkStaleness(now = Date.now()): SpotMarketDataStatus {
-        if (!this.running || this.healthState.status === 'STOPPED' || this.healthState.status === 'BOOTSTRAPPING') {
+        if (
+            !this.running ||
+            this.healthState.status === 'STOPPED' ||
+            this.healthState.status === 'BOOTSTRAPPING'
+        ) {
             return this.healthState.status;
         }
+
         const lastMessageAt = this.healthState.lastMessageAt;
-        if (lastMessageAt !== undefined && now - lastMessageAt > this.staleAfterMs) {
-            this.setStatus('STALE');
-        } else if (this.ws.isConnected() && this.healthState.status === 'STALE') {
-            this.setStatus('LIVE');
+
+        if (
+            lastMessageAt !== undefined &&
+            now - lastMessageAt > this.staleAfterMs
+        ) {
+            if (this.ws.isConnected()) {
+                // Socket is open but market data is stale.
+                // Remain non-LIVE while waiting for fresh data.
+                this.setStatus('RECONNECTING');
+
+                const recoveryDue =
+                    this.lastStaleRecoveryAt === undefined ||
+                    now - this.lastStaleRecoveryAt >= this.staleAfterMs;
+
+                if (recoveryDue) {
+                    this.lastStaleRecoveryAt = now;
+                    this.triggerStaleRecovery();
+                }
+            } else if (this.healthState.status !== 'RECONNECTING') {
+                this.setStatus('STALE');
+            }
         }
+
         return this.healthState.status;
+    }
+
+    private triggerStaleRecovery(): void {
+        if (this.staleRecoveryPromise || !this.running) return;
+
+        this.staleRecoveryPromise = (async () => {
+            await this.ws.close();
+
+            if (!this.running) return;
+
+            await this.ws.connect(
+                this.symbol,
+                this.interval,
+                (event) => this.handleIncomingEvent(event),
+                (event) => this.handleLifecycle(event),
+            );
+        })()
+            .catch((error) => {
+                if (this.listenerCount('error') > 0) {
+                    this.emit('error', error);
+                }
+            })
+            .finally(() => {
+                this.staleRecoveryPromise = undefined;
+            });
     }
 
     private makeInitialHealth(status: SpotMarketDataStatus): SpotMarketDataHealth {
@@ -219,9 +269,8 @@ export class SpotMarketDataEngine extends EventEmitter {
                 this.setStatus('RECONNECTING');
             }
         } else if (event.type === 'connected') {
-            if (this.running && !this.buffering && this.healthState.status !== 'BOOTSTRAPPING') {
-                this.setStatus('LIVE');
-            }
+            // Transport connectivity alone does not prove that market data is fresh.
+            // LIVE is restored only after a valid post-connect market event arrives.
         } else if (event.type === 'disconnected') {
             if (this.running && !this.buffering) {
                 this.setStatus('RECONNECTING');
@@ -242,7 +291,13 @@ export class SpotMarketDataEngine extends EventEmitter {
             return;
         }
         this.applyEvent(event);
-        if (this.healthState.status === 'STALE' && this.ws.isConnected()) {
+
+        if (
+            (this.healthState.status === 'STALE' ||
+                this.healthState.status === 'RECONNECTING') &&
+            this.ws.isConnected()
+        ) {
+            this.lastStaleRecoveryAt = undefined;
             this.setStatus('LIVE');
         }
     }
