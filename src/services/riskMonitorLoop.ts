@@ -315,9 +315,20 @@ export class RiskMonitorLoop {
             return;
         }
 
+        // OPTIMIZATION: Fetch all prices once to avoid N+1 API calls for open trades
+        const allPrices = await binanceOrderService.getAllPrices();
+
         for (const trade of openTrades) {
             const symbol = trade.symbol.toUpperCase();
-            const currentPrice = await binanceOrderService.getCurrentPrice(symbol);
+            const currentPrice = allPrices[symbol];
+
+            if (currentPrice === undefined) {
+                withLogContext({ service: 'riskMonitorLoop' }).warn(
+                    { symbol },
+                    'Current price not found for symbol during risk monitoring',
+                );
+                continue;
+            }
 
             // Do not submit a second exit while Binance still owns an unresolved
             // entry/exit order. The exposure remains visible to monitoring and

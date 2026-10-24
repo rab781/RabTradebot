@@ -9,6 +9,7 @@ jest.mock('../src/services/databaseService', () => ({
 jest.mock('../src/services/binanceOrderService', () => ({
     binanceOrderService: {
         getCurrentPrice: jest.fn(),
+        getAllPrices: jest.fn(),
         getAccountBalance: jest.fn(),
     },
 }));
@@ -41,7 +42,7 @@ describe('F1: RiskMonitorLoop', () => {
                 takeProfit: null,
             },
         ]);
-        (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(49400);
+        (binanceOrderService.getAllPrices as jest.Mock).mockResolvedValue({ BTCUSDT: 49400, ETHUSDT: 49400 });
         (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
             { asset: 'USDT', free: '1000', locked: '0' },
         ]);
@@ -73,20 +74,20 @@ describe('F1: RiskMonitorLoop', () => {
                 takeProfit: 52000,
             },
         ]);
-        (binanceOrderService.getCurrentPrice as jest.Mock)
+        (binanceOrderService.getAllPrices as jest.Mock)
             .mockRejectedValueOnce(new Error('read ECONNRESET'))
-            .mockResolvedValueOnce(50000);
+            .mockResolvedValueOnce({ BTCUSDT: 50000, ETHUSDT: 50000 });
         (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
             { asset: 'USDT', free: '1000', locked: '0' },
         ]);
 
         await expect(loop.start()).resolves.toBeUndefined();
         expect(loop.isActive()).toBe(true);
-        expect(binanceOrderService.getCurrentPrice).toHaveBeenCalledTimes(1);
+        expect(binanceOrderService.getAllPrices).toHaveBeenCalledTimes(1);
 
         await jest.advanceTimersByTimeAsync(1000);
 
-        expect(binanceOrderService.getCurrentPrice).toHaveBeenCalledTimes(2);
+        expect(binanceOrderService.getAllPrices).toHaveBeenCalledTimes(2);
         expect(loop.isActive()).toBe(true);
 
         loop.stop();
@@ -113,7 +114,7 @@ describe('F1: RiskMonitorLoop', () => {
                 takeProfit: null,
             },
         ]);
-        (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(51000);
+        (binanceOrderService.getAllPrices as jest.Mock).mockResolvedValue({ BTCUSDT: 51000, ETHUSDT: 51000 });
         (binanceOrderService.getAccountBalance as jest.Mock).mockResolvedValue([
             { asset: 'USDT', free: '1000', locked: '0' },
         ]);
@@ -172,7 +173,7 @@ describe('F1: RiskMonitorLoop', () => {
                     takeProfit: 52000,
                 },
             ]);
-        (binanceOrderService.getCurrentPrice as jest.Mock).mockResolvedValue(50000);
+        (binanceOrderService.getAllPrices as jest.Mock).mockResolvedValue({ BTCUSDT: 50000, ETHUSDT: 50000 });
         (binanceOrderService.getAccountBalance as jest.Mock)
             .mockResolvedValueOnce([{ asset: 'USDT', free: '1000', locked: '0' }])
             .mockResolvedValueOnce([{ asset: 'USDT', free: '700', locked: '0' }]);
