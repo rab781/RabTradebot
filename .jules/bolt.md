@@ -7,3 +7,7 @@
 ## 2026-08-16 - [Optimize OHLCV array transformation]
 **Learning:** Using `.map` multiple times in a row for data restructuring when building columns (e.g., `open`, `high`, `low`, etc.) from an array of candlestick objects is extremely inefficient, because it forces multiple O(N) traversals of the array and allocates many intermediate arrays (and objects). In this codebase, creating dataframes from arrays is an extremely common operation across many files.
 **Action:** Replace multiple `.map` iterations over arrays with a pre-allocated typed arrays (e.g., `new Array(len)`) and populate them simultaneously within a single `for` loop to reduce array traversal overhead to O(N) and minimize object garbage collection.
+
+## 2026-10-22 - N+1 API Call Optimization in Risk Monitor
+**Learning:** Calling an external API point inside a loop (N+1 pattern) for current prices is extremely slow (e.g. iterating over open trades) and introduces significant IO overhead/latency.
+**Action:** Always fetch batched data upfront (e.g., getting all prices from Binance's ticker endpoint once) and do a memory lookup in O(1) time.

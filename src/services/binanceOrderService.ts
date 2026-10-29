@@ -245,6 +245,20 @@ export class BinanceOrderService {
         );
     }
 
+
+    async getAllPrices(): Promise<Record<string, number>> {
+        const data = await this.publicRequest<Array<{ symbol: string; price: string }>>(
+            '/api/v3/ticker/price',
+            undefined,
+            2,
+        );
+        const result: Record<string, number> = {};
+        for (const item of data) {
+            result[item.symbol] = parseFloat(item.price);
+        }
+        return result;
+    }
+
     async getCurrentPrice(symbol: string): Promise<number> {
         const data = await this.publicRequest<{ symbol: string; price: string }>(
             '/api/v3/ticker/price',

@@ -19,6 +19,7 @@ jest.mock('../src/services/databaseService', () => ({
 jest.mock('../src/services/binanceOrderService', () => ({
     binanceOrderService: {
         getCurrentPrice: jest.fn(),
+        getAllPrices: jest.fn(),
         getAccountBalance: jest.fn(),
     },
 }));
@@ -345,7 +346,8 @@ describe('F3-Sprint3: RiskMonitorLoop WebSocket Integration', () => {
     it('B4.2-R: periodic REST sweep can reopen the startup gate after recovery succeeds', async () => {
         isStartupRecoveryReady.mockReturnValue(false);
         reconcilePendingOrders.mockResolvedValue({ checked: 1, reconciled: 1, failed: 0 });
-        (db.getOpenLiveTrades as jest.Mock).mockResolvedValue([]);
+        (db.getOpenLiveTrades as jest.Mock).mockResolvedValue([{ symbol: 'BTCUSDT' }]);
+        (binanceOrderService.getAllPrices as jest.Mock).mockResolvedValue({ BTCUSDT: 50000 });
         (loop as any).lastReconciliationSweepAt = 0;
 
         await (loop as any).tick();

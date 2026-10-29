@@ -16,6 +16,7 @@ jest.mock('../src/services/binanceOrderService', () => ({
         getSymbolInfo: jest.fn(),
         getAccountBalance: jest.fn(),
         getCurrentPrice: jest.fn(),
+        getAllPrices: jest.fn(),
         roundToStepSize: jest.fn(),
         placeMarketOrder: jest.fn(),
         cancelOrder: jest.fn(),
@@ -98,6 +99,7 @@ describe('F1-35: full live flow', () => {
                 { asset: 'BTC', free: '0.01', locked: '0' },
             ]);
         (db.countOpenLiveTrades as jest.Mock).mockResolvedValue(0);
+        (binanceOrderService.getAllPrices as jest.Mock).mockResolvedValue({ BTCUSDT: 49400 });
         (binanceOrderService.getCurrentPrice as jest.Mock)
             .mockResolvedValueOnce(50000)
             .mockResolvedValueOnce(49400)
